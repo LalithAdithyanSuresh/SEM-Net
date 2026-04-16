@@ -103,6 +103,14 @@ class InpaintingModel(BaseModel):
                                                                   
         self.scaler = torch.cuda.amp.GradScaler()
 
+        # Optimize Positional Encoding: Pre-calculate once and move to device
+        # 65536 is max tokens for 256x256. 70000 provides a safe buffer.
+        self.register_buffer('pos1', PositionalEncoding(48, 70000))
+        self.register_buffer('pos2', PositionalEncoding(96, 70000))
+        self.register_buffer('pos3', PositionalEncoding(192, 70000))
+        self.register_buffer('pos4', PositionalEncoding(384, 70000))
+        self.register_buffer('pos1_dec', PositionalEncoding(96, 70000))
+
         
 
     def process(self, images, masks):
@@ -184,15 +192,8 @@ class InpaintingModel(BaseModel):
                                      mode='nearest')
                                      
                                      
-        pos1 = PositionalEncoding(48, 20000000)
-        pos2 = PositionalEncoding(96, 8000000)
-        pos3 = PositionalEncoding(192, 5000000)
-        pos4 = PositionalEncoding(384, 2500000)
-        pos1_dec = PositionalEncoding(96, 20000000)                             
-        
-        
-
-        outputs_img = self.generator(inputs,masks,scaled_masks_half,scaled_masks_quarter,scaled_masks_tiny, pos1, pos2, pos3, pos4, pos1_dec)             
+        outputs_img = self.generator(inputs, masks, scaled_masks_half, scaled_masks_quarter, scaled_masks_tiny, 
+                                     self.pos1, self.pos2, self.pos3, self.pos4, self.pos1_dec)
 
         return outputs_img
 
@@ -231,4 +232,4 @@ def PositionalEncoding(d_model, max_len=5000):
     pe[:, 0::2] = torch.sin(position * div_term)
     pe[:, 1::2] = torch.cos(position * div_term)
     
-    return pe.cuda()
+    return pe

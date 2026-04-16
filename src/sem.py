@@ -8,6 +8,10 @@ from .dataset import Dataset
 from .models import InpaintingModel
 from .utils import Progbar, create_dir, stitch_images, imsave
 from .metrics import PSNR
+try:
+    import wandb
+except ImportError:
+    wandb = None
 from cv2 import circle
 from PIL import Image
 from skimage.metrics import structural_similarity as compare_ssim
@@ -41,18 +45,10 @@ class sem():
         self.psnr = PSNR(255.0).to(config.DEVICE)
         self.cal_mae = nn.L1Loss(reduction='sum')
 
-        #train mode
-        if self.config.MODE == 1:
-
-            if self.config.MODEL == 2:
-                self.train_dataset = Dataset(config, config.TRAIN_INPAINT_IMAGE_FLIST, config.TRAIN_MASK_FLIST, augment=True, training=True)
-
-        # test mode
-        if self.config.MODE == 2:
-            if self.config.MODEL == 2:
-                print('model = inpaint model')
-                self.test_dataset = Dataset(config, config.TEST_INPAINT_IMAGE_FLIST, config.TEST_MASK_FLIST,
-                                            augment=False, training=False)
+        # datasets
+        if self.config.MODEL == 2:
+            self.train_dataset = Dataset(config, config.TRAIN_INPAINT_IMAGE_FLIST, config.TRAIN_MASK_FLIST, augment=True, training=True)
+            self.test_dataset = Dataset(config, config.TEST_INPAINT_IMAGE_FLIST, config.TEST_MASK_FLIST, augment=False, training=False)
 
 
         self.results_path = os.path.join(config.PATH, 'results')
@@ -135,46 +131,87 @@ class sem():
                 ] + logs
 
                 progbar.add(len(images), values=logs if self.config.VERBOSE else [x for x in logs if not x[0].startswith('l_')])
-                if iteration % 10 == 0:
+                if iteration % 10 == 0 and wandb is not None and wandb.run is not None:
                         wandb.log({'gen_loss': gen_loss, 'l1_loss': gen_l1_loss, 'style_loss': gen_style_loss,
                                    'perceptual loss': gen_content_loss, 'gen_gan_loss': gen_gan_loss,
                                    'dis_loss': dis_loss}, step=iteration)
 		 
 
-                if iteration % 40 == 0:
+                if iteration % 300 == 0:
                     create_dir(self.results_path)
-                    inputs = (images * (1 - masks))
-                    images_joint = stitch_images(
-                        self.postprocess(images),
-                        self.postprocess(inputs),
-                        self.postprocess(outputs_img),
-                        self.postprocess(outputs_merged),
-                        img_per_row=1
-                    )
-                                                        
-
-                    path_masked = os.path.join(self.results_path,self.model_name,'masked')
-                    path_result = os.path.join(self.results_path, self.model_name,'result')
-                    path_joint = os.path.join(self.results_path,self.model_name,'joint')
+                    path_val = os.path.join(self.results_path, self.model_name, 'validation')
+                    create_dir(path_val)
                     
-                    name = self.train_dataset.load_name(epoch-1)[:-4]+'.png'
+                    self.inpaint_model.eval()
+                    val_loader = DataLoader(dataset=self.test_dataset, batch_size=1, num_workers=0, shuffle=False)
+                    import matplotlib.pyplot as plt
+                    import io
+                    import numpy as np
 
-                    create_dir(path_masked)
-                    create_dir(path_result)
-                    create_dir(path_joint)
-                    
+                    val_count = 0
+                    for val_items in val_loader:
+                        if val_count >= 5: break
+                        val_images, val_masks = self.cuda(*val_items)
+                        val_inputs = (val_images * (1 - val_masks)) + val_masks
+                        with torch.no_grad():
+                            val_outputs_img = self.inpaint_model(val_images, val_masks)
+                        
+                        val_outputs_merged = (val_outputs_img * val_masks) + (val_images * (1 - val_masks))
+                        
+                        # Extract the path from the first CombinedAdaptiveMambaLayer instance
+                        # Assuming it's in encoder_level1[0].attn
+                        try:
+                            if hasattr(self.inpaint_model.generator, 'module'):
+                                attn_layer = self.inpaint_model.generator.module.encoder_level1[0].attn
+                            else:
+                                attn_layer = self.inpaint_model.generator.encoder_level1[0].attn
+                            scan_orders = attn_layer.last_scan_orders[0] if attn_layer.last_scan_orders else None
+                        except Exception as e:
+                            print(f"Could not extract scan_orders: {e}")
+                            scan_orders = None
 
-                    masked_images = self.postprocess(images*(1-masks)+masks)[0]
-                    images_result = self.postprocess(outputs_merged)[0]
+                        # Convert tensors to PIL images
+                        gt_img_pil = Image.fromarray(self.postprocess(val_images)[0].cpu().numpy().astype(np.uint8))
+                        gt_mask_pil = Image.fromarray(self.postprocess(val_inputs)[0].cpu().numpy().astype(np.uint8))
+                        pred_img_pil = Image.fromarray(self.postprocess(val_outputs_img)[0].cpu().numpy().astype(np.uint8))
+                        pred_mask_pil = Image.fromarray(self.postprocess(val_outputs_merged)[0].cpu().numpy().astype(np.uint8))
 
-                    print(os.path.join(path_joint,name[:-4]+'.png'))
-                   
-                    images_joint.save(os.path.join(path_joint,name[:-4]+'.png'))
-                    imsave(masked_images,os.path.join(path_masked,name))
-                    imsave(images_result,os.path.join(path_result,name))
+                        # Draw path
+                        fig, ax = plt.subplots(figsize=(gt_mask_pil.size[0]/100, gt_mask_pil.size[1]/100), dpi=100)
+                        ax.imshow(gt_mask_pil)
+                        if scan_orders is not None:
+                            patch_size = 8
+                            y_coords = [p_i * patch_size + patch_size//2 for p_i, p_j in scan_orders]
+                            x_coords = [p_j * patch_size + patch_size//2 for p_i, p_j in scan_orders]
+                            ax.plot(x_coords, y_coords, color='red', linewidth=1, alpha=0.6)
+                            for i in range(len(x_coords)-1):
+                                ax.arrow(x_coords[i], y_coords[i], x_coords[i+1]-x_coords[i], y_coords[i+1]-y_coords[i], 
+                                         color='cyan', head_width=2, alpha=0.5)
+                        ax.axis('off')
+                        buf = io.BytesIO()
+                        plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
+                        plt.close(fig)
+                        buf.seek(0)
+                        gt_mask_paths_pil = Image.open(buf).convert('RGB')
+                        gt_mask_paths_pil = gt_mask_paths_pil.resize(gt_mask_pil.size)
 
-                    print(name + ' complete!')
-                    
+                        # Concatenate images horizontally
+                        widths, heights = zip(*(i.size for i in [gt_img_pil, gt_mask_pil, gt_mask_paths_pil, pred_img_pil, pred_mask_pil]))
+                        total_width = sum(widths)
+                        max_height = max(heights)
+                        new_im = Image.new('RGB', (total_width, max_height))
+                        x_offset = 0
+                        for im in [gt_img_pil, gt_mask_pil, gt_mask_paths_pil, pred_img_pil, pred_mask_pil]:
+                            new_im.paste(im, (x_offset,0))
+                            x_offset += im.size[0]
+
+                        # Save stitched image
+                        name = self.test_dataset.load_name(val_count)[:-4] + f'_iter{iteration}.png'
+                        new_im.save(os.path.join(path_val, name))
+                        print(f"Saved validation image {val_count+1}/10 to {path_val}/{name}")
+                        val_count += 1
+
+                    self.inpaint_model.train()
                 ##############
 
 

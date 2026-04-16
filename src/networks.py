@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.cuda.amp import autocast
 from mamba_ssm import Mamba
-
+from .combined_mamba import CombinedAdaptiveMambaLayer
 import math
 
 
@@ -226,8 +226,8 @@ class TransformerBlock(nn.Module):
 
 
         
-        ##### Try Mamba
-        self.attn = MambaLayer(dim)
+        ##### Combined VAMamba + DAMamba Hybrid
+        self.attn = CombinedAdaptiveMambaLayer(dim)
         #####
 
         self.norm2 = LayerNorm(dim, LayerNorm_type)
@@ -401,82 +401,3 @@ class SEM(nn.Module):
         return out_dec_level1
         
         
-        
-class MambaLayer(nn.Module):
-    def __init__(self, dim, d_state = 16, d_conv = 4, expand = 2):
-        super().__init__()
-        self.dim = dim
-        self.norm = nn.LayerNorm(dim)
-        self.norm2 = nn.LayerNorm(dim)
-        self.mamba = Mamba(
-                d_model=dim, # Model dimension d_model
-                d_state=d_state,  # SSM state expansion factor
-                d_conv=d_conv,    # Local convolution width
-                expand=expand,    # Block expansion factor
-        )
-        
-        self.mamba2 = Mamba(
-                d_model=dim, # Model dimension d_model
-                d_state=d_state,  # SSM state expansion factor
-                d_conv=d_conv,    # Local convolution width
-                expand=expand,    # Block expansion factor
-        )
-        
-    
-    @autocast(enabled=False)
-    def forward(self, x, pe, mask):
-        if x.dtype == torch.float16:
-            x = x.type(torch.float32)
-        B, C = x.shape[:2]
-        B, C, H, W = x.shape
-
-
-        reversed_x1 = x.clone()
-
-        assert C == self.dim
-        n_tokens = x.shape[2:].numel()
-        img_dims = x.shape[2:]
-        
-        x2 = x.transpose(-1,-2)
-
-  
-        reversed_x2 = x2.clone()
-
-        reversed_x1[:,:,1::2,:] = x[:,:,1::2,:].flip(-1)
-        
-        reversed_x2[:,:,1::2,:] = x2[:,:,1::2,:].flip(-1)
-
-
-        #### add positional embedding
-        x1_flat = reversed_x1.reshape(B, C, n_tokens).transpose(-1, -2)
-        
-        
-        x1_flat = x1_flat + pe[:n_tokens, :]
-
-        x2_flat = reversed_x2.reshape(B, C, n_tokens).transpose(-1, -2)
-        
- 
-        x2_flat = x2_flat + pe[:n_tokens, :]
-        ###### end adding positional embedding
-
-        x1_norm = self.norm(x1_flat)
-        x1_mamba = self.mamba(x1_norm)
-        
-        x2_norm = self.norm2(x2_flat)
-        x2_mamba = self.mamba2(x2_norm)
-
-        out1 = x1_mamba.transpose(-1, -2).reshape(B, C, H, W)
-        out1_clone2 = out1
-        out1_clone2[:,:,1::2,:] = out1[:,:,1::2,:].flip(-1)
-        
-        out2 = x2_mamba.transpose(-1, -2).reshape(B, C, W, H)
-        out2_clone2 = out2
-        out2_clone2[:,:,1::2,:] = out2[:,:,1::2,:].flip(-1)
-        out2_clone2 = out2_clone2.transpose(-1,-2)
-        
-        out = out1_clone2 + out2_clone2
-        
-
-        return out
-        
-
