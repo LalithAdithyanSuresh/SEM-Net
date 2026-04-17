@@ -45,7 +45,7 @@ except Exception as e:
     # Note: SEM-Net uses integer models. Since it's currently hardcoded to 2 for inpaint in main.py, 
     # we just pass the run name as the checkpoint path to dynamically isolate outputs!
     RUN_PATH="./checkpoints_c2"
-
+test
     # Run Python and pipe stdout+stderr to the log streamer script
     python main.py --model 2 --path "$RUN_PATH" 2>&1 | python push_logs.py
     
