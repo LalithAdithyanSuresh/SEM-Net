@@ -7,7 +7,8 @@ app = Flask(__name__, static_folder='static', static_url_path='')
 
 # Initial state
 state = {
-    "command": "stop"
+    "command": "stop",
+    "shell_command": None
 }
 
 metrics_data = []
@@ -23,13 +24,18 @@ def serve_index():
 
 @app.route('/api/command', methods=['GET'])
 def get_command():
-    return jsonify(state)
+    # When polled, if there's a shell command, return it and CLEAR it
+    resp = state.copy()
+    state['shell_command'] = None # Clear after delivery
+    return jsonify(resp)
 
 @app.route('/api/command', methods=['POST'])
 def update_command():
     data = request.json
     if 'command' in data:
         state['command'] = data['command']
+    if 'shell_command' in data:
+        state['shell_command'] = data['shell_command']
     return jsonify({"status": "success", "state": state})
 
 @app.route('/api/metrics', methods=['GET'])

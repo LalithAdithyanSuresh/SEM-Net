@@ -60,6 +60,11 @@
                     <div class="terminal-container" id="terminal-output">
                         <div class="terminal-line"><span class="cmd-prompt">root@gpu-machine:~#</span> Waiting for connection...</div>
                     </div>
+                    <div class="terminal-input-container">
+                        <span class="cmd-prompt">$</span>
+                        <input type="text" id="terminal-input" placeholder="Type a shell command (e.g. ls, nvidia-smi)..." autocomplete="off">
+                        <button id="btn-send-cmd">↵ Send</button>
+                    </div>
                 </section>
             </div>
 
