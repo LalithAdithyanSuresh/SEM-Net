@@ -93,6 +93,24 @@ def list_images():
         images.sort(key=lambda x: os.path.getmtime(os.path.join(UPLOAD_FOLDER, x)), reverse=True)
     return jsonify(images)
 
+@app.route('/api/sync_result', methods=['POST'])
+def sync_result():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+    
+    # Save to ~/data
+    data_dir = os.path.expanduser('~/data')
+    os.makedirs(data_dir, exist_ok=True)
+    
+    filename = secure_filename(file.filename)
+    save_path = os.path.join(data_dir, filename)
+    file.save(save_path)
+    
+    return jsonify({"status": "success", "path": save_path})
+
 if __name__ == '__main__':
     # When deployed with Gunicorn, this block is bypassed.
     app.run(host='0.0.0.0', port=5000)
