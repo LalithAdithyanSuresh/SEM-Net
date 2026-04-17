@@ -5,8 +5,6 @@ const btnRun = document.getElementById('btn-run');
 const btnStop = document.getElementById('btn-stop');
 const btnPull = document.getElementById('btn-pull');
 const cmdBadge = document.getElementById('current-command-badge');
-const modelBadge = document.getElementById('current-model-badge');
-const modelSelector = document.getElementById('model-config');
 const connectionStatus = document.getElementById('connection-status');
 const terminalOutput = document.getElementById('terminal-output');
 const imageGallery = document.getElementById('image-gallery');
@@ -59,42 +57,10 @@ async function fetchState() {
         cmdBadge.textContent = data.command.toUpperCase();
         cmdBadge.className = `badge badge-${data.command === 'run' ? 'active' : (data.command === 'stop' ? 'stopped' : 'pull')}`;
         
-        modelBadge.textContent = data.model;
-        if(document.activeElement !== modelSelector) {
-            modelSelector.value = data.model;
-        }
-
     } catch (e) {
         connectionStatus.className = 'pulse-dot'; // Offline
         console.error('Failed to fetch state');
     }
-}
-
-// Fetch Available Models
-let knownModels = new Set();
-async function fetchModels() {
-    try {
-        const res = await fetch(`${API_BASE}/available_models`);
-        const data = await res.json();
-        const models = data.models || [];
-        
-        // If models changed, update dropdown
-        if (models.length > 0 && models.some(m => !knownModels.has(m) || knownModels.size !== models.length)) {
-            const currentValue = modelSelector.value;
-            modelSelector.innerHTML = ''; // clear
-            models.forEach(m => {
-                const opt = document.createElement('option');
-                opt.value = m;
-                opt.textContent = m;
-                modelSelector.appendChild(opt);
-                knownModels.add(m);
-            });
-            // restore selected
-            if(models.includes(currentValue)) {
-                modelSelector.value = currentValue;
-            }
-        }
-    } catch(e) {}
 }
 
 // Fetch Metrics
@@ -166,11 +132,10 @@ async function fetchImages() {
 
 // Actions
 async function sendCommand(cmd) {
-    const model = modelSelector.value;
     await fetch(`${API_BASE}/command`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: cmd, model: model })
+        body: JSON.stringify({ command: cmd })
     });
     fetchState();
 }
@@ -184,7 +149,6 @@ initChart();
 
 // Polling Loops
 setInterval(fetchState, 1000);
-setInterval(fetchModels, 2000);
 setInterval(fetchLogs, 1000);
 setInterval(fetchMetrics, 3000);
 setInterval(fetchImages, 5000);

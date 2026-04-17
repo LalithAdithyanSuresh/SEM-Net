@@ -227,10 +227,7 @@ class sem():
                             x_offset += im.size[0]
 
                         # Save stitched image
-                        # Prepend the run path if requested
-                        prefix = os.path.basename(os.path.normpath(self.config.PATH))
-                        name_base = self.test_dataset.load_name(val_count)[:-4] + f'_iter{iteration}'
-                        name = f"{prefix}_{name_base}.png"
+                        name = self.test_dataset.load_name(val_count)[:-4] + f'_iter{iteration}.png'
                         
                         save_path = os.path.join(path_val, name)
                         new_im.save(save_path)

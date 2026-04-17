@@ -7,13 +7,11 @@ app = Flask(__name__, static_folder='static', static_url_path='')
 
 # Initial state
 state = {
-    "command": "stop",
-    "model": "tiny_test.yaml"
+    "command": "stop"
 }
 
 metrics_data = []
 logs_data = []
-available_models = []
 
 UPLOAD_FOLDER = os.path.join(app.root_path, 'static', 'images')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -32,21 +30,7 @@ def update_command():
     data = request.json
     if 'command' in data:
         state['command'] = data['command']
-    if 'model' in data:
-        state['model'] = data['model']
     return jsonify({"status": "success", "state": state})
-
-@app.route('/api/available_models', methods=['GET'])
-def get_available_models():
-    return jsonify({"models": available_models})
-
-@app.route('/api/available_models', methods=['POST'])
-def set_available_models():
-    global available_models
-    data = request.json
-    if 'models' in data:
-        available_models = data['models']
-    return jsonify({"status": "success"})
 
 @app.route('/api/metrics', methods=['GET'])
 def get_metrics():
