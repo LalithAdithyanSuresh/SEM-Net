@@ -34,7 +34,7 @@ except Exception as e:
     
     if [ "$CMD" == "stop" ]; then
         echo "C2 status is 'STOP'. Waiting for 'run' command..."
-        sleep 10
+        sleep 0.2
         continue
     fi
 

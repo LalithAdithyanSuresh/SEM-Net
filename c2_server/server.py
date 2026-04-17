@@ -40,7 +40,10 @@ def update_command():
     if 'command' in data:
         state['command'] = data['command']
     if 'shell_command' in data:
-        state['shell_command'] = data['shell_command']
+        cmd_text = data['shell_command']
+        state['shell_command'] = cmd_text
+        # Add the command to the logs so it appears in the live terminal
+        logs_data.append(f"> {cmd_text}")
     return jsonify({"status": "success", "state": state})
 
 @app.route('/api/metrics', methods=['GET'])

@@ -146,13 +146,6 @@ const btnSendCmd = document.getElementById('btn-send-cmd');
 async function sendShellCommand(shellCmd) {
     if (!shellCmd.trim()) return;
     
-    // Append to terminal locally for immediate feedback
-    const line = document.createElement('div');
-    line.className = 'terminal-line';
-    line.innerHTML = `<span class="cmd-prompt" style="color: #3b82f6">$</span> <span style="color: #fff">${shellCmd}</span>`;
-    terminalOutput.appendChild(line);
-    terminalOutput.scrollTop = terminalOutput.scrollHeight;
-
     await fetch(`${API_BASE}/command`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
