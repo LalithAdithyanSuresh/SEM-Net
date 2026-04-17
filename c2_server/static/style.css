@@ -410,3 +410,121 @@ select:hover {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+
+/* ============================
+   Progression Viewer
+   ============================ */
+
+/* Scrubber bar at the top of the gallery section */
+.scrubber-bar {
+    padding: 0.75rem 1.2rem 0.25rem;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.scrubber-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    margin-bottom: 0.4rem;
+}
+
+#global-scrubber {
+    width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 4px;
+    background: rgba(59, 130, 246, 0.2);
+    outline: none;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+#global-scrubber::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--accent-blue);
+    box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+    cursor: pointer;
+    transition: box-shadow 0.2s;
+}
+
+#global-scrubber::-webkit-slider-thumb:hover {
+    box-shadow: 0 0 14px rgba(59, 130, 246, 0.9);
+}
+
+/* 2-column grid of progression cards */
+.progression-grid {
+    padding: 0.8rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.8rem;
+    overflow-y: auto;
+    flex: 1;
+}
+
+/* Each image progression card */
+.prog-card {
+    background: rgba(0,0,0,0.35);
+    border-radius: 10px;
+    border: 1px solid var(--glass-border);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    transition: border-color 0.2s, transform 0.2s;
+}
+
+.prog-card:hover {
+    border-color: var(--accent-blue);
+    transform: translateY(-2px);
+}
+
+.prog-card-header {
+    padding: 0.4rem 0.7rem;
+    background: rgba(255,255,255,0.03);
+    border-bottom: 1px solid var(--glass-border);
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.prog-card img {
+    width: 100%;
+    height: auto;
+    display: block;
+    object-fit: cover;
+    transition: opacity 0.15s ease;
+}
+
+.prog-card img.fading {
+    opacity: 0.3;
+}
+
+.prog-card-footer {
+    padding: 0.35rem 0.7rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    background: rgba(0,0,0,0.2);
+}
+
+.prog-iter-label {
+    color: var(--accent-blue);
+    font-weight: 700;
+}
+
+.prog-count-label {
+    opacity: 0.6;
+}
+

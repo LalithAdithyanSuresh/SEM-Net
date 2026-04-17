@@ -68,14 +68,29 @@
                 </section>
             </div>
 
-            <!-- Right Column: Images -->
+            <!-- Right Column: Images - Progression Viewer -->
             <div class="column">
                 <section class="glass-panel gallery-section">
                     <div class="section-header">
-                        <h2>Generated Checkpoint Images</h2>
-                        <span class="badge" id="image-count">0</span>
+                        <h2>Validation Progression</h2>
+                        <div style="display:flex;gap:0.75rem;align-items:center;">
+                            <span class="badge-live" id="iter-badge">iter 0</span>
+                            <span class="badge" id="image-count">0 groups</span>
+                        </div>
                     </div>
-                    <div class="gallery-grid" id="image-gallery">
+
+                    <!-- Iteration Scrubber -->
+                    <div class="scrubber-bar" id="scrubber-bar" style="display:none;">
+                        <div class="scrubber-labels">
+                            <span id="scrubber-min">iter 0</span>
+                            <span style="font-weight:700;color:var(--accent-blue);" id="scrubber-current">⟵ drag to scrub ⟶</span>
+                            <span id="scrubber-max">iter 0</span>
+                        </div>
+                        <input type="range" id="global-scrubber" min="0" max="0" value="0" step="1">
+                    </div>
+
+                    <!-- Progression Grid -->
+                    <div class="progression-grid" id="image-gallery">
                         <div class="empty-state">
                             <div class="spinner"></div>
                             <p>Waiting for validation images...</p>

@@ -85,12 +85,23 @@ def upload_image():
         file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
         return jsonify({"status": "success", "filename": filename})
 
+@app.route('/api/images/meta', methods=['GET'])
+def images_meta():
+    """Lightweight endpoint: returns only count + latest filename.
+    The client polls this cheaply to decide whether to fetch the full list."""
+    if os.path.exists(UPLOAD_FOLDER):
+        files = [f for f in os.listdir(UPLOAD_FOLDER) if f.endswith(('.png', '.jpg', '.jpeg'))]
+        files.sort(key=lambda x: os.path.getmtime(os.path.join(UPLOAD_FOLDER, x)))
+        return jsonify({"count": len(files), "latest": files[-1] if files else None})
+    return jsonify({"count": 0, "latest": None})
+
 @app.route('/api/images', methods=['GET'])
 def list_images():
     images = []
     if os.path.exists(UPLOAD_FOLDER):
-        images = [f for f in os.listdir(UPLOAD_FOLDER) if f.endswith(('.png', '.jpg', '.jpeg'))]
-        images.sort(key=lambda x: os.path.getmtime(os.path.join(UPLOAD_FOLDER, x)), reverse=True)
+        all_files = [f for f in os.listdir(UPLOAD_FOLDER) if f.endswith(('.png', '.jpg', '.jpeg'))]
+        all_files.sort(key=lambda x: os.path.getmtime(os.path.join(UPLOAD_FOLDER, x)))
+        images = all_files
     return jsonify(images)
 
 @app.route('/api/sync_result', methods=['POST'])
