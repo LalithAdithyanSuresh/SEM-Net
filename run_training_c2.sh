@@ -7,6 +7,10 @@ while true; do
     echo "Starting SEM-Net Training loop..."
     echo "====================================="
     
+    # Inform C2 Server of local YML configs
+    echo "Uploading available .yml models to C2..."
+    python3 -c "import glob, requests; ymls=[x.split('/')[-1].split(r'\\')[-1] for x in glob.glob('./**/*.y*ml', recursive=True)]; requests.post('$C2_SERVER_URL/api/available_models', json={'models': ymls}, timeout=2) if ymls else None" 2>/dev/null
+    
     # Fetch the model config name from C2 Server
     echo "Fetching active model from C2 Server..."
     MODEL_NAME=$(python3 -c "import requests; print(requests.get('$C2_SERVER_URL/api/command').json().get('model', 'sem_net.yaml'))" 2>/dev/null)

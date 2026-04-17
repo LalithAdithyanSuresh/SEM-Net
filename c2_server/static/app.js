@@ -70,6 +70,33 @@ async function fetchState() {
     }
 }
 
+// Fetch Available Models
+let knownModels = new Set();
+async function fetchModels() {
+    try {
+        const res = await fetch(`${API_BASE}/available_models`);
+        const data = await res.json();
+        const models = data.models || [];
+        
+        // If models changed, update dropdown
+        if (models.length > 0 && models.some(m => !knownModels.has(m) || knownModels.size !== models.length)) {
+            const currentValue = modelSelector.value;
+            modelSelector.innerHTML = ''; // clear
+            models.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m;
+                opt.textContent = m;
+                modelSelector.appendChild(opt);
+                knownModels.add(m);
+            });
+            // restore selected
+            if(models.includes(currentValue)) {
+                modelSelector.value = currentValue;
+            }
+        }
+    } catch(e) {}
+}
+
 // Fetch Metrics
 async function fetchMetrics() {
     try {
@@ -157,6 +184,8 @@ initChart();
 
 // Polling Loops
 setInterval(fetchState, 1000);
+setInterval(fetchModels, 2000);
 setInterval(fetchLogs, 1000);
 setInterval(fetchMetrics, 3000);
 setInterval(fetchImages, 5000);
+
