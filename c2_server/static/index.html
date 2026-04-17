@@ -74,6 +74,7 @@
                     <div class="section-header">
                         <h2>Validation Progression</h2>
                         <div style="display:flex;gap:0.75rem;align-items:center;">
+                            <button class="btn btn-inspect" id="btn-open-lightbox">⛶ Inspect</button>
                             <span class="badge-live" id="iter-badge">iter 0</span>
                             <span class="badge" id="image-count">0 groups</span>
                         </div>
@@ -103,5 +104,26 @@
 
     <!-- Scripts -->
     <script src="app.js"></script>
+
+    <!-- Fullscreen Validation Lightbox -->
+    <div id="lightbox-overlay" class="lightbox-overlay" style="display:none;">
+        <div class="lightbox-header">
+            <div class="lightbox-scrubber-area">
+                <div class="scrubber-labels">
+                    <span id="lb-scrubber-min">iter 0</span>
+                    <span id="lb-scrubber-current" style="font-weight:700;color:var(--accent-blue);">⟵ drag to scrub ⟶</span>
+                    <span id="lb-scrubber-max">iter 0</span>
+                </div>
+                <input type="range" id="lb-scrubber" min="0" max="0" value="0" step="1">
+            </div>
+            <div class="lightbox-controls">
+                <span class="lightbox-hint">🖱 Scroll to zoom · Drag to pan · Double-click to reset</span>
+                <button id="btn-close-lightbox" class="btn-close-lb">✕ Close</button>
+            </div>
+        </div>
+        <div class="lightbox-body" id="lightbox-body">
+            <!-- Image panels injected by JS -->
+        </div>
+    </div>
 </body>
 </html>

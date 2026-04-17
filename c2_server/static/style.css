@@ -528,3 +528,177 @@ select:hover {
     opacity: 0.6;
 }
 
+/* ============================
+   Inspect Button
+   ============================ */
+.btn-inspect {
+    background: linear-gradient(135deg, #0ea5e9, #6366f1);
+    box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+    padding: 0.35rem 0.9rem;
+    font-size: 0.8rem;
+}
+.btn-inspect:hover {
+    box-shadow: 0 4px 22px rgba(99, 102, 241, 0.55);
+    transform: translateY(-1px);
+}
+
+/* ============================
+   Fullscreen Validation Lightbox
+   ============================ */
+.lightbox-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(6, 10, 20, 0.97);
+    display: flex;
+    flex-direction: column;
+    animation: lbFadeIn 0.2s ease;
+}
+
+@keyframes lbFadeIn {
+    from { opacity: 0; transform: scale(0.98); }
+    to   { opacity: 1; transform: scale(1); }
+}
+
+/* Top bar */
+.lightbox-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1rem 1.5rem 0.75rem;
+    background: rgba(15, 23, 42, 0.95);
+    border-bottom: 1px solid var(--glass-border);
+    flex-shrink: 0;
+}
+
+.lightbox-scrubber-area {
+    flex: 1;
+}
+
+.lightbox-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.lightbox-hint {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+}
+
+.btn-close-lb {
+    background: rgba(239,68,68,0.15);
+    color: #fca5a5;
+    border: 1px solid rgba(239,68,68,0.3);
+    padding: 0.35rem 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-family: var(--font-sans);
+    font-weight: 600;
+    transition: all 0.2s;
+}
+.btn-close-lb:hover {
+    background: rgba(239,68,68,0.35);
+    color: white;
+}
+
+/* Scrollable body with vertical stacked panels */
+.lightbox-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.5rem 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    align-items: center;
+}
+
+/* Each tall image panel */
+.lb-panel {
+    width: 100%;
+    max-width: 1200px;
+    background: rgba(0,0,0,0.4);
+    border: 1px solid var(--glass-border);
+    border-radius: 14px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.lb-panel-header {
+    padding: 0.5rem 1rem;
+    background: rgba(255,255,255,0.04);
+    border-bottom: 1px solid var(--glass-border);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.lb-panel-iter {
+    color: var(--accent-blue);
+    font-weight: 700;
+}
+
+/* Zoom/pan container — clips the image */
+.lb-zoom-wrap {
+    position: relative;
+    width: 100%;
+    overflow: hidden;
+    cursor: grab;
+    background: #000;
+    /* tall enough to see landscape images comfortably */
+    max-height: 60vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.lb-zoom-wrap:active { cursor: grabbing; }
+
+.lb-zoom-wrap img {
+    width: 100%;
+    height: auto;
+    display: block;
+    transform-origin: center center;
+    transition: transform 0.05s linear;
+    user-select: none;
+    pointer-events: none; /* let the wrapper handle events */
+}
+
+/* Zoom reset hint */
+.lb-zoom-wrap::after {
+    content: 'double-click to reset';
+    position: absolute;
+    bottom: 6px;
+    right: 10px;
+    font-size: 0.65rem;
+    font-family: var(--font-mono);
+    color: rgba(255,255,255,0.25);
+    pointer-events: none;
+}
+
+/* Lightbox scrubber reuses main styles, just slightly taller thumb */
+#lb-scrubber {
+    width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 5px;
+    border-radius: 4px;
+    background: rgba(59, 130, 246, 0.25);
+    outline: none;
+    cursor: pointer;
+    margin-top: 0.3rem;
+}
+#lb-scrubber::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: var(--accent-blue);
+    box-shadow: 0 0 10px rgba(59,130,246,0.7);
+    cursor: pointer;
+}
