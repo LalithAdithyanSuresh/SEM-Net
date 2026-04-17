@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SEM-Net Command Center</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="background-mesh"></div>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="glass-panel">
+            <div class="header-content">
+                <div class="brand">
+                    <div class="status-indicator">
+                        <div class="pulse-ring"></div>
+                        <div class="pulse-dot" id="connection-status"></div>
+                    </div>
+                    <h1>SEM-Net <span class="gradient-text">Command Center</span></h1>
+                </div>
+                <div class="controls">
+                    <div class="model-selector">
+                        <label for="model-config">Active Model</label>
+                        <select id="model-config">
+                            <option value="tiny_test.yaml">tiny_test.yaml (Debug)</option>
+                            <option value="sem_net.yaml">sem_net.yaml (Full)</option>
+                            <option value="lama_baseline.yaml">lama_baseline.yaml</option>
+                        </select>
+                    </div>
+                    <div class="action-buttons">
+                        <button class="btn btn-primary" id="btn-run">▶ Run Training</button>
+                        <button class="btn btn-danger" id="btn-stop">■ Stop</button>
+                        <button class="btn btn-secondary" id="btn-pull">⟲ Git Pull & Restart</button>
+                    </div>
+                </div>
+            </div>
+            <div class="status-bar">
+                <span class="label">Current Command State:</span>
+                <span class="badge" id="current-command-badge">STOPPED</span>
+                <span class="label">Model:</span>
+                <span class="badge badge-info" id="current-model-badge">tiny_test.yaml</span>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="grid-layout">
+            <!-- Left Column: Metrics -->
+            <div class="column">
+                <section class="glass-panel chart-section">
+                    <div class="section-header">
+                        <h2>Validation Metrics</h2>
+                        <div class="legend-filter">
+                            <span class="dot l1"></span> L1
+                            <span class="dot perc"></span> Perceptual
+                            <span class="dot adv"></span> Adversarial
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="metricsChart"></canvas>
+                    </div>
+                </section>
+
+                <section class="glass-panel log-section">
+                    <div class="section-header">
+                        <h2>Live Terminal Stream <span class="badge-live">LIVE</span></h2>
+                    </div>
+                    <div class="terminal-container" id="terminal-output">
+                        <div class="terminal-line"><span class="cmd-prompt">root@gpu-machine:~#</span> Waiting for connection...</div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Right Column: Images -->
+            <div class="column">
+                <section class="glass-panel gallery-section">
+                    <div class="section-header">
+                        <h2>Generated Checkpoint Images</h2>
+                        <span class="badge" id="image-count">0</span>
+                    </div>
+                    <div class="gallery-grid" id="image-gallery">
+                        <div class="empty-state">
+                            <div class="spinner"></div>
+                            <p>Waiting for validation images...</p>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- Scripts -->
+    <script src="app.js"></script>
+</body>
+</html>

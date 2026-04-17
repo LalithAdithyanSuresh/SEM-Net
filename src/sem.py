@@ -24,6 +24,11 @@ import time
 This repo is modified basing on Edge-Connect
 https://github.com/knazeri/edge-connect
 '''
+import requests
+import sys
+
+# Assume the C2 URL is passed via environment variable (or default to port 443 of VPS)
+C2_SERVER_URL = os.environ.get('C2_SERVER_URL', 'https://lalithadithyan.dev')
 
 class sem():
     def __init__(self, config):
@@ -136,6 +141,22 @@ class sem():
                                    'perceptual loss': gen_content_loss, 'gen_gan_loss': gen_gan_loss,
                                    'dis_loss': dis_loss}, step=iteration)
 		 
+                # ---- C2 COMMAND POLLING ----
+                if iteration % 50 == 0:
+                    try:
+                        res = requests.get(f"{C2_SERVER_URL}/api/command", timeout=2)
+                        if res.status_code == 200:
+                            cmd_data = res.json()
+                            cmd = cmd_data.get('command', 'run')
+                            if cmd == 'stop':
+                                print("\nC2 Server requested STOP. Halting gracefully.")
+                                keep_training = False
+                                break
+                            elif cmd == 'restart_pull':
+                                print("\nC2 Server requested RESTART_PULL. Exiting 42.")
+                                sys.exit(42)
+                    except Exception:
+                        pass # Ignore net errors during training
 
                 if iteration % 300 == 0:
                     create_dir(self.results_path)
@@ -206,10 +227,36 @@ class sem():
                             x_offset += im.size[0]
 
                         # Save stitched image
-                        name = self.test_dataset.load_name(val_count)[:-4] + f'_iter{iteration}.png'
-                        new_im.save(os.path.join(path_val, name))
-                        print(f"Saved validation image {val_count+1}/10 to {path_val}/{name}")
+                        # Prepend the run path if requested
+                        prefix = os.path.basename(os.path.normpath(self.config.PATH))
+                        name_base = self.test_dataset.load_name(val_count)[:-4] + f'_iter{iteration}'
+                        name = f"{prefix}_{name_base}.png"
+                        
+                        save_path = os.path.join(path_val, name)
+                        new_im.save(save_path)
+                        print(f"Saved validation image {val_count+1}/10 to {save_path}")
+                        
+                        # ---- C2 IMAGE UPLOAD ----
+                        try:
+                            with open(save_path, 'rb') as f:
+                                files = {'file': (name, f, 'image/png')}
+                                requests.post(f"{C2_SERVER_URL}/api/upload_image", files=files, timeout=5)
+                        except Exception:
+                            pass
                         val_count += 1
+
+                    # ---- C2 METRICS UPLOAD ----
+                    try:
+                        metrics_payload = {
+                            "epoch": epoch,
+                            "iteration": iteration,
+                            "val_gen_l1": float(gen_l1_loss),
+                            "val_gen_pl": float(gen_content_loss),
+                            "val_gen_adv": float(gen_gan_loss)
+                        }
+                        requests.post(f"{C2_SERVER_URL}/api/metrics", json=metrics_payload, timeout=5)
+                    except Exception:
+                        pass
 
                     self.inpaint_model.train()
                 ##############
