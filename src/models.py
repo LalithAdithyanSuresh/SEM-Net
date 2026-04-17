@@ -115,10 +115,12 @@ class InpaintingModel(BaseModel):
 
     def process(self, images, masks):
         self.iteration += 1
+        accum_steps = 4
 
         # zero optimizers
-        self.gen_optimizer.zero_grad()
-        self.dis_optimizer.zero_grad()
+        if (self.iteration - 1) % accum_steps == 0:
+            self.gen_optimizer.zero_grad()
+            self.dis_optimizer.zero_grad()
 
 
         # process outputs
@@ -198,17 +200,23 @@ class InpaintingModel(BaseModel):
         return outputs_img
 
     def backward(self, gen_loss = None, dis_loss = None):
+        accum_steps = 4
+        # Scale losses for gradient accumulation
+        gen_loss = gen_loss / accum_steps
+        dis_loss = dis_loss / accum_steps
 
         self.scaler.scale(dis_loss).backward(retain_graph= True)
-        
         self.scaler.scale(gen_loss).backward()
         
-        self.scaler.step(self.dis_optimizer)
-        
-        self.scaler.step(self.gen_optimizer)
-        self.scaler.update()
-        
-        print(self.gen_scheduler.get_lr())
+        # Only update weights every accum_steps
+        if self.iteration % accum_steps == 0:
+            self.scaler.step(self.dis_optimizer)
+            self.scaler.step(self.gen_optimizer)
+            self.scaler.update()
+            
+            # Step schedulers together with opt
+            self.gen_scheduler.step()
+            self.dis_scheduler.step()
 
     def backward_joint(self, gen_loss = None, dis_loss = None):
         dis_loss.backward()
