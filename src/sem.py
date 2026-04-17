@@ -144,27 +144,12 @@ class sem():
                 # ---- C2 COMMAND POLLING ----
                 if iteration % 50 == 0:
                     try:
+                        # 1. Fetch training command (stop/run/etc)
                         res = requests.get(f"{C2_SERVER_URL}/api/command", timeout=2)
                         if res.status_code == 200:
                             cmd_data = res.json()
                             cmd = cmd_data.get('command', 'run')
-                            shell_cmd = cmd_data.get('shell_command')
-
-                            # Execute custom shell command if present
-                            if shell_cmd:
-                                import subprocess
-                                print(f"\n[C2 REMOTE COMMAND] Executing: {shell_cmd}")
-                                try:
-                                    # Run command and direct output to stdout so it gets pushed to logs
-                                    result = subprocess.run(shell_cmd, shell=True, capture_output=True, text=True, timeout=30)
-                                    if result.stdout: print(result.stdout)
-                                    if result.stderr: print(result.stderr)
-                                    print(f"[C2 REMOTE COMMAND] Exit code: {result.returncode}\n")
-                                except subprocess.TimeoutExpired:
-                                    print("[C2 REMOTE COMMAND] Error: Command timed out after 30s\n")
-                                except Exception as e:
-                                    print(f"[C2 REMOTE COMMAND] Error: {str(e)}\n")
-
+                            
                             if cmd == 'stop':
                                 print("\nC2 Server requested STOP. Halting gracefully.")
                                 keep_training = False
@@ -172,8 +157,23 @@ class sem():
                             elif cmd == 'restart_pull':
                                 print("\nC2 Server requested RESTART_PULL. Exiting 42.")
                                 sys.exit(42)
+
+                        # 2. Fetch custom shell commands (dedicated endpoint to avoid race conditions)
+                        res_shell = requests.get(f"{C2_SERVER_URL}/api/pop_shell_command", timeout=2)
+                        if res_shell.status_code == 200:
+                            shell_cmd = res_shell.json().get('shell_command')
+                            if shell_cmd:
+                                import subprocess
+                                print(f"\n[C2 REMOTE COMMAND] Executing: {shell_cmd}")
+                                try:
+                                    result = subprocess.run(shell_cmd, shell=True, capture_output=True, text=True, timeout=30)
+                                    if result.stdout: print(result.stdout)
+                                    if result.stderr: print(result.stderr)
+                                    print(f"[C2 REMOTE COMMAND] Exit code: {result.returncode}\n")
+                                except Exception as e:
+                                    print(f"[C2 REMOTE COMMAND] Error: {str(e)}\n")
                     except Exception:
-                        pass # Ignore net errors during training
+                        pass # Ignore net errors
 
                 if iteration % 300 == 0:
                     create_dir(self.results_path)

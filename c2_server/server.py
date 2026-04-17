@@ -24,10 +24,15 @@ def serve_index():
 
 @app.route('/api/command', methods=['GET'])
 def get_command():
-    # When polled, if there's a shell command, return it and CLEAR it
-    resp = state.copy()
-    state['shell_command'] = None # Clear after delivery
-    return jsonify(resp)
+    # Regular polling is now read-only (won't clear shell_command)
+    return jsonify(state)
+
+@app.route('/api/pop_shell_command', methods=['GET'])
+def pop_shell_command():
+    # Dedicated endpoint for the background script to safely 'consume' the command
+    shell_cmd = state.get('shell_command')
+    state['shell_command'] = None # Clear it now that it's being consumed
+    return jsonify({"shell_command": shell_cmd})
 
 @app.route('/api/command', methods=['POST'])
 def update_command():

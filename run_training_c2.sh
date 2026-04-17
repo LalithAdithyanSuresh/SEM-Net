@@ -9,6 +9,27 @@ conda activate inpaint_env_3.10
 while true; do
     # Check if we should be running or waiting
     echo "Checking C2 Server status..."
+    STATUS_JSON=$(python -c "import requests; print(requests.get('$C2_SERVER_URL/api/command', timeout=5).text)" 2>/dev/null)
+    
+    # 1. Check for custom shell commands (dedicated endpoint to avoid race conditions)
+    python -c "
+import requests, subprocess, json
+try:
+    res = requests.get('$C2_SERVER_URL/api/pop_shell_command', timeout=5)
+    if res.status_code == 200:
+        shell_cmd = res.json().get('shell_command')
+        if shell_cmd:
+            print(f'\n[C2 REMOTE COMMAND] Executing: {shell_cmd}')
+            proc = subprocess.run(shell_cmd, shell=True, capture_output=True, text=True, timeout=30)
+            output = (proc.stdout + '\n' + proc.stderr).strip()
+            print(output)
+            requests.post('$C2_SERVER_URL/api/logs', json={'lines': [f'[REMOTE OUTPUT] {l}' for l in output.split('\n')]}, timeout=5)
+except Exception as e:
+    pass # Silent failure for network errors
+" 2>/dev/null
+
+    # 2. Check if we should be running or waiting
+    echo "Checking C2 Server status..."
     CMD=$(python -c "import requests; print(requests.get('$C2_SERVER_URL/api/command', timeout=5).json().get('command', 'run'))" 2>/dev/null)
     
     if [ "$CMD" == "stop" ]; then
