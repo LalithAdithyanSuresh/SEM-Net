@@ -60,20 +60,16 @@ function initChart() {
         data: {
             labels: [],
             datasets: [
-                { label: 'L1 Loss', data: [], borderColor: '#3b82f6', tension: 0.4, borderWidth: 2, yAxisID: 'y' },
-                { label: 'Perceptual', data: [], borderColor: '#10b981', tension: 0.4, borderWidth: 2, yAxisID: 'y' },
-                { label: 'Adversarial', data: [], borderColor: '#f59e0b', tension: 0.4, borderWidth: 2, yAxisID: 'y' },
-                { label: 'PSNR', data: [], borderColor: '#d8b4fe', tension: 0.4, borderWidth: 2, yAxisID: 'y1' } // PSNR
+                { label: 'PSNR Score', data: [], borderColor: '#d8b4fe', tension: 0.4, borderWidth: 3, pointRadius: 2, yAxisID: 'y' }
             ]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
+            plugins: { legend: { display: true, labels: { color: '#94a3b8', font: { family: 'Outfit' } } } },
             scales: {
-                y: { type: 'linear', position: 'left', grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
-                y1: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#d8b4fe' } },
-                x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8', maxTicksLimit: 10 } }
+                y: { type: 'linear', position: 'left', grid: { color: 'rgba(255,255,255,0.05)' }, border: { dash: [4, 4] }, ticks: { color: '#d8b4fe' } },
+                x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8', maxTicksLimit: 20 } }
             },
             animation: { duration: 0 }
         }
@@ -108,23 +104,16 @@ async function fetchState() {
 
 // Fetch Metrics
 async function fetchMetrics() {
-    if (selectedRun && metricsChart && metricsChart.data.labels.length > 0) return; // Freeze poll if archive is loaded
+    if (selectedRun && metricsChart && metricsChart.data.labels.length > 0) return; 
     try {
         const res = await fetch(`${API_BASE}/metrics${selectedRun ? '?run='+selectedRun : ''}`);
-        const data = await res.json();
+        const data = await res.json(); // Now returns flat array of PSNR scores
 
         if (data.length > 0 && metricsChart) {
-            const labels = data.map(d => `Ep ${d.epoch}`);
-            const l1 = data.map(d => d.val_gen_l1);
-            const pl = data.map(d => d.val_gen_pl);
-            const adv = data.map(d => d.val_gen_adv);
-
             // Only update if data changed
-            if (metricsChart.data.labels.length !== labels.length) {
-                metricsChart.data.labels = labels;
-                metricsChart.data.datasets[0].data = l1;
-                metricsChart.data.datasets[1].data = pl;
-                metricsChart.data.datasets[2].data = adv;
+            if (metricsChart.data.datasets[0].data.length !== data.length) {
+                metricsChart.data.labels = data.map((_, i) => `${i+1}`);
+                metricsChart.data.datasets[0].data = data;
                 metricsChart.update();
             }
         }
@@ -141,31 +130,11 @@ async function fetchLogs() {
         const lines = await res.json();
         
         if (lines.length > 0) {
-            // Fix: Hash based on the exact final string to prevent arbitrary 500-line limit freeze
             const currentHash = lines[lines.length - 1];
             if (currentHash !== lastLogHash) {
                 lastLogHash = currentHash;
                 terminalOutput.innerHTML = lines.map(l => `<div class="terminal-line">${formatLogLine(l)}</div>`).join('');
                 terminalOutput.scrollTop = terminalOutput.scrollHeight;
-                
-                // Parse PSNR via Regex into the chart
-                let newPsnrData = [];
-                lines.forEach(l => {
-                    const match = l.match(/psnr:\s*([\d\.]+)/i);
-                    if (match) newPsnrData.push(parseFloat(match[1]));
-                });
-                
-                if (newPsnrData.length > 0 && metricsChart) {
-                    const latestPSNR = newPsnrData[newPsnrData.length - 1];
-                    // Link the latest PSNR to the current length of the labels
-                    const numLabels = metricsChart.data.labels.length;
-                    let psnrDataset = metricsChart.data.datasets[3].data;
-                    if (numLabels > 0 && psnrDataset.length < numLabels) {
-                        while (psnrDataset.length < numLabels - 1) psnrDataset.push(psnrDataset[psnrDataset.length - 1] || latestPSNR);
-                        psnrDataset[numLabels - 1] = latestPSNR;
-                        metricsChart.update();
-                    }
-                }
             }
         }
     } catch (e) { }
@@ -505,4 +474,3 @@ setInterval(fetchState, 1000);
 setInterval(fetchLogs, 1000);
 setInterval(fetchMetrics, 3000);
 setInterval(fetchImages, 5000);
-

@@ -231,18 +231,47 @@ class sem():
                         pred_mask_pil = Image.fromarray(self.postprocess(val_outputs_merged)[0].cpu().numpy().astype(np.uint8))
 
                         # Draw path
-                        fig, ax = plt.subplots(figsize=(gt_mask_pil.size[0]/100, gt_mask_pil.size[1]/100), dpi=100)
+                        fig = plt.figure(figsize=(gt_mask_pil.size[0]/100, gt_mask_pil.size[1]/100), dpi=100)
+                        ax = fig.add_axes([0, 0, 1, 1])
+                        ax.axis('off')
                         ax.imshow(gt_mask_pil)
                         if scan_orders is not None:
-                            y_coords = [p_i * patch_size + patch_size//2 for p_i, p_j in scan_orders]
-                            x_coords = [p_j * patch_size + patch_size//2 for p_i, p_j in scan_orders]
-                            ax.plot(x_coords, y_coords, color='red', linewidth=1, alpha=0.6)
-                            for i in range(len(x_coords)-1):
-                                ax.arrow(x_coords[i], y_coords[i], x_coords[i+1]-x_coords[i], y_coords[i+1]-y_coords[i], 
-                                         color='cyan', head_width=2, alpha=0.5)
-                        ax.axis('off')
+                            import numpy as np
+                            from matplotlib.collections import LineCollection
+                            
+                            y_coords = np.array([p_i * patch_size + patch_size/2.0 for p_i, p_j in scan_orders])
+                            x_coords = np.array([p_j * patch_size + patch_size/2.0 for p_i, p_j in scan_orders])
+                            
+                            points = np.array([x_coords, y_coords]).T.reshape(-1, 1, 2)
+                            segments = np.concatenate([points[:-1], points[1:]], axis=1)
+                            
+                            # Normalize rainbow across the total sequence length
+                            norm = plt.Normalize(0, len(x_coords))
+                            lc = LineCollection(segments, cmap='rainbow', norm=norm, alpha=0.75, linewidths=1.5)
+                            lc.set_array(np.arange(len(x_coords)))
+                            ax.add_collection(lc)
+                            
+                            # Place explicit Start and End markers
+                            if len(x_coords) > 0:
+                                ax.scatter([x_coords[0]], [y_coords[0]], color='lime', s=45, zorder=5, edgecolors='black', label='Start')
+                                ax.scatter([x_coords[-1]], [y_coords[-1]], color='red', s=45, zorder=5, edgecolors='black', label='End')
+                                
+                                # Add clear, sparse directional arrows to keep the visual clean (~15 items total)
+                                step = max(1, len(x_coords) // 15)
+                                for i in range(0, len(x_coords)-1, step):
+                                    dx = x_coords[i+1] - x_coords[i]
+                                    dy = y_coords[i+1] - y_coords[i]
+                                    dist = np.hypot(dx, dy)
+                                    if dist > 0:
+                                        # Normalize arrow length to fit the patch bounding box
+                                        arrow_dx = (dx / dist) * (patch_size * 0.45)
+                                        arrow_dy = (dy / dist) * (patch_size * 0.45)
+                                        ax.arrow(x_coords[i], y_coords[i], arrow_dx, arrow_dy, 
+                                                 color='white', head_width=patch_size*0.4, alpha=1.0, zorder=6)
+
                         buf = io.BytesIO()
-                        plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
+                        # Removed bbox_inches to ensure exact [0,0,1,1] axes filling prevents white margins
+                        plt.savefig(buf, format='png', dpi=100)
                         plt.close(fig)
                         buf.seek(0)
                         gt_mask_paths_pil = Image.open(buf).convert('RGB')

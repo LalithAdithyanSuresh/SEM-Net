@@ -4,6 +4,7 @@ from flask import Flask, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
 
 import shutil
+import re
 
 app = Flask(__name__, static_folder='static', static_url_path='')
 
@@ -13,8 +14,9 @@ state = {
     "shell_command": None
 }
 
-metrics_data = []
+metrics_data = [] # kept for compatibility but we will focus on PSNR
 logs_data = []
+psnr_values = [] # Persistent list of PSNR scores
 
 UPLOAD_FOLDER = os.path.join(app.root_path, 'static', 'images')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -78,7 +80,8 @@ def save_run():
     runs = load_runs()
     runs[run_name] = {
         "metrics_data": metrics_data,
-        "logs_data": logs_data[-5000:]
+        "logs_data": logs_data[-5000:],
+        "psnr_values": psnr_values
     }
     save_runs(runs)
     
@@ -93,6 +96,7 @@ def save_run():
     # Clear active state
     metrics_data = []
     logs_data = []
+    psnr_values = []
     return jsonify({"status": "success", "run": run_name})
 
 @app.route('/api/metrics', methods=['GET'])
@@ -100,8 +104,10 @@ def get_metrics():
     run = request.args.get('run', '')
     if run:
         runs = load_runs()
-        return jsonify(runs.get(run, {}).get("metrics_data", []))
-    return jsonify(metrics_data)
+        # Fallback to psnr_values or empty list
+        archived_run = runs.get(run, {})
+        return jsonify(archived_run.get("psnr_values", archived_run.get("metrics_data", [])))
+    return jsonify(psnr_values)
 
 @app.route('/api/metrics', methods=['POST'])
 def add_metrics():
@@ -128,6 +134,15 @@ def add_logs():
     logs_data.extend(lines)
     if len(logs_data) > 5000:
         del logs_data[:-5000]
+        
+    # Persistent PSNR parsing
+    for line in lines:
+        match = re.search(r"psnr:\s*([\d\.]+)", line, re.IGNORECASE)
+        if match:
+            psnr_values.append(float(match.group(1)))
+            if len(psnr_values) > 5000:
+                psnr_values.pop(0)
+
     return jsonify({"status": "success"})
 
 @app.route('/api/upload_image', methods=['POST'])
