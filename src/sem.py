@@ -199,12 +199,27 @@ class sem():
                         
                         # Extract the path from the first CombinedAdaptiveMambaLayer instance
                         # Assuming it's in encoder_level1[0].attn
+                        patch_size = 8
                         try:
                             if hasattr(self.inpaint_model.generator, 'module'):
                                 attn_layer = self.inpaint_model.generator.module.encoder_level1[0].attn
                             else:
                                 attn_layer = self.inpaint_model.generator.encoder_level1[0].attn
-                            scan_orders = attn_layer.last_scan_orders[0] if attn_layer.last_scan_orders else None
+                            
+                            # Use new tensor checking (tensor is not None instead of boolean implicitly checking truth value)
+                            if getattr(attn_layer, 'last_scan_orders', None) is not None:
+                                scan_orders_tensor = attn_layer.last_scan_orders[0] # 1D tensor from Batch 0
+                                patch_size = getattr(attn_layer, 'last_patch_size', 8)
+                                W_p = getattr(attn_layer, 'last_W_p', 256//patch_size)
+                                
+                                # Convert linear indices to (p_i, p_j) tuples
+                                scan_orders = []
+                                for idx in scan_orders_tensor.cpu().tolist():
+                                    p_i = idx // W_p
+                                    p_j = idx % W_p
+                                    scan_orders.append((p_i, p_j))
+                            else:
+                                scan_orders = None
                         except Exception as e:
                             print(f"Could not extract scan_orders: {e}")
                             scan_orders = None
@@ -219,7 +234,6 @@ class sem():
                         fig, ax = plt.subplots(figsize=(gt_mask_pil.size[0]/100, gt_mask_pil.size[1]/100), dpi=100)
                         ax.imshow(gt_mask_pil)
                         if scan_orders is not None:
-                            patch_size = 8
                             y_coords = [p_i * patch_size + patch_size//2 for p_i, p_j in scan_orders]
                             x_coords = [p_j * patch_size + patch_size//2 for p_i, p_j in scan_orders]
                             ax.plot(x_coords, y_coords, color='red', linewidth=1, alpha=0.6)

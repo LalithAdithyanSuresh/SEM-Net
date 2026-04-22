@@ -1,5 +1,46 @@
 const API_BASE = '/api';
 
+// Run Selection State
+let selectedRun = '';
+const runSelector = document.getElementById('run-selector');
+
+async function fetchRuns() {
+    try {
+        const res = await fetch(`${API_BASE}/runs`);
+        const runs = await res.json();
+        
+        // Preserve current selection if it still exists
+        const currentVal = runSelector.value;
+        const opts = ['<option value="" style="background: #1e1e1e;">[ • Current Live Session ]</option>'];
+        runs.forEach(r => {
+            opts.push(`<option value="${r}" style="background: #1e1e1e;">Archive: ${r}</option>`);
+        });
+        runSelector.innerHTML = opts.join('');
+        runSelector.value = currentVal;
+    } catch (e) { console.error("Failed to fetch runs:", e); }
+}
+
+runSelector.addEventListener('change', (e) => {
+    selectedRun = e.target.value;
+    
+    // Clear State for clean slate
+    if(metricsChart) {
+        metricsChart.data.labels = [];
+        metricsChart.data.datasets.forEach(d => d.data = []);
+        metricsChart.update();
+    }
+    terminalOutput.innerHTML = '';
+    imageGallery.innerHTML = '';
+    imageCount.textContent = '0 images';
+    progressionGroups = {};
+    lastLogHash = "";
+    lastImageMeta = { count: -1, latest: null };
+    
+    fetchLogs();
+    fetchMetrics();
+    fetchImages();
+});
+
 // UI Elements
 const btnRun = document.getElementById('btn-run');
 const btnStop = document.getElementById('btn-stop');
@@ -67,8 +108,9 @@ async function fetchState() {
 
 // Fetch Metrics
 async function fetchMetrics() {
+    if (selectedRun && metricsChart && metricsChart.data.labels.length > 0) return; // Freeze poll if archive is loaded
     try {
-        const res = await fetch(`${API_BASE}/metrics`);
+        const res = await fetch(`${API_BASE}/metrics${selectedRun ? '?run='+selectedRun : ''}`);
         const data = await res.json();
 
         if (data.length > 0 && metricsChart) {
@@ -93,8 +135,9 @@ let lastLogHash = "";
 let psnrHistory = [];
 // Fetch Logs
 async function fetchLogs() {
+    if (selectedRun && lastLogHash !== "") return; // Freeze poll if archive is loaded
     try {
-        const res = await fetch(`${API_BASE}/logs`);
+        const res = await fetch(`${API_BASE}/logs${selectedRun ? '?run='+selectedRun : ''}`);
         const lines = await res.json();
         
         if (lines.length > 0) {
@@ -133,9 +176,10 @@ async function fetchLogs() {
 let lastImageMeta = { count: -1, latest: null };
 
 async function fetchImages() {
+    if (selectedRun && Object.keys(progressionGroups).length > 0) return; // Freeze poll if archive is loaded
     try {
         // Step 1: cheap meta check (~50 bytes)
-        const metaRes = await fetch(`${API_BASE}/images/meta`);
+        const metaRes = await fetch(`${API_BASE}/images/meta${selectedRun ? '?run='+selectedRun : ''}`);
         const meta = await metaRes.json();
 
         // Step 2: bail out early if nothing changed
@@ -145,8 +189,12 @@ async function fetchImages() {
         lastImageMeta = meta;
 
         // Step 3: only NOW fetch the full list (triggered only on actual change)
-        if (meta.count === 0) return;
-        const res = await fetch(`${API_BASE}/images`);
+        if (meta.count === 0) {
+            imageGallery.innerHTML = '';
+            imageCount.textContent = '0 images';
+            return;
+        }
+        const res = await fetch(`${API_BASE}/images${selectedRun ? '?run='+selectedRun : ''}`);
         const images = await res.json();
         if (images.length > 0) buildProgressionViewer(images);
     } catch (e) { }
@@ -307,7 +355,7 @@ function applyWindow(centerIdx, allIters) {
                 card.dataset.renderedIter = String(best.iter);
                 img.classList.add('fading');
                 setTimeout(() => {
-                    img.src = `/images/${best.filename}`;
+                    img.src = selectedRun ? `/images_archive/${selectedRun}/${best.filename}` : `/images/${best.filename}`;
                     img.classList.remove('fading');
                 }, 120);
                 iterLabel.textContent = `iter ${best.iter}`;
@@ -370,8 +418,27 @@ async function sendShellCommand(shellCmd) {
     terminalInput.value = '';
 }
 
-btnRun.addEventListener('click', () => { if(confirm('Start training run?')) sendCommand('run') });
-btnStop.addEventListener('click', () => { if(confirm('⚠️ Stop training?')) sendCommand('stop') });
+btnRun.addEventListener('click', () => { 
+    if(!selectedRun && confirm('Start training run?')) sendCommand('run');
+    else if(selectedRun) alert("Please return to Current Live Session to run training!");
+});
+
+btnStop.addEventListener('click', async () => { 
+    if(!selectedRun && confirm('⚠️ Stop training?')) {
+        await sendCommand('stop');
+        const rName = prompt("Training stopped. Enter a name to save this run:", `Run_${new Date().toISOString().slice(0,10).replace(/-/g, '')}`);
+        if(rName) {
+            await fetch(`${API_BASE}/save_run`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: rName })
+            });
+            await fetchRuns();
+            runSelector.value = rName;
+            runSelector.dispatchEvent(new Event('change'));
+        }
+    }
+});
 btnPull.addEventListener('click', () => { if(confirm('Git Pull and Restart?')) sendCommand('restart_pull') });
 
 btnSendCmd.addEventListener('click', () => sendShellCommand(terminalInput.value));
@@ -416,7 +483,7 @@ function updateModalImage() {
     if (modalIterIdx >= group.length) modalIterIdx = group.length - 1;
     
     const entry = group[modalIterIdx];
-    document.getElementById('modal-img').src = `/images/${entry.filename}`;
+    document.getElementById('modal-img').src = selectedRun ? `/images_archive/${selectedRun}/${entry.filename}` : `/images/${entry.filename}`;
     document.getElementById('modal-iter').textContent = `Iteration: ${entry.iter}`;
     document.getElementById('modal-counter').textContent = `${modalIterIdx + 1} / ${group.length}`;
 }
@@ -431,6 +498,7 @@ document.addEventListener('keydown', (e) => {
 
 // Bootstrap
 initChart();
+fetchRuns();
 
 // Polling Loops
 setInterval(fetchState, 1000);

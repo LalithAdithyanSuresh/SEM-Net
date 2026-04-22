@@ -3,6 +3,8 @@ import json
 from flask import Flask, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
 
+import shutil
+
 app = Flask(__name__, static_folder='static', static_url_path='')
 
 # Initial state
@@ -17,6 +19,22 @@ logs_data = []
 UPLOAD_FOLDER = os.path.join(app.root_path, 'static', 'images')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+ARCHIVE_DIR = os.path.join(app.root_path, 'archive')
+IMAGES_ARCHIVE_DIR = os.path.join(app.root_path, 'static', 'images_archive')
+os.makedirs(ARCHIVE_DIR, exist_ok=True)
+os.makedirs(IMAGES_ARCHIVE_DIR, exist_ok=True)
+ARCHIVE_FILE = os.path.join(ARCHIVE_DIR, 'runs.json')
+
+def load_runs():
+    if os.path.exists(ARCHIVE_FILE):
+        with open(ARCHIVE_FILE, 'r') as f:
+            return json.load(f)
+    return {}
+
+def save_runs(runs):
+    with open(ARCHIVE_FILE, 'w') as f:
+        json.dump(runs, f)
 
 @app.route('/')
 def serve_index():
@@ -46,8 +64,43 @@ def update_command():
         logs_data.append(f"> {cmd_text}")
     return jsonify({"status": "success", "state": state})
 
+@app.route('/api/runs', methods=['GET'])
+def get_runs():
+    return jsonify(list(load_runs().keys()))
+
+@app.route('/api/save_run', methods=['POST'])
+def save_run():
+    global metrics_data, logs_data
+    run_name = request.json.get('name')
+    if not run_name:
+        return jsonify({"error": "No name provided"}), 400
+    
+    runs = load_runs()
+    runs[run_name] = {
+        "metrics_data": metrics_data,
+        "logs_data": logs_data[-5000:]
+    }
+    save_runs(runs)
+    
+    # Move images
+    run_image_dir = os.path.join(IMAGES_ARCHIVE_DIR, run_name)
+    os.makedirs(run_image_dir, exist_ok=True)
+    if os.path.exists(UPLOAD_FOLDER):
+        for f in os.listdir(UPLOAD_FOLDER):
+            if f.endswith(('.png', '.jpg', '.jpeg')):
+                shutil.move(os.path.join(UPLOAD_FOLDER, f), os.path.join(run_image_dir, f))
+    
+    # Clear active state
+    metrics_data = []
+    logs_data = []
+    return jsonify({"status": "success", "run": run_name})
+
 @app.route('/api/metrics', methods=['GET'])
 def get_metrics():
+    run = request.args.get('run', '')
+    if run:
+        runs = load_runs()
+        return jsonify(runs.get(run, {}).get("metrics_data", []))
     return jsonify(metrics_data)
 
 @app.route('/api/metrics', methods=['POST'])
@@ -61,6 +114,10 @@ def add_metrics():
 
 @app.route('/api/logs', methods=['GET'])
 def get_logs():
+    run = request.args.get('run', '')
+    if run:
+        runs = load_runs()
+        return jsonify(runs.get(run, {}).get("logs_data", [])[-500:])
     # Return last 500 lines to avoid massive payload
     return jsonify(logs_data[-500:])
 
@@ -87,20 +144,23 @@ def upload_image():
 
 @app.route('/api/images/meta', methods=['GET'])
 def images_meta():
-    """Lightweight endpoint: returns only count + latest filename.
-    The client polls this cheaply to decide whether to fetch the full list."""
-    if os.path.exists(UPLOAD_FOLDER):
-        files = [f for f in os.listdir(UPLOAD_FOLDER) if f.endswith(('.png', '.jpg', '.jpeg'))]
-        files.sort(key=lambda x: os.path.getmtime(os.path.join(UPLOAD_FOLDER, x)))
+    """Lightweight endpoint: returns only count + latest filename."""
+    run = request.args.get('run', '')
+    target_folder = os.path.join(IMAGES_ARCHIVE_DIR, run) if run else UPLOAD_FOLDER
+    if os.path.exists(target_folder):
+        files = [f for f in os.listdir(target_folder) if f.endswith(('.png', '.jpg', '.jpeg'))]
+        files.sort(key=lambda x: os.path.getmtime(os.path.join(target_folder, x)))
         return jsonify({"count": len(files), "latest": files[-1] if files else None})
     return jsonify({"count": 0, "latest": None})
 
 @app.route('/api/images', methods=['GET'])
 def list_images():
+    run = request.args.get('run', '')
+    target_folder = os.path.join(IMAGES_ARCHIVE_DIR, run) if run else UPLOAD_FOLDER
     images = []
-    if os.path.exists(UPLOAD_FOLDER):
-        all_files = [f for f in os.listdir(UPLOAD_FOLDER) if f.endswith(('.png', '.jpg', '.jpeg'))]
-        all_files.sort(key=lambda x: os.path.getmtime(os.path.join(UPLOAD_FOLDER, x)))
+    if os.path.exists(target_folder):
+        all_files = [f for f in os.listdir(target_folder) if f.endswith(('.png', '.jpg', '.jpeg'))]
+        all_files.sort(key=lambda x: os.path.getmtime(os.path.join(target_folder, x)))
         images = all_files
     return jsonify(images)
 

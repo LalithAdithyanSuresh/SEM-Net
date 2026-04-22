@@ -30,8 +30,16 @@
                 </div>
             </div>
             <div class="status-bar">
-                <span class="label">Current Command State:</span>
-                <span class="badge" id="current-command-badge">STOPPED</span>
+                <div style="display: flex; gap: 1rem; align-items: center;">
+                    <span class="label">Current Command State:</span>
+                    <span class="badge" id="current-command-badge">STOPPED</span>
+                </div>
+                <div style="display: flex; gap: 1rem; align-items: center; margin-left: auto;">
+                    <span class="label">Viewing Archive:</span>
+                    <select id="run-selector" class="badge" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 0.2rem 0.5rem; outline: none; cursor: pointer;">
+                        <option value="" style="background: #1e1e1e;">[ • Current Live Session ]</option>
+                    </select>
+                </div>
             </div>
         </header>
 

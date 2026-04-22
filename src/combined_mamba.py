@@ -285,6 +285,8 @@ class CombinedAdaptiveMambaLayer(nn.Module):
         
         # Stash for validation hook visualization
         self.last_scan_orders = sorted_patch_indices
+        self.last_patch_size = patch_size
+        self.last_W_p = W_p
             
         if return_path:
             return out, sorted_patch_indices
