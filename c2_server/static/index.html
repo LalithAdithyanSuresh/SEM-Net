@@ -101,6 +101,32 @@
         </main>
     </div>
 
+    <!-- Gallery Evolution Modal -->
+    <div id="evolution-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-info">
+                    <span id="modal-basename" class="badge badge-info">BaseName</span>
+                    <span id="modal-iter" class="badge">Iteration</span>
+                </div>
+                <button id="modal-close" class="btn-close">✖</button>
+            </div>
+            
+            <div class="modal-body">
+                <button id="modal-btn-left" class="nav-btn">◀</button>
+                <div class="modal-img-wrapper">
+                    <img id="modal-img" src="" alt="Evolution View">
+                </div>
+                <button id="modal-btn-right" class="nav-btn">▶</button>
+            </div>
+            
+            <div class="modal-footer">
+                <span id="modal-counter" class="badge">0 / 0</span>
+                <span style="font-size: 0.8rem; color: #94a3b8; font-family: monospace;">Use ⬅️ and ➡️ keys to navigate</span>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts -->
     <script src="app.js"></script>
 </body>

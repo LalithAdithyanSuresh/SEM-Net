@@ -19,9 +19,10 @@ function initChart() {
         data: {
             labels: [],
             datasets: [
-                { label: 'L1 Loss', data: [], borderColor: '#3b82f6', tension: 0.4, borderWidth: 2 },
-                { label: 'Perceptual', data: [], borderColor: '#10b981', tension: 0.4, borderWidth: 2 },
-                { label: 'Adversarial', data: [], borderColor: '#f59e0b', tension: 0.4, borderWidth: 2 }
+                { label: 'L1 Loss', data: [], borderColor: '#3b82f6', tension: 0.4, borderWidth: 2, yAxisID: 'y' },
+                { label: 'Perceptual', data: [], borderColor: '#10b981', tension: 0.4, borderWidth: 2, yAxisID: 'y' },
+                { label: 'Adversarial', data: [], borderColor: '#f59e0b', tension: 0.4, borderWidth: 2, yAxisID: 'y' },
+                { label: 'PSNR', data: [], borderColor: '#d8b4fe', tension: 0.4, borderWidth: 2, yAxisID: 'y1' } // PSNR
             ]
         },
         options: {
@@ -29,7 +30,8 @@ function initChart() {
             maintainAspectRatio: false,
             plugins: { legend: { display: false } },
             scales: {
-                y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+                y: { type: 'linear', position: 'left', grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+                y1: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#d8b4fe' } },
                 x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8', maxTicksLimit: 10 } }
             },
             animation: { duration: 0 }
@@ -87,17 +89,41 @@ async function fetchMetrics() {
     } catch (e) { }
 }
 
-let lastLogHash = 0;
+let lastLogHash = "";
+let psnrHistory = [];
 // Fetch Logs
 async function fetchLogs() {
     try {
         const res = await fetch(`${API_BASE}/logs`);
         const lines = await res.json();
-
-        if (lines.length > 0 && lines.length !== lastLogHash) {
-            lastLogHash = lines.length;
-            terminalOutput.innerHTML = lines.map(l => `<div class="terminal-line">${formatLogLine(l)}</div>`).join('');
-            terminalOutput.scrollTop = terminalOutput.scrollHeight;
+        
+        if (lines.length > 0) {
+            // Fix: Hash based on the exact final string to prevent arbitrary 500-line limit freeze
+            const currentHash = lines[lines.length - 1];
+            if (currentHash !== lastLogHash) {
+                lastLogHash = currentHash;
+                terminalOutput.innerHTML = lines.map(l => `<div class="terminal-line">${formatLogLine(l)}</div>`).join('');
+                terminalOutput.scrollTop = terminalOutput.scrollHeight;
+                
+                // Parse PSNR via Regex into the chart
+                let newPsnrData = [];
+                lines.forEach(l => {
+                    const match = l.match(/psnr:\s*([\d\.]+)/i);
+                    if (match) newPsnrData.push(parseFloat(match[1]));
+                });
+                
+                if (newPsnrData.length > 0 && metricsChart) {
+                    const latestPSNR = newPsnrData[newPsnrData.length - 1];
+                    // Link the latest PSNR to the current length of the labels
+                    const numLabels = metricsChart.data.labels.length;
+                    let psnrDataset = metricsChart.data.datasets[3].data;
+                    if (numLabels > 0 && psnrDataset.length < numLabels) {
+                        while (psnrDataset.length < numLabels - 1) psnrDataset.push(psnrDataset[psnrDataset.length - 1] || latestPSNR);
+                        psnrDataset[numLabels - 1] = latestPSNR;
+                        metricsChart.update();
+                    }
+                }
+            }
         }
     } catch (e) { }
 }
@@ -222,7 +248,7 @@ function buildProgressionViewer(allImages) {
             card.dataset.renderedIter = '';
             card.innerHTML = `
                 <div class="prog-card-header" title="${base}">${base}</div>
-                <img alt="${base}">
+                <img alt="${base}" onclick="openModal('${base}')" style="cursor: pointer;" title="Click to view full evolution">
                 <div class="prog-card-footer">
                     <span class="prog-iter-label">loading...</span>
                     <span class="prog-count-label">0 snapshots</span>
@@ -344,13 +370,63 @@ async function sendShellCommand(shellCmd) {
     terminalInput.value = '';
 }
 
-btnRun.addEventListener('click', () => sendCommand('run'));
-btnStop.addEventListener('click', () => sendCommand('stop'));
-btnPull.addEventListener('click', () => sendCommand('restart_pull'));
+btnRun.addEventListener('click', () => { if(confirm('Start training run?')) sendCommand('run') });
+btnStop.addEventListener('click', () => { if(confirm('⚠️ Stop training?')) sendCommand('stop') });
+btnPull.addEventListener('click', () => { if(confirm('Git Pull and Restart?')) sendCommand('restart_pull') });
 
 btnSendCmd.addEventListener('click', () => sendShellCommand(terminalInput.value));
 terminalInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') sendShellCommand(terminalInput.value);
+});
+
+// ================================================================
+// Gallery Modal Evolution Viewer
+// ================================================================
+let isModalOpen = false;
+let modalBaseName = null;
+let modalIterIdx = 0;
+
+window.openModal = function(baseName) {
+    if (!progressionGroups[baseName]) return;
+    modalBaseName = baseName;
+    modalIterIdx = progressionGroups[baseName].length - 1; // Start at latest
+    isModalOpen = true;
+    document.getElementById('evolution-modal').style.display = 'flex';
+    document.getElementById('modal-basename').textContent = baseName;
+    updateModalImage();
+};
+
+window.closeModal = function() {
+    isModalOpen = false;
+    document.getElementById('evolution-modal').style.display = 'none';
+};
+
+window.modalStep = function(dir) {
+    modalIterIdx += dir;
+    updateModalImage();
+};
+
+function updateModalImage() {
+    if (!isModalOpen || !modalBaseName) return;
+    const group = progressionGroups[modalBaseName];
+    if (!group || group.length === 0) return;
+    
+    // Clamp
+    if (modalIterIdx < 0) modalIterIdx = 0;
+    if (modalIterIdx >= group.length) modalIterIdx = group.length - 1;
+    
+    const entry = group[modalIterIdx];
+    document.getElementById('modal-img').src = `/images/${entry.filename}`;
+    document.getElementById('modal-iter').textContent = `Iteration: ${entry.iter}`;
+    document.getElementById('modal-counter').textContent = `${modalIterIdx + 1} / ${group.length}`;
+}
+
+// Keyboard nav
+document.addEventListener('keydown', (e) => {
+    if (!isModalOpen) return;
+    if (e.key === 'Escape') closeModal();
+    if (e.key === 'ArrowLeft') { modalStep(-1); }
+    if (e.key === 'ArrowRight') { modalStep(1); }
 });
 
 // Bootstrap

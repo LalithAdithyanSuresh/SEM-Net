@@ -14,104 +14,52 @@ except ImportError:
 # VAMamba Components (Macro-Level Pathfinding)
 # =========================================================================
 
-class ViTScoreMap(nn.Module):
-    def __init__(self, in_channels, patch_size=8, embed_dim=64, num_layers=1, num_heads=2):
+class CNNScoreMap(nn.Module):
+    def __init__(self, in_channels, embed_dim=64):
         super().__init__()
-        self.patch_size = patch_size
-        self.embed_dim = embed_dim
+        # Lightweight depthwise separable configuration
+        self.conv1 = nn.Conv2d(in_channels, embed_dim, kernel_size=3, padding=1, groups=in_channels if in_channels <= embed_dim else 1)
+        self.act1 = nn.GELU()
+        
+        # Channel Attention (Squeeze-and-Excitation style)
+        self.global_pool = nn.AdaptiveAvgPool2d(1)
+        self.ca_fc1 = nn.Conv2d(embed_dim, max(1, embed_dim // 4), 1, bias=False)
+        self.ca_act = nn.ReLU(inplace=True)
+        self.ca_fc2 = nn.Conv2d(max(1, embed_dim // 4), embed_dim, 1, bias=False)
+        self.ca_sigmoid = nn.Sigmoid()
 
-        self.pos_embed = nn.Parameter(torch.zeros(1, (224 // patch_size)**2, embed_dim)) 
-        nn.init.trunc_normal_(self.pos_embed, std=0.02)
-
-        self.unfold = nn.Unfold(kernel_size=patch_size, stride=patch_size)
-        self.proj = nn.Linear(in_channels * patch_size * patch_size, embed_dim)
-        encoder_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=num_heads, batch_first=True)
-        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-        self.score_head = nn.Linear(embed_dim, 1)
+        self.conv2 = nn.Conv2d(embed_dim, embed_dim, kernel_size=3, padding=1, groups=embed_dim)
+        self.act2 = nn.GELU()
+        
+        # Score projection
+        self.score_head = nn.Conv2d(embed_dim, 1, kernel_size=1)
 
     def forward(self, x):
-        if x.dim() == 4 and x.shape[1] != self.patch_size and x.shape[1] != self.embed_dim:
+        # x is [B, C, H, W]
+        if x.dim() == 4 and x.shape[1] != self.conv1.in_channels:
+            # Re-permute if it was passed as channels last somehow
             x = x.permute(0, 3, 1, 2).contiguous()
-        B, C, H, W = x.shape
-        assert H % self.patch_size == 0 and W % self.patch_size == 0, 'H, W must be divisible by patch_size'
+            
+        feat = self.act1(self.conv1(x))
         
-        x_unfold = F.unfold(x, kernel_size=self.patch_size, stride=self.patch_size)
-        patches = x_unfold.transpose(1, 2)  
+        # Apply Channel Attention
+        ca = self.global_pool(feat)
+        ca = self.ca_fc1(ca)
+        ca = self.ca_act(ca)
+        ca = self.ca_fc2(ca)
+        ca = self.ca_sigmoid(ca)
+        feat = feat * ca
         
-        if patches.shape[-1] != self.embed_dim:
-            patches = nn.Linear(patches.shape[-1], self.embed_dim, device=x.device)(patches)
+        feat = self.act2(self.conv2(feat))
+        scores = self.score_head(feat) # [B, 1, H, W]
+        scores = torch.sigmoid(scores).squeeze(1) # [B, H, W]
         
-        N_patch = patches.shape[1]
-        
-        if self.pos_embed.shape[1] != N_patch:
-            orig_N = self.pos_embed.shape[1]
-            orig_size = int(orig_N ** 0.5)
-            pos_embed = F.interpolate(
-                self.pos_embed.reshape(1, orig_size, orig_size, -1).permute(0, 3, 1, 2),
-                size=(H // self.patch_size, W // self.patch_size),
-                mode='bilinear'
-            ).permute(0, 2, 3, 1).flatten(1, 2)
-        else:
-            pos_embed = self.pos_embed
-
-        patches = patches + 0.1 * pos_embed
-        feats = self.transformer(patches)
-        scores = self.score_head(feats).squeeze(-1)
-        scores = torch.sigmoid(scores)
-        
-        patch_variance = torch.var(patches, dim=-1)  
-        content_score = torch.sigmoid(patch_variance * 10)  
+        # Blend in local variance as a fast content heuristic
+        patch_variance = torch.var(x, dim=1) # [B, H, W]
+        content_score = torch.sigmoid(patch_variance * 10)
         
         final_scores = 0.7 * scores + 0.3 * content_score
-        
-        H_patch = H // self.patch_size
-        W_patch = W // self.patch_size
-        score_map = final_scores.view(B, H_patch, W_patch)
-        return score_map
-
-def adaptive_patch_traversal(score_map):
-    H, W = score_map.shape
-    device = score_map.device
-    visited = torch.zeros_like(score_map, dtype=torch.bool, device=device)
-    order = []
-    directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
-
-    while len(order) < H * W:
-        if len(order) == 0:
-            start_idx = torch.argmax(score_map).item()
-            start_i, start_j = divmod(start_idx, W)
-        else:
-            unvisited_scores = score_map[~visited]
-            if unvisited_scores.numel() == 0:
-                break
-            max_unvisited_score_idx = torch.argmax(unvisited_scores).item()
-            unvisited_indices = (~visited).nonzero(as_tuple=False)
-            start_i, start_j = unvisited_indices[max_unvisited_score_idx]
-            start_i, start_j = start_i.item(), start_j.item()
-        
-        current_i, current_j = start_i, start_j
-        visited[current_i, current_j] = True
-        order.append((current_i, current_j))
-        
-        while True:
-            best_neighbor = None
-            best_score = float('-inf')
-            
-            for di, dj in directions:
-                ni, nj = current_i + di, current_j + dj
-                if 0 <= ni < H and 0 <= nj < W and not visited[ni, nj]:
-                    if score_map[ni, nj] > best_score:
-                        best_score = score_map[ni, nj]
-                        best_neighbor = (ni, nj)
-            
-            if best_neighbor is not None:
-                current_i, current_j = best_neighbor
-                visited[current_i, current_j] = True
-                order.append((current_i, current_j))
-            else:
-                break
-    
-    return order
+        return final_scores
 
 
 # =========================================================================
@@ -237,13 +185,9 @@ class CombinedAdaptiveMambaLayer(nn.Module):
         )
         
         # VAMamba Component
-        patch_size_div = 8 # Default patch divisor based on features
-        self.vit_score_map = ViTScoreMap(
+        self.cnn_score_map = CNNScoreMap(
             in_channels=self.dim, 
-            patch_size=8,
             embed_dim=self.dim, 
-            num_layers=1, 
-            num_heads=2
         )
         
         # DAMamba Component
@@ -272,83 +216,76 @@ class CombinedAdaptiveMambaLayer(nn.Module):
         # ----------------------------------------------------
         # 2. VAMamba: Structure-Aware Start & Macro-Path
         # ----------------------------------------------------
-        # We compute the score map for the feature.
-        # We ensure patch_size divides H and W, if not fallback to global
-        patch_size = 8
-        if H % patch_size != 0: patch_size = 1
+        orig_score_map = self.cnn_score_map(x_adapted) # [B, H, W]
         
-        if patch_size == 1:
-            # Bypass score map if dimensions are too small or prime
-            score_map = torch.ones(B, H, W, device=x.device)
-            scan_orders = [[(i, j) for i in range(H) for j in range(W)]] * B
-        else:
-            self.vit_score_map.patch_size = patch_size
-            score_map = self.vit_score_map(x_adapted)
-            scan_orders = []
-            for b in range(B):
-                order = adaptive_patch_traversal(score_map[b])
-                scan_orders.append(order)
+        # Dynamically set patch size: Attempt 4x4, fallback to 2x2 or 1x1 if H/W not divisible
+        patch_size = 1
+        for ps in [4, 2]:
+            if H % ps == 0 and W % ps == 0:
+                patch_size = ps
+                break
                 
+        if patch_size > 1:
+            # Pool scores to patch level
+            score_map = F.avg_pool2d(orig_score_map.unsqueeze(1), kernel_size=patch_size, stride=patch_size).squeeze(1)
+        else:
+            score_map = orig_score_map
+            
+        # GPU Vectorized Traversal (Importance-driven dynamic path)
+        B, H_p, W_p = score_map.shape
+        num_patches = H_p * W_p
+        
+        # Flatten and sort the score map to determine the structural priority order
+        flat_scores = score_map.view(B, num_patches)
+        sorted_patch_indices = torch.argsort(flat_scores, dim=1, descending=True) # [B, num_patches]
+        
         # ----------------------------------------------------
         # 3. Sequencing and Mamba Forward
         # ----------------------------------------------------
+        x_flat = x_adapted.view(B, C, H, W) 
         
-        # Flatten based on macro path order
-        H_p, W_p = (H//patch_size), (W//patch_size)
-        x_reordered = torch.zeros_like(x_adapted.view(B,C,n_tokens))
-        pe_reordered = torch.zeros(B, n_tokens, self.dim, device=x.device)
-        
-        for b in range(B):
-            if patch_size > 1:
-                # Map patch-level order back to pixel-level order
-                order_indices = []
-                for p_i, p_j in scan_orders[b]:
-                    # For each patch, add all pixels within it sequentially
-                    for r in range(patch_size):
-                        for c in range(patch_size):
-                            idx = (p_i * patch_size + r) * W + (p_j * patch_size + c)
-                            order_indices.append(idx)
-                order_tensor = torch.tensor(order_indices, device=x.device, dtype=torch.long)
-            else:
-                order_tensor = torch.arange(n_tokens, device=x.device, dtype=torch.long)
-                
-            x_b = x_adapted[b].view(C, n_tokens)
-            x_reordered[b] = x_b[:, order_tensor]
-            # applying permuted PE
-            pe_reordered[b] = pe[order_tensor, :]
+        if patch_size == 1:
+            order_tensor = sorted_patch_indices # [B, n_tokens]
+            pe_reordered = torch.gather(pe.unsqueeze(0).expand(B, -1, -1), 1, order_tensor.unsqueeze(-1).expand(-1, -1, pe.shape[-1]))
+            x_b = x_adapted.view(B, C, n_tokens)
+            x_reordered = torch.gather(x_b, 2, order_tensor.unsqueeze(1).expand(-1, C, -1))
+        else:
+            # Map patch ordering up to pixel ordering in a vectorized way
+            p_y = sorted_patch_indices // W_p
+            p_x = sorted_patch_indices % W_p
             
+            # create pixel offsets inside the patch
+            offsets_y = torch.arange(patch_size, device=x.device).view(patch_size, 1).repeat(1, patch_size).flatten()
+            offsets_x = torch.arange(patch_size, device=x.device).view(1, patch_size).repeat(patch_size, 1).flatten()
+            
+            # broadcast to compute all pixel indices
+            pixel_y = (p_y.unsqueeze(2) * patch_size) + offsets_y.view(1, 1, -1)
+            pixel_x = (p_x.unsqueeze(2) * patch_size) + offsets_x.view(1, 1, -1)
+            
+            order_tensor = (pixel_y * W + pixel_x).view(B, n_tokens) # [B, n_tokens]
+            
+            # Gather pe and x intelligently across batch via gather
+            pe_expanded = pe.unsqueeze(0).expand(B, -1, -1)
+            pe_reordered = torch.gather(pe_expanded, 1, order_tensor.unsqueeze(2).expand(-1, -1, self.dim))
+            
+            x_b = x_adapted.view(B, C, n_tokens)
+            x_reordered = torch.gather(x_b, 2, order_tensor.unsqueeze(1).expand(-1, C, -1))
+
         # Add PE, transpose to [B, L, C] for Mamba
-        x1_flat = x_reordered.transpose(-1, -2) + pe_reordered
+        x1_flat = x_reordered.transpose(1, 2) + pe_reordered
         x1_norm = self.norm(x1_flat)
-        x1_mamba = self.mamba(x1_norm)
+        x1_mamba = self.mamba(x1_norm) # [B, n_tokens, C]
         
         # Un-shuffle the output to [B, C, H, W]
-        out = torch.zeros(B, C, n_tokens, device=x.device)
-        x1_mamba = x1_mamba.transpose(-1, -2)
-        for b in range(B):
-            if patch_size > 1:
-                order_indices = []
-                for p_i, p_j in scan_orders[b]:
-                    for r in range(patch_size):
-                        for c in range(patch_size):
-                            idx = (p_i * patch_size + r) * W + (p_j * patch_size + c)
-                            order_indices.append(idx)
-                order_tensor = torch.tensor(order_indices, device=x.device, dtype=torch.long)
-            else:
-                order_tensor = torch.arange(n_tokens, device=x.device, dtype=torch.long)
-                
-            inverse_order = torch.empty_like(order_tensor)
-            inverse_order[order_tensor] = torch.arange(n_tokens, device=x.device)
-            out[b] = x1_mamba[b, :, inverse_order]
-
-        out = out.reshape(B, C, H, W)
+        inverse_order = torch.argsort(order_tensor, dim=1) # The inverse mapping!
+        
+        x1_mamba_t = x1_mamba.transpose(1, 2) # [B, C, n_tokens]
+        out_flat = torch.gather(x1_mamba_t, 2, inverse_order.unsqueeze(1).expand(-1, C, -1))
+        out = out_flat.view(B, C, H, W)
         
         # Stash for validation hook visualization
-        if patch_size > 1:
-            self.last_scan_orders = scan_orders
-        else:
-            self.last_scan_orders = None
+        self.last_scan_orders = sorted_patch_indices
             
         if return_path:
-            return out, scan_orders
+            return out, sorted_patch_indices
         return out
