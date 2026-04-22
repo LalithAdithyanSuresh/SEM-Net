@@ -50,8 +50,13 @@
                 <section class="glass-panel chart-section">
                     <div class="section-header">
                         <h2>PSNR Evolution History</h2>
-                        <div class="legend-filter">
-                            <span class="dot" style="background: #d8b4fe;"></span> PSNR (Validation)
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <span class="label" style="font-size: 0.75rem; color: #94a3b8;">Average over:</span>
+                            <input type="number" id="psnr-window" value="1" min="1" step="1" 
+                                style="width: 60px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: #d8b4fe; border-radius: 4px; padding: 2px 5px; outline: none; font-size: 0.8rem;">
+                            <div class="legend-filter" style="margin-left: 0.5rem;">
+                                <span class="dot" style="background: #d8b4fe;"></span> PSNR
+                            </div>
                         </div>
                     </div>
                     <div class="chart-container">

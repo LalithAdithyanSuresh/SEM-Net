@@ -50,6 +50,7 @@ const connectionStatus = document.getElementById('connection-status');
 const terminalOutput = document.getElementById('terminal-output');
 const imageGallery = document.getElementById('image-gallery');
 const imageCount = document.getElementById('image-count');
+const psnrWindowInput = document.getElementById('psnr-window');
 
 // Chart Setup
 let metricsChart;
@@ -107,13 +108,32 @@ async function fetchMetrics() {
     if (selectedRun && metricsChart && metricsChart.data.labels.length > 0) return; 
     try {
         const res = await fetch(`${API_BASE}/metrics${selectedRun ? '?run='+selectedRun : ''}`);
-        const data = await res.json(); // Now returns flat array of PSNR scores
+        const rawData = await res.json(); // Array of PSNR scores
 
-        if (data.length > 0 && metricsChart) {
-            // Only update if data changed
-            if (metricsChart.data.datasets[0].data.length !== data.length) {
-                metricsChart.data.labels = data.map((_, i) => `${i+1}`);
-                metricsChart.data.datasets[0].data = data;
+        if (rawData.length > 0 && metricsChart) {
+            const windowSize = parseInt(psnrWindowInput.value) || 1;
+            let displayData = [];
+            let displayLabels = [];
+
+            if (windowSize <= 1) {
+                displayData = rawData;
+                displayLabels = rawData.map((_, i) => `${i + 1}`);
+            } else {
+                // Chunked averaging
+                for (let i = 0; i < rawData.length; i += windowSize) {
+                    const chunk = rawData.slice(i, i + windowSize);
+                    const avg = chunk.reduce((a, b) => a + b, 0) / chunk.length;
+                    displayData.push(avg);
+                    displayLabels.push(`${i + 1}-${Math.min(i + windowSize, rawData.length)}`);
+                }
+            }
+
+            // Update chart if data length or content changed
+            // Using a simple length check and windowSize check to trigger updates
+            if (metricsChart.data.datasets[0].data.length !== displayData.length || metricsChart._lastWindowSize !== windowSize) {
+                metricsChart._lastWindowSize = windowSize;
+                metricsChart.data.labels = displayLabels;
+                metricsChart.data.datasets[0].data = displayData;
                 metricsChart.update();
             }
         }
@@ -413,6 +433,11 @@ btnPull.addEventListener('click', () => { if(confirm('Git Pull and Restart?')) s
 btnSendCmd.addEventListener('click', () => sendShellCommand(terminalInput.value));
 terminalInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') sendShellCommand(terminalInput.value);
+});
+
+psnrWindowInput.addEventListener('input', () => {
+    // Re-fetch/re-process metrics immediately
+    fetchMetrics();
 });
 
 // ================================================================
