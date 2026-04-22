@@ -113,7 +113,7 @@ class sem():
                 if model == 2:
                     images, masks = self.cuda(*items)
 
-                    outputs_img, gen_loss, dis_loss, logs, gen_gan_loss, gen_l1_loss, gen_content_loss, gen_style_loss= self.inpaint_model.process(images,masks)
+                    outputs_img, gen_loss, dis_loss, logs, gen_gan_loss, gen_l1_loss, gen_content_loss, gen_style_loss, gen_symmetry_loss = self.inpaint_model.process(images,masks)
                     outputs_merged = (outputs_img * masks) + (images * (1-masks))
 
                     psnr = self.psnr(self.postprocess(images), self.postprocess(outputs_merged))
@@ -139,6 +139,7 @@ class sem():
                 if iteration % 10 == 0 and wandb is not None and wandb.run is not None:
                         wandb.log({'gen_loss': gen_loss, 'l1_loss': gen_l1_loss, 'style_loss': gen_style_loss,
                                    'perceptual loss': gen_content_loss, 'gen_gan_loss': gen_gan_loss,
+                                   'gen_symmetry_loss': gen_symmetry_loss,
                                    'dis_loss': dis_loss}, step=iteration)
 		 
                 # ---- C2 COMMAND POLLING ----

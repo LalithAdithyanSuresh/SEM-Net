@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SEM-Net Evaluation Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --accent: #38bdf8;
+            --text-main: #f8fafc;
+            --text-dim: #94a3b8;
+            --success: #22c55e;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            padding: 2rem;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            background: linear-gradient(to right, #38bdf8, #818cf8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .status-pill {
+            background: rgba(34, 197, 94, 0.2);
+            color: var(--success);
+            padding: 0.5rem 1rem;
+            border-radius: 99px;
+            font-size: 0.875rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .pulse {
+            width: 8px;
+            height: 8px;
+            background: var(--success);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            transition: transform 0.2s;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+        }
+
+        .stat-label {
+            color: var(--text-dim);
+            font-size: 0.875rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+        }
+
+        .stat-sub {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            margin-top: 0.25rem;
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 2rem;
+        }
+
+        .chart-container {
+            background: var(--card-bg);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1rem;
+            padding: 1.5rem;
+        }
+
+        .image-feed {
+            background: var(--card-bg);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .feed-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .feed-item:last-child {
+            border-bottom: none;
+        }
+
+        .feed-thumb {
+            width: 60px;
+            height: 60px;
+            border-radius: 0.5rem;
+            object-fit: cover;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: border-color 0.2s;
+        }
+
+        .feed-thumb:hover {
+            border-color: var(--accent);
+        }
+
+        .feed-info {
+            flex: 1;
+        }
+
+        .feed-name {
+            font-size: 0.875rem;
+            font-weight: 600;
+            display: block;
+            margin-bottom: 0.25rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 200px;
+        }
+
+        .feed-psnr {
+            font-size: 0.75rem;
+            color: var(--accent);
+            font-weight: 700;
+        }
+
+        .tag {
+            font-size: 0.65rem;
+            padding: 0.125rem 0.375rem;
+            border-radius: 4px;
+            font-weight: 700;
+            margin-right: 0.5rem;
+        }
+
+        .tag-small { background: rgba(56, 189, 248, 0.2); color: #38bdf8; }
+        .tag-medium { background: rgba(129, 140, 248, 0.2); color: #818cf8; }
+        .tag-large { background: rgba(244, 114, 182, 0.2); color: #f472b6; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+
+        #imageModal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            justify-content: center;
+            align-items: center;
+        }
+
+        #modalImg {
+            max-width: 90%;
+            max-height: 90%;
+            box-shadow: 0 0 50px rgba(56, 189, 248, 0.3);
+            border-radius: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1>Evaluation Monitor</h1>
+                <p style="color: var(--text-dim); font-size: 0.875rem;">Real-time PSNR Analysis & Feed</p>
+            </div>
+            <div class="status-pill">
+                <div class="pulse"></div>
+                Live Syncing...
+            </div>
+        </header>
+
+        <div class="stats-grid" id="statsGrid">
+            <div class="card">
+                <div class="stat-label">Total Images</div>
+                <div class="stat-value" id="valTotal">0</div>
+                <div class="stat-sub">Evaluated so far</div>
+            </div>
+            <div class="card">
+                <div class="stat-label">Small Mask Avg</div>
+                <div class="stat-value" id="valSmall">0.00</div>
+                <div class="stat-sub">0-20% coverage</div>
+            </div>
+            <div class="card">
+                <div class="stat-label">Medium Mask Avg</div>
+                <div class="stat-value" id="valMedium">0.00</div>
+                <div class="stat-sub">20-40% coverage</div>
+            </div>
+            <div class="card">
+                <div class="stat-label">Large Mask Avg</div>
+                <div class="stat-value" id="valLarge">0.00</div>
+                <div class="stat-sub">40-60% coverage</div>
+            </div>
+            <div class="card">
+                <div class="stat-label">Avg Gen Time</div>
+                <div class="stat-value" id="valTime">0.00</div>
+                <div class="stat-sub">Seconds per image</div>
+            </div>
+            <div class="card">
+                <div class="stat-label">ETA</div>
+                <div class="stat-value" id="valETA" style="color: #fbbf24;">00:00:00</div>
+                <div class="stat-sub" id="valRem">0 remaining</div>
+            </div>
+        </div>
+
+        <div class="main-grid">
+            <div class="chart-container">
+                <h3 style="margin-bottom: 1.5rem; font-size: 1rem; color: var(--text-dim);">PSNR Performance (Last 100 Images)</h3>
+                <canvas id="psnrChart"></canvas>
+            </div>
+            <div class="image-feed">
+                <h3 style="margin-bottom: 1.5rem; font-size: 1rem; color: var(--text-dim);">Live Image Feed</h3>
+                <div id="feedContent">
+                    <!-- Feed items will be injected here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="imageModal" onclick="this.style.display='none'">
+        <img id="modalImg" src="">
+    </div>
+
+    <script>
+        let psnrChart;
+        
+        function initChart() {
+            const ctx = document.getElementById('psnrChart').getContext('2d');
+            psnrChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'PSNR',
+                        data: [],
+                        borderColor: '#38bdf8',
+                        backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 2,
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: false,
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: '#94a3b8' }
+                        },
+                        x: {
+                            display: false
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    animation: { duration: 0 }
+                }
+            });
+        }
+
+        async function updateStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+
+                // Update Stats Header
+                document.getElementById('valTotal').innerText = data.total_count;
+                document.getElementById('valSmall').innerText = data.SMALL.avg_psnr;
+                document.getElementById('valMedium').innerText = data.MEDIUM.avg_psnr;
+                document.getElementById('valLarge').innerText = data.LARGE.avg_psnr;
+                document.getElementById('valTime').innerText = data.avg_gen_time;
+                document.getElementById('valETA').innerText = data.eta;
+                document.getElementById('valRem').innerText = data.remaining + " remaining";
+
+                // Update Chart
+                psnrChart.data.labels = data.psnr_series.map((_, i) => i);
+                psnrChart.data.datasets[0].data = data.psnr_series;
+                psnrChart.update();
+
+                // Update Feed
+                const feedContent = document.getElementById('feedContent');
+                const fragment = document.createDocumentFragment();
+
+                data.latest_images.forEach(img => {
+                    const tagClass = img.name.startsWith('SMALL') ? 'tag-small' : 
+                                    img.name.startsWith('MEDIUM') ? 'tag-medium' : 
+                                    img.name.startsWith('LARGE') ? 'tag-large' : '';
+                    const tagText = img.name.split('_')[0];
+
+                    const div = document.createElement('div');
+                    div.className = 'feed-item';
+                    div.innerHTML = `
+                        <img src="/images/${img.name}" class="feed-thumb" onclick="showModal('/images/${img.name}')">
+                        <div class="feed-info">
+                            <span class="feed-name">${img.name}</span>
+                            <div>
+                                <span class="tag ${tagClass}">${tagText}</span>
+                                <span class="feed-psnr">${img.psnr} dB</span>
+                            </div>
+                        </div>
+                    `;
+                    fragment.appendChild(div);
+                });
+
+                feedContent.innerHTML = '';
+                feedContent.appendChild(fragment);
+
+            } catch (error) {
+                console.error('Error fetching stats:', error);
+            }
+        }
+
+        function showModal(src) {
+            const modal = document.getElementById('imageModal');
+            const img = document.getElementById('modalImg');
+            img.src = src;
+            modal.style.display = 'flex';
+        }
+
+        initChart();
+        updateStats();
+        setInterval(updateStats, 2000); // Poll every 2 seconds
+    </script>
+</body>
+</html>

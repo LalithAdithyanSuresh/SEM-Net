@@ -1,2 +1,6 @@
 checkpoints
 checkpoints_c2
+evaluation_results
+evaluation_results_V1
+src/__pycache__
+src/__pycache__/

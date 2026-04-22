@@ -129,19 +129,19 @@ class Dataset(torch.utils.data.Dataset):
 
         # in test mode images are masked (with masked regions),
         # using 'mask' parameter prevents canny to detect edges for the masked regions
-        mask = None if self.training else (1 - mask / 255).astype(np.bool)
+        mask = None if self.training else (1 - mask / 255).astype(bool)
 
         # canny
         if self.edge == 1:
             # no edge
             if sigma == -1:
-                return np.zeros(img.shape).astype(np.float)
+                return np.zeros(img.shape).astype(float)
 
             # random sigma
             if sigma == 0:
                 sigma = random.randint(1, 4)
 
-            return canny(img, sigma=sigma, mask=mask).astype(np.float)
+            return canny(img, sigma=sigma, mask=mask).astype(float)
 
         # external
         else:
@@ -230,8 +230,8 @@ def np_free_form_mask(maxVertex, maxLength, maxBrushWidth, maxAngle, h, w):
         brushWidth = np.random.randint(10, maxBrushWidth + 1) // 2 * 2
         nextY = startY + length * np.cos(angle)
         nextX = startX + length * np.sin(angle)
-        nextY = np.maximum(np.minimum(nextY, h - 1), 0).astype(np.int)
-        nextX = np.maximum(np.minimum(nextX, w - 1), 0).astype(np.int)
+        nextY = np.maximum(np.minimum(nextY, h - 1), 0).astype(int)
+        nextX = np.maximum(np.minimum(nextX, w - 1), 0).astype(int)
         cv2.line(mask, (startY, startX), (nextY, nextX), 1, brushWidth)
         cv2.circle(mask, (startY, startX), brushWidth // 2, 2)
         startY, startX = nextY, nextX

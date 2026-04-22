@@ -52,7 +52,8 @@ except Exception as e:
     # we just pass the run name as the checkpoint path to dynamically isolate outputs!
     RUN_PATH="./checkpoints_c2"
     # Run Python and pipe stdout+stderr to the log streamer script
-    python main.py --model 2 --path "$RUN_PATH" 2>&1 | python push_logs.py
+    # We use -u to force unbuffered output so print statements don't get delayed over the pipe!
+    python -u main.py --model 2 --path "$RUN_PATH" 2>&1 | python -u push_logs.py
     
     EXIT_CODE=${PIPESTATUS[0]}
     

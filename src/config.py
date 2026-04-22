@@ -46,7 +46,8 @@ DEFAULT_CONFIG = {
     'L1_LOSS_WEIGHT': 1,            # l1 loss weight
     'STYLE_LOSS_WEIGHT': 1,         # style loss weight
     'CONTENT_LOSS_WEIGHT': 1,       # perceptual loss weight
-    'INPAINT_ADV_LOSS_WEIGHT': 0.01,# adversarial loss weight
+    'INPAINT_ADV_LOSS_WEIGHT': 0.012,# adversarial loss weight
+    'SYMMETRY_LOSS_WEIGHT': 0.1,    # symmetry loss weight
     'TV_LOSS_WEIGHT': 0.1,          # total variation loss weight
 
     'GAN_LOSS': 'lsgan',            # nsgan | lsgan | hinge

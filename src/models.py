@@ -171,15 +171,21 @@ class InpaintingModel(BaseModel):
         gen_style_loss = self.style_loss(outputs_img * masks, images * masks)
         gen_style_loss = gen_style_loss * self.config.STYLE_LOSS_WEIGHT
         gen_loss += gen_style_loss
+
+        # generator symmetry loss
+        gen_symmetry_loss = self.l1_loss(outputs_img, torch.flip(outputs_img, [3]))
+        gen_symmetry_loss = gen_symmetry_loss * self.config.SYMMETRY_LOSS_WEIGHT
+        gen_loss += gen_symmetry_loss
         #############################
 
         # create logs
         logs = [
             ("gLoss",gen_loss.item()),
-            ("dLoss",dis_loss.item())
+            ("dLoss",dis_loss.item()),
+            ("sym", gen_symmetry_loss.item())
         ]
 
-        return outputs_img, gen_loss, dis_loss, logs, gen_gan_loss, gen_l1_loss, gen_content_loss, gen_style_loss
+        return outputs_img, gen_loss, dis_loss, logs, gen_gan_loss, gen_l1_loss, gen_content_loss, gen_style_loss, gen_symmetry_loss
 
     # def forward(self, images, landmarks, masks):
     def forward(self, images, masks):
