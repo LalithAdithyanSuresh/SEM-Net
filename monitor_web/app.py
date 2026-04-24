@@ -6,10 +6,10 @@ from flask import Flask, render_template, jsonify, send_from_directory
 
 app = Flask(__name__)
 
-RESULTS_DIR = os.path.abspath('../evaluation_results/5_image_format')
+RESULTS_DIR = os.path.abspath('../evaluation_results_standard_uniform/5_image_grid')
 
 def get_stats():
-    files = glob.glob(os.path.join(RESULTS_DIR, '*.png'))
+    files = glob.glob(os.path.join(RESULTS_DIR, '**/*.png'), recursive=True)
     # Sorting by creation time to get chronological view if needed, or by filename
     files.sort(key=os.path.getmtime, reverse=True)
     
@@ -28,6 +28,7 @@ def get_stats():
     all_data = []
     
     for f in sorted(files, key=os.path.getmtime):
+        rel_path = os.path.relpath(f, RESULTS_DIR)
         name = os.path.basename(f)
         parts = name.split('_')
         if len(parts) >= 3:
@@ -44,7 +45,8 @@ def get_stats():
             stats[category]['psnr_sum'] += psnr
             
             entry = {
-                'name': name,
+                'name': rel_path, # Use relative path for image serving
+                'display_name': name,
                 'psnr': psnr,
                 'time': os.path.getmtime(f)
             }
