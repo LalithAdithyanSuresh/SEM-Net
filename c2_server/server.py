@@ -2,32 +2,30 @@ import os
 import json
 from flask import Flask, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
-
 import shutil
 import re
 
 app = Flask(__name__, static_folder='static', static_url_path='')
 
-# Initial state
-state = {
-    "command": "stop",
-    "shell_command": None
-}
+# ── In-memory state ──────────────────────────────────────────────────
+state = {"command": "stop", "shell_command": None}
 
-metrics_data = [] # kept for compatibility but we will focus on PSNR
-logs_data = []
-psnr_values = [] # Persistent list of PSNR scores
+logs_data = []          # raw terminal lines (last 5000)
+psnr_values = []        # legacy PSNR list (parsed from logs)
+all_metrics_data = []   # structured dicts: every loss + psnr + mae per iteration
 
+# ── Disk paths ───────────────────────────────────────────────────────
 UPLOAD_FOLDER = os.path.join(app.root_path, 'static', 'images')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-ARCHIVE_DIR = os.path.join(app.root_path, 'archive')
+ARCHIVE_DIR       = os.path.join(app.root_path, 'archive')
 IMAGES_ARCHIVE_DIR = os.path.join(app.root_path, 'static', 'images_archive')
 os.makedirs(ARCHIVE_DIR, exist_ok=True)
 os.makedirs(IMAGES_ARCHIVE_DIR, exist_ok=True)
 ARCHIVE_FILE = os.path.join(ARCHIVE_DIR, 'runs.json')
 
+# ── Archive helpers ──────────────────────────────────────────────────
 def load_runs():
     if os.path.exists(ARCHIVE_FILE):
         with open(ARCHIVE_FILE, 'r') as f:
@@ -38,20 +36,20 @@ def save_runs(runs):
     with open(ARCHIVE_FILE, 'w') as f:
         json.dump(runs, f)
 
+# ── Static ────────────────────────────────────────────────────────────
 @app.route('/')
 def serve_index():
     return send_from_directory('static', 'index.html')
 
+# ── Training command endpoints ────────────────────────────────────────
 @app.route('/api/command', methods=['GET'])
 def get_command():
-    # Regular polling is now read-only (won't clear shell_command)
     return jsonify(state)
 
 @app.route('/api/pop_shell_command', methods=['GET'])
 def pop_shell_command():
-    # Dedicated endpoint for the background script to safely 'consume' the command
     shell_cmd = state.get('shell_command')
-    state['shell_command'] = None # Clear it now that it's being consumed
+    state['shell_command'] = None
     return jsonify({"shell_command": shell_cmd})
 
 @app.route('/api/command', methods=['POST'])
@@ -62,69 +60,50 @@ def update_command():
     if 'shell_command' in data:
         cmd_text = data['shell_command']
         state['shell_command'] = cmd_text
-        # Add the command to the logs so it appears in the live terminal
         logs_data.append(f"> {cmd_text}")
     return jsonify({"status": "success", "state": state})
 
+# ── Archive / run management ──────────────────────────────────────────
 @app.route('/api/runs', methods=['GET'])
 def get_runs():
     return jsonify(list(load_runs().keys()))
 
 @app.route('/api/save_run', methods=['POST'])
 def save_run():
-    global metrics_data, logs_data
+    global all_metrics_data, logs_data, psnr_values
     run_name = request.json.get('name')
     if not run_name:
         return jsonify({"error": "No name provided"}), 400
-    
+
     runs = load_runs()
     runs[run_name] = {
-        "metrics_data": metrics_data,
         "logs_data": logs_data[-5000:],
-        "psnr_values": psnr_values
+        "psnr_values": psnr_values,
+        "all_metrics_data": all_metrics_data[-50000:],  # keep last 50k entries
     }
     save_runs(runs)
-    
-    # Move images
+
+    # Move images to archive
     run_image_dir = os.path.join(IMAGES_ARCHIVE_DIR, run_name)
     os.makedirs(run_image_dir, exist_ok=True)
     if os.path.exists(UPLOAD_FOLDER):
         for f in os.listdir(UPLOAD_FOLDER):
             if f.endswith(('.png', '.jpg', '.jpeg')):
                 shutil.move(os.path.join(UPLOAD_FOLDER, f), os.path.join(run_image_dir, f))
-    
-    # Clear active state
-    metrics_data = []
+
+    # Reset live state
+    all_metrics_data = []
     logs_data = []
     psnr_values = []
     return jsonify({"status": "success", "run": run_name})
 
-@app.route('/api/metrics', methods=['GET'])
-def get_metrics():
-    run = request.args.get('run', '')
-    if run:
-        runs = load_runs()
-        # Fallback to psnr_values or empty list
-        archived_run = runs.get(run, {})
-        return jsonify(archived_run.get("psnr_values", archived_run.get("metrics_data", [])))
-    return jsonify(psnr_values)
-
-@app.route('/api/metrics', methods=['POST'])
-def add_metrics():
-    data = request.json
-    metrics_data.append(data)
-    # limit history to last 1000 epochs
-    if len(metrics_data) > 1000:
-        metrics_data.pop(0)
-    return jsonify({"status": "success"})
-
+# ── Logs ──────────────────────────────────────────────────────────────
 @app.route('/api/logs', methods=['GET'])
 def get_logs():
     run = request.args.get('run', '')
     if run:
         runs = load_runs()
         return jsonify(runs.get(run, {}).get("logs_data", [])[-500:])
-    # Return last 500 lines to avoid massive payload
     return jsonify(logs_data[-500:])
 
 @app.route('/api/logs', methods=['POST'])
@@ -134,17 +113,68 @@ def add_logs():
     logs_data.extend(lines)
     if len(logs_data) > 5000:
         del logs_data[:-5000]
-        
-    # Persistent PSNR parsing
+
+    # Legacy PSNR parsing from raw log lines
     for line in lines:
         match = re.search(r"psnr:\s*([\d\.]+)", line, re.IGNORECASE)
         if match:
             psnr_values.append(float(match.group(1)))
             if len(psnr_values) > 5000:
                 psnr_values.pop(0)
-
     return jsonify({"status": "success"})
 
+# ── All structured metrics (NEW) ──────────────────────────────────────
+@app.route('/api/all_metrics', methods=['POST'])
+def add_all_metrics():
+    """Receive one metrics snapshot dict per training iteration."""
+    data = request.json
+    if not data:
+        return jsonify({"error": "empty body"}), 400
+
+    all_metrics_data.append(data)
+    # Trim: never hold >50k entries in memory (~10MB)
+    if len(all_metrics_data) > 50000:
+        del all_metrics_data[:-50000]
+    return jsonify({"status": "success"})
+
+@app.route('/api/all_metrics', methods=['GET'])
+def get_all_metrics():
+    """Return all structured metrics for the current session or an archived run."""
+    run = request.args.get('run', '')
+    # Optional: thin the response — every Nth sample to keep payload manageable
+    n = max(1, int(request.args.get('thin', 1)))
+
+    if run:
+        runs = load_runs()
+        data = runs.get(run, {}).get("all_metrics_data", [])
+    else:
+        data = all_metrics_data
+
+    if n > 1:
+        data = data[::n]
+    return jsonify(data)
+
+# ── Legacy metrics endpoint (kept for compat) ─────────────────────────
+@app.route('/api/metrics', methods=['GET'])
+def get_metrics():
+    run = request.args.get('run', '')
+    if run:
+        runs = load_runs()
+        archived = runs.get(run, {})
+        return jsonify(archived.get("psnr_values", []))
+    return jsonify(psnr_values)
+
+@app.route('/api/metrics', methods=['POST'])
+def add_metrics_legacy():
+    # kept for any external tools still posting here
+    data = request.json
+    if data:
+        psnr_values.append(data)
+        if len(psnr_values) > 5000:
+            psnr_values.pop(0)
+    return jsonify({"status": "success"})
+
+# ── Image endpoints ───────────────────────────────────────────────────
 @app.route('/api/upload_image', methods=['POST'])
 def upload_image():
     if 'file' not in request.files:
@@ -152,14 +182,12 @@ def upload_image():
     file = request.files['file']
     if file.filename == '':
         return jsonify({"error": "No selected file"}), 400
-    if file:
-        filename = secure_filename(file.filename)
-        file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-        return jsonify({"status": "success", "filename": filename})
+    filename = secure_filename(file.filename)
+    file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+    return jsonify({"status": "success", "filename": filename})
 
 @app.route('/api/images/meta', methods=['GET'])
 def images_meta():
-    """Lightweight endpoint: returns only count + latest filename."""
     run = request.args.get('run', '')
     target_folder = os.path.join(IMAGES_ARCHIVE_DIR, run) if run else UPLOAD_FOLDER
     if os.path.exists(target_folder):
@@ -186,17 +214,12 @@ def sync_result():
     file = request.files['file']
     if file.filename == '':
         return jsonify({"error": "No selected file"}), 400
-    
-    # Save to ~/data
     data_dir = os.path.expanduser('~/data')
     os.makedirs(data_dir, exist_ok=True)
-    
     filename = secure_filename(file.filename)
     save_path = os.path.join(data_dir, filename)
     file.save(save_path)
-    
     return jsonify({"status": "success", "path": save_path})
 
 if __name__ == '__main__':
-    # When deployed with Gunicorn, this block is bypassed.
     app.run(host='0.0.0.0', port=5000)

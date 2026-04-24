@@ -211,7 +211,7 @@ class CombinedAdaptiveMambaLayer(nn.Module):
         # using Deformable Convolutions *before* passing into SSM sequence.
         # da_scan expects (N, C, H, W) and (N, H, W, C)
         x_last = x.permute(0, 2, 3, 1).contiguous()
-        x_adapted = self.da_scan(x, x_last) # Output is [B, C, H, W]
+        x_adapted = x + self.da_scan(x, x_last) # FIX: residual so DA scan is additive offset, not full replacement
         
         # ----------------------------------------------------
         # 2. VAMamba: Structure-Aware Start & Macro-Path
@@ -272,9 +272,10 @@ class CombinedAdaptiveMambaLayer(nn.Module):
             x_reordered = torch.gather(x_b, 2, order_tensor.unsqueeze(1).expand(-1, C, -1))
 
         # Add PE, transpose to [B, L, C] for Mamba
+        # FIX: removed self.norm here — TransformerBlock already applies norm1 before calling this layer
+        # Applying a second norm to already-normalized features squashes variance twice (double-norm bug)
         x1_flat = x_reordered.transpose(1, 2) + pe_reordered
-        x1_norm = self.norm(x1_flat)
-        x1_mamba = self.mamba(x1_norm) # [B, n_tokens, C]
+        x1_mamba = self.mamba(x1_flat) # [B, n_tokens, C]
         
         # Un-shuffle the output to [B, C, H, W]
         inverse_order = torch.argsort(order_tensor, dim=1) # The inverse mapping!
@@ -282,6 +283,7 @@ class CombinedAdaptiveMambaLayer(nn.Module):
         x1_mamba_t = x1_mamba.transpose(1, 2) # [B, C, n_tokens]
         out_flat = torch.gather(x1_mamba_t, 2, inverse_order.unsqueeze(1).expand(-1, C, -1))
         out = out_flat.view(B, C, H, W)
+        out = out + x_adapted  # FIX: internal residual — Mamba output is delta on top of DA-scanned features
         
         # Stash for validation hook visualization
         self.last_scan_orders = sorted_patch_indices

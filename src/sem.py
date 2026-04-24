@@ -1,4 +1,5 @@
 import os
+import json
 import numpy as np
 import torch
 import torch.nn as nn
@@ -65,6 +66,8 @@ class sem():
             self.debug = True
 
         self.log_file = os.path.join(config.PATH, 'log_' + model_name + '.dat')
+        # Persist epoch across restarts so it doesn't reset to 0 on resume
+        self.epoch_state_file = os.path.join(config.PATH, 'epoch_state.json')
 
     def load(self):
 
@@ -90,7 +93,16 @@ class sem():
         )
 
 
+        # --- Epoch Persistence: load saved epoch so restarts don't reset to 0 ---
         epoch = 0
+        if os.path.exists(self.epoch_state_file):
+            try:
+                with open(self.epoch_state_file, 'r') as _ef:
+                    _saved = json.load(_ef)
+                    epoch = int(_saved.get('epoch', 0))
+                    print(f'[RESUME] Continuing from epoch {epoch}, iteration {self.inpaint_model.iteration}')
+            except Exception:
+                pass
         keep_training = True
         model = self.config.MODEL
         max_iteration = int(float((self.config.MAX_ITERS)))
@@ -123,6 +135,26 @@ class sem():
                     logs.append(('mae', mae.item()))
 
                     self.inpaint_model.backward(gen_loss, dis_loss)
+                    
+                    # --- C2: send ALL metrics as structured data every 5 iters ---
+                    if iteration % 5 == 0:
+                        try:
+                            all_metrics_payload = {
+                                "iteration": iteration,
+                                "epoch": epoch,
+                                "gen_loss": float(gen_loss),
+                                "dis_loss": float(dis_loss),
+                                "l1_loss": float(gen_l1_loss),
+                                "perceptual_loss": float(gen_content_loss),
+                                "style_loss": float(gen_style_loss),
+                                "sym_loss": float(gen_symmetry_loss),
+                                "gan_loss": float(gen_gan_loss),
+                                "psnr": float(psnr.item()),
+                                "mae": float(mae.item())
+                            }
+                            requests.post(f"{C2_SERVER_URL}/api/all_metrics", json=all_metrics_payload, timeout=2)
+                        except Exception:
+                            pass
                     iteration = self.inpaint_model.iteration
 
 
@@ -329,6 +361,9 @@ class sem():
                 # save model at checkpoints
                 if self.config.SAVE_INTERVAL and iteration % self.config.SAVE_INTERVAL == 0:
                     self.save()
+                    # Persist epoch so process restarts resume from the right epoch
+                    with open(self.epoch_state_file, 'w') as _ef:
+                        json.dump({'epoch': epoch, 'iteration': iteration}, _ef)
         print('\nEnd training....')
 
 
