@@ -89,7 +89,10 @@ class sem():
             batch_size=self.config.BATCH_SIZE,
             num_workers=4,
             drop_last=True,
-            shuffle=True
+            shuffle=True,
+            pin_memory=True,
+            persistent_workers=True,
+            prefetch_factor=4
         )
 
 
@@ -135,8 +138,8 @@ class sem():
 
                     self.inpaint_model.backward(gen_loss, dis_loss)
                     
-                    # --- C2: send ALL metrics as structured data every 5 iters ---
-                    if iteration % 5 == 0:
+                    # --- C2: send ALL metrics as structured data every 50 iters ---
+                    if iteration % 50 == 0:
                         try:
                             all_metrics_payload = {
                                 "iteration": iteration,
@@ -173,8 +176,8 @@ class sem():
                                    'gen_symmetry_loss': gen_symmetry_loss,
                                    'dis_loss': dis_loss}, step=iteration)
 		 
-                # ---- C2 COMMAND POLLING ----
-                if iteration % 5 == 0:
+                # ---- C2 COMMAND POLLING (Less frequent for speed) ----
+                if iteration % 50 == 0:
                     try:
                         # 1. Fetch training command (stop/run/etc)
                         res = requests.get(f"{C2_SERVER_URL}/api/command", timeout=2)
@@ -207,7 +210,7 @@ class sem():
                     except Exception:
                         pass # Ignore net errors
 
-                if iteration % 300 == 0:
+                if iteration % 1000 == 0:
                     create_dir(self.results_path)
                     path_val = os.path.join(self.results_path, self.model_name, 'validation')
                     create_dir(path_val)
@@ -261,79 +264,64 @@ class sem():
                         pred_img_pil = Image.fromarray(self.postprocess(val_outputs_img)[0].cpu().numpy().astype(np.uint8))
                         pred_mask_pil = Image.fromarray(self.postprocess(val_outputs_merged)[0].cpu().numpy().astype(np.uint8))
 
-                        # Draw path
-                        fig = plt.figure(figsize=(gt_mask_pil.size[0]/100, gt_mask_pil.size[1]/100), dpi=100)
-                        ax = fig.add_axes([0, 0, 1, 1])
-                        ax.axis('off')
-                        ax.imshow(gt_mask_pil)
-                        if scan_orders is not None:
-                            import numpy as np
-                            from matplotlib.collections import LineCollection
-                            
-                            y_coords = np.array([p_i * patch_size + patch_size/2.0 for p_i, p_j in scan_orders])
-                            x_coords = np.array([p_j * patch_size + patch_size/2.0 for p_i, p_j in scan_orders])
-                            
-                            points = np.array([x_coords, y_coords]).T.reshape(-1, 1, 2)
-                            segments = np.concatenate([points[:-1], points[1:]], axis=1)
-                            
-                            # Normalize rainbow across the total sequence length
-                            norm = plt.Normalize(0, len(x_coords))
-                            lc = LineCollection(segments, cmap='rainbow', norm=norm, alpha=0.75, linewidths=1.5)
-                            lc.set_array(np.arange(len(x_coords)))
-                            ax.add_collection(lc)
-                            
-                            # Place explicit Start and End markers
-                            if len(x_coords) > 0:
-                                ax.scatter([x_coords[0]], [y_coords[0]], color='lime', s=45, zorder=5, edgecolors='black', label='Start')
-                                ax.scatter([x_coords[-1]], [y_coords[-1]], color='red', s=45, zorder=5, edgecolors='black', label='End')
-                                
-                                # Add clear, sparse directional arrows to keep the visual clean (~15 items total)
-                                step = max(1, len(x_coords) // 15)
-                                for i in range(0, len(x_coords)-1, step):
-                                    dx = x_coords[i+1] - x_coords[i]
-                                    dy = y_coords[i+1] - y_coords[i]
-                                    dist = np.hypot(dx, dy)
-                                    if dist > 0:
-                                        # Normalize arrow length to fit the patch bounding box
-                                        arrow_dx = (dx / dist) * (patch_size * 0.45)
-                                        arrow_dy = (dy / dist) * (patch_size * 0.45)
-                                        ax.arrow(x_coords[i], y_coords[i], arrow_dx, arrow_dy, 
-                                                 color='white', head_width=patch_size*0.4, alpha=1.0, zorder=6)
+                        # Draw path (ONLY for first image for speed)
+                        if val_count == 0:
+                            import matplotlib.pyplot as plt
+                            import io
+                            fig = plt.figure(figsize=(gt_mask_pil.size[0]/100, gt_mask_pil.size[1]/100), dpi=100)
+                            ax = fig.add_axes([0, 0, 1, 1])
+                            ax.axis('off')
+                            ax.imshow(gt_mask_pil)
+                            if scan_orders is not None:
+                                from matplotlib.collections import LineCollection
+                                y_coords = np.array([p_i * patch_size + patch_size/2.0 for p_i, p_j in scan_orders])
+                                x_coords = np.array([p_j * patch_size + patch_size/2.0 for p_i, p_j in scan_orders])
+                                points = np.array([x_coords, y_coords]).T.reshape(-1, 1, 2)
+                                segments = np.concatenate([points[:-1], points[1:]], axis=1)
+                                norm = plt.Normalize(0, len(x_coords))
+                                lc = LineCollection(segments, cmap='rainbow', norm=norm, alpha=0.75, linewidths=1.5)
+                                lc.set_array(np.arange(len(x_coords)))
+                                ax.add_collection(lc)
+                                if len(x_coords) > 0:
+                                    ax.scatter([x_coords[0]], [y_coords[0]], color='lime', s=45, zorder=5, edgecolors='black', label='Start')
+                                    ax.scatter([x_coords[-1]], [y_coords[-1]], color='red', s=45, zorder=5, edgecolors='black', label='End')
+                                    step = max(1, len(x_coords) // 15)
+                                    for i in range(0, len(x_coords)-1, step):
+                                        dx = x_coords[i+1] - x_coords[i]; dy = y_coords[i+1] - y_coords[i]
+                                        dist = np.hypot(dx, dy)
+                                        if dist > 0:
+                                            ax.arrow(x_coords[i], y_coords[i], (dx/dist)*(patch_size*0.45), (dy/dist)*(patch_size*0.45), 
+                                                     color='white', head_width=patch_size*0.4, alpha=1.0, zorder=6)
+                            buf = io.BytesIO()
+                            plt.savefig(buf, format='png', dpi=100)
+                            plt.close(fig)
+                            buf.seek(0)
+                            gt_mask_paths_pil = Image.open(buf).convert('RGB')
+                            gt_mask_paths_pil = gt_mask_paths_pil.resize(gt_mask_pil.size)
 
-                        buf = io.BytesIO()
-                        # Removed bbox_inches to ensure exact [0,0,1,1] axes filling prevents white margins
-                        plt.savefig(buf, format='png', dpi=100)
-                        plt.close(fig)
-                        buf.seek(0)
-                        gt_mask_paths_pil = Image.open(buf).convert('RGB')
-                        gt_mask_paths_pil = gt_mask_paths_pil.resize(gt_mask_pil.size)
-
-                        # ---- Panel 4: DA-Mamba Offset Heatmap ----
-                        try:
-                            import cv2
-                            da_offset_pil = None
-                            da_offset_map = getattr(attn_layer.da_scan, 'last_offset_map', None)
-                            if da_offset_map is not None:
-                                off = da_offset_map[0].cpu().float().numpy()  # [H, W, G*2]
-                                G = off.shape[-1] // 2
-                                # Mean magnitude across all deformation groups
-                                dx = off[..., :G]  # [H, W, G]
-                                dy = off[..., G:]  # [H, W, G]
-                                mag = np.sqrt(dx**2 + dy**2).mean(axis=-1)  # [H, W]
-                                # Normalise to 0-255
-                                mag = mag - mag.min()
-                                mag = mag / (mag.max() + 1e-8)
-                                mag_u8 = (mag * 255).astype(np.uint8)
-                                # Apply JET colormap for intuitive reading
-                                mag_bgr = cv2.applyColorMap(mag_u8, cv2.COLORMAP_JET)
-                                mag_rgb = cv2.cvtColor(mag_bgr, cv2.COLOR_BGR2RGB)
-                                da_offset_pil = Image.fromarray(mag_rgb).resize(gt_img_pil.size)
-                            if da_offset_pil is None:
-                                # Placeholder grey panel if hook not yet populated
+                            # ---- Panel 4: DA-Mamba Offset Heatmap ----
+                            try:
+                                import cv2
+                                da_offset_pil = None
+                                da_offset_map = getattr(attn_layer.da_scan, 'last_offset_map', None)
+                                if da_offset_map is not None:
+                                    off = da_offset_map[0].cpu().float().numpy()
+                                    G = off.shape[-1] // 2
+                                    dx = off[..., :G]; dy = off[..., G:]
+                                    mag = np.sqrt(dx**2 + dy**2).mean(axis=-1)
+                                    mag = (mag - mag.min()) / (mag.max() + 1e-8)
+                                    mag_u8 = (mag * 255).astype(np.uint8)
+                                    mag_bgr = cv2.applyColorMap(mag_u8, cv2.COLORMAP_JET)
+                                    mag_rgb = cv2.cvtColor(mag_bgr, cv2.COLOR_BGR2RGB)
+                                    da_offset_pil = Image.fromarray(mag_rgb).resize(gt_img_pil.size)
+                                if da_offset_pil is None:
+                                    da_offset_pil = Image.new('RGB', gt_img_pil.size, (80, 80, 80))
+                            except Exception:
                                 da_offset_pil = Image.new('RGB', gt_img_pil.size, (80, 80, 80))
-                        except Exception as e_da:
-                            print(f"DA-Mamba offset viz failed: {e_da}")
-                            da_offset_pil = Image.new('RGB', gt_img_pil.size, (80, 80, 80))
+                        else:
+                            # Skip heavy viz for images 1-4 to save ~5-10 seconds per iteration
+                            gt_mask_paths_pil = Image.new('RGB', gt_img_pil.size, (40, 40, 40))
+                            da_offset_pil = Image.new('RGB', gt_img_pil.size, (40, 40, 40))
 
                         # Concatenate 6 panels horizontally
                         panels = [gt_img_pil, gt_mask_pil, gt_mask_paths_pil, da_offset_pil, pred_img_pil, pred_mask_pil]

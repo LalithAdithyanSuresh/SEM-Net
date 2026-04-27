@@ -211,7 +211,7 @@ class InpaintingModel(BaseModel):
         gen_loss = gen_loss / accum_steps
         dis_loss = dis_loss / accum_steps
 
-        self.scaler.scale(dis_loss).backward(retain_graph= True)
+        self.scaler.scale(dis_loss).backward()
         self.scaler.scale(gen_loss).backward()
         
         # Only update weights every accum_steps

@@ -11,6 +11,7 @@ app = Flask(__name__, static_folder='static', static_url_path='')
 state = {"command": "stop", "shell_command": None}
 
 logs_data = []          # raw terminal lines (last 5000)
+global_log_count = 0    # total lines ever added to logs_data
 psnr_values = []        # legacy PSNR list (parsed from logs)
 all_metrics_data = []   # structured dicts: every loss + psnr + mae per iteration
 
@@ -101,16 +102,38 @@ def save_run():
 @app.route('/api/logs', methods=['GET'])
 def get_logs():
     run = request.args.get('run', '')
+    after = request.args.get('after', type=int, default=-1)
+
     if run:
         runs = load_runs()
-        return jsonify(runs.get(run, {}).get("logs_data", [])[-500:])
-    return jsonify(logs_data[-500:])
+        full_logs = runs.get(run, {}).get("logs_data", [])
+        if after >= 0:
+            return jsonify(full_logs[after:])
+        return jsonify(full_logs[-500:])
+
+    # For live session, handle rotation
+    if after >= 0:
+        # Client asks for lines after its current count
+        # global_log_count - len(logs_data) is the index of the first line currently in logs_data
+        start_index_in_stream = global_log_count - len(logs_data)
+        
+        if after < start_index_in_stream:
+            # Client is too far behind, send what we have
+            return jsonify({"lines": logs_data, "total": global_log_count})
+        
+        relative_after = after - start_index_in_stream
+        return jsonify({"lines": logs_data[relative_after:], "total": global_log_count})
+
+    return jsonify({"lines": logs_data[-500:], "total": global_log_count})
 
 @app.route('/api/logs', methods=['POST'])
 def add_logs():
+    global global_log_count
     data = request.json
     lines = data.get('lines', [])
     logs_data.extend(lines)
+    global_log_count += len(lines)
+
     if len(logs_data) > 5000:
         del logs_data[:-5000]
 

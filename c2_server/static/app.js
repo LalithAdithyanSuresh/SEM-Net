@@ -5,6 +5,7 @@ const API_BASE = '/api';
 // ═══════════════════════════════════════════════════════════════
 let selectedRun = '';
 let allMetricsCache = [];   // full structured metrics for current view
+let lastLogCount = 0;       // tracks total lines received for delta fetching
 let currentTab = 'losses';  // 'losses' | 'quality'
 
 const runSelector = document.getElementById('run-selector');
@@ -154,19 +155,37 @@ async function fetchAllMetrics() {
 }
 
 // Logs
-let lastLogHash = '';
 const terminalOutput = document.getElementById('terminal-output');
 async function fetchLogs() {
-    if (selectedRun && lastLogHash !== '') return;
+    if (selectedRun && lastLogCount > 0) return; // For archives, only fetch once
     try {
-        const res   = await fetch(`${API_BASE}/logs${selectedRun ? '?run=' + selectedRun : ''}`);
-        const lines = await res.json();
-        if (lines.length > 0) {
-            const hash = lines[lines.length - 1];
-            if (hash !== lastLogHash) {
-                lastLogHash = hash;
-                terminalOutput.innerHTML = lines.map(l => `<div class="terminal-line">${formatLogLine(l)}</div>`).join('');
-                terminalOutput.scrollTop = terminalOutput.scrollHeight;
+        const url = `${API_BASE}/logs?after=${lastLogCount}${selectedRun ? '&run=' + selectedRun : ''}`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        // data is {lines: [], total: X} for live, or just [] for archive
+        let newLines = [];
+        if (selectedRun) {
+            newLines = data;
+            lastLogCount = newLines.length;
+            terminalOutput.innerHTML = ''; // reset for archive
+        } else {
+            newLines = data.lines;
+            if (data.total < lastLogCount) {
+                // Server was reset or trimmed beyond our reach
+                terminalOutput.innerHTML = '';
+            }
+            lastLogCount = data.total;
+        }
+
+        if (newLines.length > 0) {
+            const html = newLines.map(l => `<div class="terminal-line">${formatLogLine(l)}</div>`).join('');
+            terminalOutput.insertAdjacentHTML('beforeend', html);
+            terminalOutput.scrollTop = terminalOutput.scrollHeight;
+            
+            // Limit DOM size to last 2000 lines to prevent browser lag
+            while (terminalOutput.children.length > 2000) {
+                terminalOutput.removeChild(terminalOutput.firstChild);
             }
         }
     } catch (e) { /* silent */ }
@@ -195,7 +214,7 @@ async function fetchRuns() {
 
 runSelector.addEventListener('change', e => {
     selectedRun     = e.target.value;
-    lastLogHash     = '';
+    lastLogCount    = 0;
     allMetricsCache = [];
     progressionGroups = {};
     lastImageMeta = { count: -1, latest: null };

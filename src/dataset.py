@@ -188,7 +188,12 @@ class Dataset(torch.utils.data.Dataset):
 
             if os.path.isfile(flist):
                 try:
-                    return np.genfromtxt(flist, dtype=str, encoding='utf-8')
+                    data = np.genfromtxt(flist, dtype=str, encoding='utf-8')
+                    if data.ndim == 0:
+                        data = np.array([data])
+                    
+                    base_dir = os.path.dirname(flist)
+                    return [os.path.join(base_dir, line) if not os.path.isabs(line) else line for line in data]
                 except Exception as e:
                     print(e)
                     return [flist]
