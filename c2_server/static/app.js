@@ -10,84 +10,22 @@ let currentTab = 'losses';  // 'losses' | 'quality'
 const runSelector = document.getElementById('run-selector');
 
 // ═══════════════════════════════════════════════════════════════
-// Chart colours + dataset definitions
+// Viper / Snake Mamba Colorscheme 🐍
 // ═══════════════════════════════════════════════════════════════
 const LOSS_DATASETS = [
-    { key: 'gen_loss',        label: 'Gen Loss (total)', color: '#a855f7', yAxis: 'y' },
-    { key: 'dis_loss',        label: 'Dis Loss',         color: '#ef4444', yAxis: 'y' },
-    { key: 'l1_loss',         label: 'L1 Loss',          color: '#3b82f6', yAxis: 'y' },
-    { key: 'perceptual_loss', label: 'Perceptual',       color: '#10b981', yAxis: 'y' },
-    { key: 'style_loss',      label: 'Style',            color: '#f59e0b', yAxis: 'y' },
-    { key: 'sym_loss',        label: 'Symmetry',         color: '#64748b', yAxis: 'y' },
+    { key: 'gen_loss',        label: 'Gen Loss (total)', color: '#10b981', axis: 'y' }, // Emerald
+    { key: 'dis_loss',        label: 'Dis Loss',         color: '#f59e0b', axis: 'y' }, // Amber/Venom
+    { key: 'l1_loss',         label: 'L1 Loss',          color: '#059669', axis: 'y' }, // Deep green
+    { key: 'perceptual_loss', label: 'Perceptual',       color: '#34d399', axis: 'y' }, // Light green
+    { key: 'style_loss',      label: 'Style',            color: '#84cc16', axis: 'y' }, // Lime scale
+    { key: 'sym_loss',        label: 'Symmetry',         color: '#475569', axis: 'y' }, // Slate gray
 ];
 
 const QUALITY_DATASETS = [
-    { key: 'psnr', label: 'PSNR (dB)', color: '#d8b4fe', yAxis: 'y'  },
-    { key: 'mae',  label: 'MAE',       color: '#fb923c', yAxis: 'y2' },
+    { key: 'psnr', label: 'PSNR (dB)', color: '#10b981', axis: 'y'  },
+    { key: 'mae',  label: 'MAE',       color: '#f59e0b', axis: 'y2' },
 ];
 
-// ═══════════════════════════════════════════════════════════════
-// Chart
-// ═══════════════════════════════════════════════════════════════
-let metricsChart;
-
-function makeDatasets(defs) {
-    return defs.map(d => ({
-        label: d.label,
-        data: [],
-        borderColor: d.color,
-        backgroundColor: d.color + '22',
-        tension: 0.4,
-        borderWidth: 2,
-        pointRadius: 0,
-        yAxisID: d.yAxis,
-        _key: d.key,
-    }));
-}
-
-function initChart() {
-    const ctx = document.getElementById('metricsChart').getContext('2d');
-    metricsChart = new Chart(ctx, {
-        type: 'line',
-        data: { labels: [], datasets: makeDatasets(LOSS_DATASETS) },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-                legend: {
-                    display: true,
-                    labels: { color: '#94a3b8', font: { family: 'Outfit' }, boxWidth: 12 }
-                },
-                tooltip: { backgroundColor: 'rgba(15,23,42,0.95)', titleColor: '#f8fafc', bodyColor: '#94a3b8' }
-            },
-            scales: {
-                y:  { type: 'linear', position: 'left',  grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
-                y2: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#fb923c' }, display: false },
-                x:  { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#64748b', maxTicksLimit: 15, font: { size: 10 } } },
-            },
-            animation: { duration: 0 },
-        }
-    });
-}
-
-window.switchTab = function(tab) {
-    currentTab = tab;
-    document.querySelectorAll('.chart-tab').forEach(b => b.classList.remove('active'));
-    document.getElementById(`tab-${tab}`).classList.add('active');
-
-    const defs = tab === 'losses' ? LOSS_DATASETS : QUALITY_DATASETS;
-    metricsChart.data.datasets = makeDatasets(defs);
-    metricsChart.data.labels = [];
-
-    // Toggle y2 axis visibility (only for quality tab with MAE)
-    metricsChart.options.scales.y2.display = (tab === 'quality');
-    metricsChart.update();
-
-    renderChart(allMetricsCache);
-};
-
-// Apply moving-average smoothing
 function smooth(arr, w) {
     if (w <= 1) return arr;
     const out = [];
@@ -99,24 +37,68 @@ function smooth(arr, w) {
     return out;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Plotly Chart
+// ═══════════════════════════════════════════════════════════════
 function renderChart(data) {
-    if (!metricsChart || data.length === 0) return;
+    if (data.length === 0) return;
     const w = Math.max(1, parseInt(document.getElementById('smooth-window').value) || 10);
     const defs = currentTab === 'losses' ? LOSS_DATASETS : QUALITY_DATASETS;
 
-    const labels = data.map(d => `${d.iteration}`);
-    metricsChart.data.labels = labels;
-
-    metricsChart.data.datasets.forEach((ds, i) => {
-        const key = defs[i].key;
-        const raw = data.map(d => (d[key] != null ? d[key] : null));
-        ds.data = smooth(raw.filter(v => v !== null), w);
-        // Re-pad if any nulls (simple: just use filtered; length may differ — keep raw for now)
-        ds.data = smooth(raw.map(v => v ?? 0), w);
+    const iterations = data.map(d => d.iteration);
+    
+    const plotData = defs.map(d => {
+        const raw = data.map(pt => pt[d.key] != null ? pt[d.key] : null);
+        const smoothed = smooth(raw.map(v => v ?? 0), w);
+        return {
+            x: iterations,
+            y: smoothed,
+            name: d.label,
+            type: 'scatter',
+            mode: 'lines',
+            line: { color: d.color, width: 2 },
+            fill: 'tozeroy',
+            fillcolor: d.color + '1A', // 10% opacity
+            yaxis: d.axis
+        };
     });
 
-    metricsChart.update();
+    const layout = {
+        paper_bgcolor: 'transparent',
+        plot_bgcolor: 'transparent',
+        font: { family: 'Outfit', color: '#94a3b8' },
+        margin: { t: 10, r: 40, l: 40, b: 40 },
+        hovermode: 'x unified',
+        dragmode: 'zoom',
+        xaxis: {
+            gridcolor: 'rgba(255,255,255,0.04)',
+            zerolinecolor: 'rgba(255,255,255,0.1)'
+        },
+        yaxis: {
+            gridcolor: 'rgba(255,255,255,0.04)',
+            zerolinecolor: 'rgba(255,255,255,0.1)'
+        },
+        legend: { orientation: 'h', y: 1.1 },
+    };
+
+    if (currentTab === 'quality') {
+        layout.yaxis2 = {
+            overlaying: 'y',
+            side: 'right',
+            showgrid: false,
+            zeroline: false
+        };
+    }
+
+    Plotly.react('metricsChart', plotData, layout, { responsive: true, displayModeBar: false });
 }
+
+window.switchTab = function(tab) {
+    currentTab = tab;
+    document.querySelectorAll('.chart-tab').forEach(b => b.classList.remove('active'));
+    document.getElementById(`tab-${tab}`).classList.add('active');
+    renderChart(allMetricsCache);
+};
 
 // ═══════════════════════════════════════════════════════════════
 // Stats cards
@@ -152,27 +134,22 @@ async function fetchState() {
     }
 }
 
-// All structured metrics
-let lastMetricsLen = -1;
+// Delta querying metrics
 async function fetchAllMetrics() {
-    // Freeze polling if we're in an archived run and already have data
     if (selectedRun && allMetricsCache.length > 0) return;
     try {
-        // Thin by 2 for large sessions to keep payload sane
-        const thin = allMetricsCache.length > 5000 ? 2 : 1;
-        const url  = `${API_BASE}/all_metrics?thin=${thin}${selectedRun ? '&run=' + selectedRun : ''}`;
-        const res  = await fetch(url);
+        const afterIter = allMetricsCache.length > 0 ? allMetricsCache[allMetricsCache.length - 1].iteration : -1;
+        const url = `${API_BASE}/all_metrics?after=${afterIter}${selectedRun ? '&run=' + selectedRun : ''}`;
+        const res = await fetch(url);
         const data = await res.json();
 
         if (!Array.isArray(data) || data.length === 0) return;
-        if (data.length === lastMetricsLen) return; // no change
 
-        lastMetricsLen  = data.length;
-        allMetricsCache = data;
+        allMetricsCache = allMetricsCache.concat(data);
 
         // Update stat cards with latest data point
-        updateStatCards(data[data.length - 1]);
-        renderChart(data);
+        updateStatCards(allMetricsCache[allMetricsCache.length - 1]);
+        renderChart(allMetricsCache);
     } catch (e) { /* silent */ }
 }
 
@@ -219,11 +196,10 @@ async function fetchRuns() {
 runSelector.addEventListener('change', e => {
     selectedRun     = e.target.value;
     lastLogHash     = '';
-    lastMetricsLen  = -1;
     allMetricsCache = [];
     progressionGroups = {};
     lastImageMeta = { count: -1, latest: null };
-    if (metricsChart) { metricsChart.data.labels = []; metricsChart.data.datasets.forEach(d => d.data = []); metricsChart.update(); }
+    Plotly.purge('metricsChart');
     terminalOutput.innerHTML = '';
     document.getElementById('image-gallery').innerHTML = '';
     fetchLogs(); fetchAllMetrics(); fetchImages();
@@ -236,15 +212,11 @@ const imageGallery   = document.getElementById('image-gallery');
 const imageCount     = document.getElementById('image-count');
 let progressionGroups = {};
 let lastImageMeta    = { count: -1, latest: null };
-const prefetchedUrls = new Set();
-const PRELOAD_AHEAD  = 5;
-const PRELOAD_BEHIND = 3;
 
-function prefetchUrl(url) {
-    if (prefetchedUrls.has(url)) return;
-    prefetchedUrls.add(url);
-    const img = new Image(); img.src = url;
-}
+// Memory management cache
+let prefetchCache = new Map();
+const PRELOAD_WINDOW = 10; // +- 10 images exactly as requested
+let scrubTimeout = null;
 
 function parseImageName(filename) {
     const match = filename.match(/^(.+?)_iter(\d+)\.(png|jpg|jpeg)$/i);
@@ -289,16 +261,16 @@ function buildProgressionViewer(allImages) {
     const scrubberBar = document.getElementById('scrubber-bar');
     const scrubber    = document.getElementById('global-scrubber');
     scrubberBar.style.display = 'block';
-    scrubber.min = 0; scrubber.max = allIters.length - 1;
+    if (scrubber.max == 0 || scrubber.max != allIters.length - 1) {
+        scrubber.min = 0; scrubber.max = allIters.length - 1; 
+    }
+    
     document.getElementById('scrubber-min').textContent = `iter ${allIters[0]}`;
     document.getElementById('scrubber-max').textContent = `iter ${allIters[allIters.length - 1]}`;
 
     const prevIdx   = parseInt(scrubber.value, 10);
     const activeIdx = isNaN(prevIdx) ? allIters.length - 1 : Math.min(prevIdx, allIters.length - 1);
     scrubber.value  = activeIdx;
-    const activeIter = allIters[activeIdx];
-    document.getElementById('scrubber-current').textContent = `iter ${activeIter}`;
-    document.getElementById('iter-badge').textContent = `iter ${activeIter}`;
 
     const existing = imageGallery.querySelectorAll('.prog-card');
     if (existing.length !== numGroups || imageGallery.querySelector('.empty-state')) {
@@ -317,6 +289,7 @@ function buildProgressionViewer(allImages) {
         });
     }
 
+    // Direct invocation first load
     applyWindow(activeIdx, allIters);
 
     if (!scrubber._listenerAttached) {
@@ -327,15 +300,23 @@ function buildProgressionViewer(allImages) {
             const iter  = iters[idx];
             document.getElementById('scrubber-current').textContent = `iter ${iter}`;
             document.getElementById('iter-badge').textContent = `iter ${iter}`;
-            applyWindow(idx, iters);
+            
+            // Debounce load to save bandwidth and DOM CPU
+            if (scrubTimeout) clearTimeout(scrubTimeout);
+            scrubTimeout = setTimeout(() => {
+                applyWindow(idx, iters);
+            }, 1000); // Wait 1 second after scrubber pauses!
         });
     }
 }
 
 function applyWindow(centerIdx, allIters) {
-    const loadStart = Math.max(0, centerIdx - PRELOAD_BEHIND);
-    const loadEnd   = Math.min(allIters.length - 1, centerIdx + PRELOAD_AHEAD);
     const targetIter = allIters[centerIdx];
+    const loadStart = Math.max(0, centerIdx - PRELOAD_WINDOW);
+    const loadEnd   = Math.min(allIters.length - 1, centerIdx + PRELOAD_WINDOW);
+
+    // Track which images we want to keep in the browser cache
+    const urlsToKeep = new Set();
 
     imageGallery.querySelectorAll('.prog-card').forEach(card => {
         const base  = card.dataset.base;
@@ -346,6 +327,7 @@ function applyWindow(centerIdx, allIters) {
 
         let best = null;
         for (const e of group) { if (e.iter <= targetIter) best = e; else break; }
+        
         if (best) {
             if (card.dataset.renderedIter !== String(best.iter)) {
                 card.dataset.renderedIter = String(best.iter);
@@ -361,13 +343,28 @@ function applyWindow(centerIdx, allIters) {
         }
         cntL.textContent = `${group.length} snapshot${group.length !== 1 ? 's' : ''}`;
 
+        // Prepare the 20 prefetch Image objects in memory
         for (let i = loadStart; i <= loadEnd; i++) {
             const iv = allIters[i];
             let prev = null;
             for (const e of group) { if (e.iter <= iv) prev = e; else break; }
-            if (prev) prefetchUrl(`/images/${prev.filename}`);
+            if (prev) {
+                const url = selectedRun ? `/images_archive/${selectedRun}/${prev.filename}` : `/images/${prev.filename}`;
+                urlsToKeep.add(url);
+                if (!prefetchCache.has(url)) {
+                    const iObj = new Image(); iObj.src = url;
+                    prefetchCache.set(url, iObj);
+                }
+            }
         }
     });
+
+    // Cleanup memory: destroy Image objects older than the window
+    for (const [url, obj] of prefetchCache.entries()) {
+        if (!urlsToKeep.has(url)) {
+            prefetchCache.delete(url);
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -462,10 +459,10 @@ document.addEventListener('keydown', e => {
 // ═══════════════════════════════════════════════════════════════
 // Bootstrap
 // ═══════════════════════════════════════════════════════════════
-initChart();
 fetchRuns();
 
 setInterval(fetchState,      1000);
 setInterval(fetchLogs,       1000);
 setInterval(fetchAllMetrics, 2000);
 setInterval(fetchImages,     5000);
+

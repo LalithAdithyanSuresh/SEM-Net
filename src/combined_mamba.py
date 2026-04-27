@@ -138,7 +138,10 @@ class Dynamic_Adaptive_Scan(nn.Module):
         x1 = self.dw_conv(input_first)
         x_proj = input_last
         offset = self.offset(x1)
+        # Stash for visualization: [N, H, W, G*2]
+        self.last_offset_map = offset.detach()
         mask_dcn = torch.ones(N, H, W, self.group, device=input_last.device, dtype=input_last.dtype)
+
         
         if DCNv3Function is not None:
             x = DCNv3Function.apply(
@@ -211,7 +214,10 @@ class CombinedAdaptiveMambaLayer(nn.Module):
         # using Deformable Convolutions *before* passing into SSM sequence.
         # da_scan expects (N, C, H, W) and (N, H, W, C)
         x_last = x.permute(0, 2, 3, 1).contiguous()
-        x_adapted = x + self.da_scan(x, x_last) # FIX: residual so DA scan is additive offset, not full replacement
+        # NO x+ here: zero-initialized offsets make da_scan ≈ identity at cold-start.
+        # x + identity = 2x → 2× variance into Mamba → overshooting gradients → PSNR drops.
+        # The outer TransformerBlock (networks.py:240) already does: x = x + attn(norm(x)).
+        x_adapted = self.da_scan(x, x_last)
         
         # ----------------------------------------------------
         # 2. VAMamba: Structure-Aware Start & Macro-Path
@@ -283,7 +289,8 @@ class CombinedAdaptiveMambaLayer(nn.Module):
         x1_mamba_t = x1_mamba.transpose(1, 2) # [B, C, n_tokens]
         out_flat = torch.gather(x1_mamba_t, 2, inverse_order.unsqueeze(1).expand(-1, C, -1))
         out = out_flat.view(B, C, H, W)
-        out = out + x_adapted  # FIX: internal residual — Mamba output is delta on top of DA-scanned features
+        # NO out + x_adapted: same reason — outer block handles the skip.
+        # At init: da_scan≈identity, mamba returns delta, outer adds: x_new = x + delta. Clean.
         
         # Stash for validation hook visualization
         self.last_scan_orders = sorted_patch_indices

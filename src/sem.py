@@ -117,10 +117,9 @@ class sem():
             
 
             for items in train_loader:
-                
-
-            
+                iteration = self.inpaint_model.iteration  # read BEFORE process() increments it
                 self.inpaint_model.train()
+
 
                 if model == 2:
                     images, masks = self.cuda(*items)
@@ -309,14 +308,50 @@ class sem():
                         gt_mask_paths_pil = Image.open(buf).convert('RGB')
                         gt_mask_paths_pil = gt_mask_paths_pil.resize(gt_mask_pil.size)
 
-                        # Concatenate images horizontally
-                        widths, heights = zip(*(i.size for i in [gt_img_pil, gt_mask_pil, gt_mask_paths_pil, pred_img_pil, pred_mask_pil]))
+                        # ---- Panel 4: DA-Mamba Offset Heatmap ----
+                        try:
+                            import cv2
+                            da_offset_pil = None
+                            da_offset_map = getattr(attn_layer.da_scan, 'last_offset_map', None)
+                            if da_offset_map is not None:
+                                off = da_offset_map[0].cpu().float().numpy()  # [H, W, G*2]
+                                G = off.shape[-1] // 2
+                                # Mean magnitude across all deformation groups
+                                dx = off[..., :G]  # [H, W, G]
+                                dy = off[..., G:]  # [H, W, G]
+                                mag = np.sqrt(dx**2 + dy**2).mean(axis=-1)  # [H, W]
+                                # Normalise to 0-255
+                                mag = mag - mag.min()
+                                mag = mag / (mag.max() + 1e-8)
+                                mag_u8 = (mag * 255).astype(np.uint8)
+                                # Apply JET colormap for intuitive reading
+                                mag_bgr = cv2.applyColorMap(mag_u8, cv2.COLORMAP_JET)
+                                mag_rgb = cv2.cvtColor(mag_bgr, cv2.COLOR_BGR2RGB)
+                                da_offset_pil = Image.fromarray(mag_rgb).resize(gt_img_pil.size)
+                            if da_offset_pil is None:
+                                # Placeholder grey panel if hook not yet populated
+                                da_offset_pil = Image.new('RGB', gt_img_pil.size, (80, 80, 80))
+                        except Exception as e_da:
+                            print(f"DA-Mamba offset viz failed: {e_da}")
+                            da_offset_pil = Image.new('RGB', gt_img_pil.size, (80, 80, 80))
+
+                        # Concatenate 6 panels horizontally
+                        panels = [gt_img_pil, gt_mask_pil, gt_mask_paths_pil, da_offset_pil, pred_img_pil, pred_mask_pil]
+                        panel_labels = ['GT', 'Masked Input', 'VAMamba Path', 'DA-Mamba Offsets', 'Raw Pred', 'Merged']
+                        widths, heights = zip(*(i.size for i in panels))
                         total_width = sum(widths)
                         max_height = max(heights)
-                        new_im = Image.new('RGB', (total_width, max_height))
+                        
+                        # Add label bar (20px) below each panel
+                        label_h = 20
+                        new_im = Image.new('RGB', (total_width, max_height + label_h), (20, 20, 20))
+                        from PIL import ImageDraw, ImageFont
+                        draw = ImageDraw.Draw(new_im)
                         x_offset = 0
-                        for im in [gt_img_pil, gt_mask_pil, gt_mask_paths_pil, pred_img_pil, pred_mask_pil]:
-                            new_im.paste(im, (x_offset,0))
+                        for im, lbl in zip(panels, panel_labels):
+                            new_im.paste(im, (x_offset, 0))
+                            # Draw label
+                            draw.text((x_offset + 4, max_height + 2), lbl, fill=(220, 220, 220))
                             x_offset += im.size[0]
 
                         # Save stitched image

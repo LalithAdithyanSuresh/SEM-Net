@@ -8,3 +8,5 @@ evaluation_results_V2/
 evaluation_results_irregular/
 evaluation_results_standard/
 evaluation_results_standard_uniform/
+inference_results/
+src/__pycache__/

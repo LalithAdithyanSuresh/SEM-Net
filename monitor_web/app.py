@@ -6,7 +6,7 @@ from flask import Flask, render_template, jsonify, send_from_directory
 
 app = Flask(__name__)
 
-RESULTS_DIR = os.path.abspath('../evaluation_results_standard_uniform/5_image_grid')
+RESULTS_DIR = os.path.abspath('../inference_results/sequential_direct/5_image_grid')
 
 def get_stats():
     files = glob.glob(os.path.join(RESULTS_DIR, '**/*.png'), recursive=True)

@@ -1,0 +1,1 @@
+./run_training_c2.sh: line 7: ./sync_to_gdrive.sh: No such file or directory

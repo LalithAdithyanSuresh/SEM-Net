@@ -131,8 +131,24 @@ def add_all_metrics():
     if not data:
         return jsonify({"error": "empty body"}), 400
 
-    all_metrics_data.append(data)
-    # Trim: never hold >50k entries in memory (~10MB)
+    iteration = data.get("iteration", 0)
+    bucket_idx = iteration // 300
+
+    if not all_metrics_data or all_metrics_data[-1].get('_bucket') != bucket_idx:
+        data['_bucket'] = bucket_idx
+        data['_count'] = 1
+        all_metrics_data.append(data)
+    else:
+        b = all_metrics_data[-1]
+        c = b['_count']
+        b['_count'] = c + 1
+        for k, v in data.items():
+            if isinstance(v, (int, float)) and k not in ['iteration', 'epoch', '_bucket', '_count']:
+                b[k] = (b[k] * c + v) / (c + 1)
+        b['iteration'] = iteration
+        b['epoch'] = data.get('epoch', b['epoch'])
+
+    # Trim: 50k buckets (15M iterations) is plenty
     if len(all_metrics_data) > 50000:
         del all_metrics_data[:-50000]
     return jsonify({"status": "success"})
@@ -141,8 +157,7 @@ def add_all_metrics():
 def get_all_metrics():
     """Return all structured metrics for the current session or an archived run."""
     run = request.args.get('run', '')
-    # Optional: thin the response — every Nth sample to keep payload manageable
-    n = max(1, int(request.args.get('thin', 1)))
+    after_iter = request.args.get('after', type=int, default=-1)
 
     if run:
         runs = load_runs()
@@ -150,8 +165,10 @@ def get_all_metrics():
     else:
         data = all_metrics_data
 
-    if n > 1:
-        data = data[::n]
+    # Delta fetch limit
+    if after_iter >= 0:
+        data = [d for d in data if d.get('iteration', 0) > after_iter]
+
     return jsonify(data)
 
 # ── Legacy metrics endpoint (kept for compat) ─────────────────────────
