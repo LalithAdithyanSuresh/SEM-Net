@@ -277,21 +277,14 @@ def index():
 @app.route('/api/mask_only/<model>/<size>/<image_name>')
 def api_mask_only(model, size, image_name):
     model_dir = os.path.join(DATA_DIR, model)
-    grid_dir = os.path.join(model_dir, '5_image_grid', size)
+    grid_mapping = get_grid_files(model_dir, size)
     
-    # Try to find the grid file that matches the image_id
-    img_id = image_name.split('_')[0]
-    grid_file = None
-    if os.path.exists(grid_dir):
-        for f in os.listdir(grid_dir):
-            if f.startswith(img_id):
-                grid_file = f
-                break
-                
+    grid_file = grid_mapping.get(image_name)
+    
     if not grid_file:
-        return "Grid not found", 404
+        return f"Grid not found for ID {image_name}", 404
         
-    grid_path = os.path.join(grid_dir, grid_file)
+    grid_path = os.path.join(model_dir, '5_image_grid', size, grid_file)
     try:
         with Image.open(grid_path) as img:
             W, H = img.size
