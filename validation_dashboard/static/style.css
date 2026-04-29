@@ -460,6 +460,30 @@ canvas {
     object-fit: contain;
 }
 
+.grid-placeholder {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    width: 100%;
+    background-color: rgba(0, 0, 0, 0.3);
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+
+.load-grid-btn {
+    background-color: var(--panel-bg);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 10px 20px;
+}
+
+.load-grid-btn:hover {
+    background-color: var(--bg-color);
+    border-color: var(--accent-color);
+}
+
 /* Voting Panel */
 .voting-panel {
     display: flex;

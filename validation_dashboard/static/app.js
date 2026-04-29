@@ -13,6 +13,7 @@ let state = {
     showHeatmap: false,
     showGT: false,
     lastSyncTime: 0,
+    autoLoadGrid: true,
     images: {
         m1: new Image(),
         gt: new Image(),
@@ -45,6 +46,7 @@ const elements = {
     
     settingsBtn: document.getElementById('settingsBtn'),
     settingsDropdown: document.getElementById('settingsDropdown'),
+    autoLoadGridSwitch: document.getElementById('autoLoadGridSwitch'),
     
     panelHeader1: document.getElementById('panelHeader1'),
     panelHeader2: document.getElementById('panelHeader2'),
@@ -257,8 +259,22 @@ function selectImage(item) {
     elements.m1PsnrBadge.textContent = `M1 PSNR: ${item.psnr_1.toFixed(2)}`;
     elements.m2PsnrBadge.textContent = `M2 PSNR: ${item.psnr_2.toFixed(2)}`;
     
-    elements.grid1Img.src = item.f1_grid || '';
-    elements.grid2Img.src = item.f2_grid || '';
+    // Update grid images or show placeholders
+    if (state.autoLoadGrid) {
+        document.getElementById('placeholder1').style.display = 'none';
+        document.getElementById('placeholder2').style.display = 'none';
+        elements.grid1Img.style.display = 'block';
+        elements.grid2Img.style.display = 'block';
+        elements.grid1Img.src = item.f1_grid;
+        elements.grid2Img.src = item.f2_grid;
+    } else {
+        document.getElementById('placeholder1').style.display = 'flex';
+        document.getElementById('placeholder2').style.display = 'flex';
+        elements.grid1Img.style.display = 'none';
+        elements.grid2Img.style.display = 'none';
+        elements.grid1Img.src = '';
+        elements.grid2Img.src = '';
+    }
     
     // Setup voting UI
     elements.voteComment.value = item.comment || '';
@@ -512,6 +528,11 @@ elements.model2Select.addEventListener('change', () => {
     fetchData();
 });
 
+elements.autoLoadGridSwitch.addEventListener('change', () => {
+    state.autoLoadGrid = elements.autoLoadGridSwitch.checked;
+    if (state.currentImg) selectImage(state.currentImg);
+});
+
 // Settings Toggle
 elements.settingsBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -708,6 +729,21 @@ window.addEventListener('keyup', (e) => {
         drawImages();
     }
 });
+
+// Global function for manual grid loading
+window.loadGrid = function(num) {
+    if (!state.currentImg) return;
+    
+    const placeholder = document.getElementById(`placeholder${num}`);
+    const img = document.getElementById(`grid${num}Img`);
+    const src = num === 1 ? state.currentImg.f1_grid : state.currentImg.f2_grid;
+    
+    if (placeholder && img && src) {
+        placeholder.style.display = 'none';
+        img.style.display = 'block';
+        img.src = src;
+    }
+};
 
 // Init
 fetchFolders();

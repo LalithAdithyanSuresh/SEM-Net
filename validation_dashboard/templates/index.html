@@ -102,6 +102,13 @@
                                             <span class="slider"></span>
                                         </label>
                                     </div>
+                                    <div class="switch-item">
+                                        <span>Auto-load Grids</span>
+                                        <label class="switch">
+                                            <input type="checkbox" id="autoLoadGridSwitch" checked>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
                                 </div>
                             </div>
                             <div class="settings-group">
@@ -156,13 +163,19 @@
                     <div class="grid-panel">
                         <div class="panel-header" id="gridHeader1">Model 1 - 5 Image Grid</div>
                         <div class="img-container">
-                            <img id="grid1Img" src="" alt="Model 1 Grid">
+                            <div class="grid-placeholder" id="placeholder1">
+                                <button class="btn btn-sm load-grid-btn" onclick="loadGrid(1)">Load Grid Image (400KB)</button>
+                            </div>
+                            <img id="grid1Img" src="" alt="Model 1 Grid" style="display:none;">
                         </div>
                     </div>
                     <div class="grid-panel">
                         <div class="panel-header" id="gridHeader2">Model 2 - 5 Image Grid</div>
                         <div class="img-container">
-                            <img id="grid2Img" src="" alt="Model 2 Grid">
+                            <div class="grid-placeholder" id="placeholder2">
+                                <button class="btn btn-sm load-grid-btn" onclick="loadGrid(2)">Load Grid Image (400KB)</button>
+                            </div>
+                            <img id="grid2Img" src="" alt="Model 2 Grid" style="display:none;">
                         </div>
                     </div>
                 </div>
