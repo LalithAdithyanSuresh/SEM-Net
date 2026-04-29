@@ -33,13 +33,17 @@ const elements = {
     m1PsnrBadge: document.getElementById('m1PsnrBadge'),
     m2PsnrBadge: document.getElementById('m2PsnrBadge'),
     
+    settingsContainer: document.querySelector('.settings-container'),
     viewScoredBtn: document.getElementById('viewScoredBtn'),
-    toggleGtBtn: document.getElementById('toggleGtBtn'),
+    gtSwitch: document.getElementById('gtSwitch'),
     toggleDiffBtn: document.getElementById('toggleDiffBtn'),
     resetZoomBtn: document.getElementById('resetZoomBtn'),
     sizeSelect: document.getElementById('sizeSelect'),
     model1Select: document.getElementById('model1Select'),
     model2Select: document.getElementById('model2Select'),
+    
+    settingsBtn: document.getElementById('settingsBtn'),
+    settingsDropdown: document.getElementById('settingsDropdown'),
     
     panelHeader1: document.getElementById('panelHeader1'),
     panelHeader2: document.getElementById('panelHeader2'),
@@ -502,6 +506,20 @@ elements.model2Select.addEventListener('change', () => {
     fetchData();
 });
 
+// Settings Toggle
+elements.settingsBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    elements.settingsDropdown.classList.toggle('show');
+    elements.settingsBtn.classList.toggle('active');
+});
+
+document.addEventListener('click', (e) => {
+    if (!elements.settingsContainer.contains(e.target)) {
+        elements.settingsDropdown.classList.remove('show');
+        elements.settingsBtn.classList.remove('active');
+    }
+});
+
 elements.viewScoredBtn.addEventListener('click', () => {
     elements.filterStatus.value = 'scored';
     applyFilters();
@@ -611,11 +629,11 @@ elements.voteTieBtn.addEventListener('click', () => saveVote('tie'));
 elements.voteM2Btn.addEventListener('click', () => saveVote('m2'));
 elements.saveVoteBtn.addEventListener('click', () => saveVote());
 
-elements.toggleGtBtn.addEventListener('click', () => {
-    if (elements.gtPanel.style.display === 'none') {
-        elements.gtPanel.style.display = 'flex';
-    } else {
+elements.gtSwitch.addEventListener('change', () => {
+    if (!elements.gtSwitch.checked) {
         elements.gtPanel.style.display = 'none';
+    } else {
+        elements.gtPanel.style.display = 'flex';
     }
     setTimeout(() => {
         if (state.scale === 1 || state.scale > 0) {

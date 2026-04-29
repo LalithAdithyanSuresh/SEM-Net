@@ -5,6 +5,7 @@ import requests
 import argparse
 import time
 import math
+import sys
 
 def upload_chunked(zip_path, host):
     CHUNK_SIZE = 50 * 1024 * 1024  # 50MB
@@ -13,7 +14,9 @@ def upload_chunked(zip_path, host):
     filename = os.path.basename(zip_path)
     upload_url = f"{host.rstrip('/')}/api/upload_chunk"
     
-    print(f"Uploading {zip_path} ({file_size / 1e6:.1f} MB) in {total_chunks} chunks...")
+    print(f"Uploading {zip_path} ({file_size / 1e6:.1f} MB) in {total_chunks} chunks...\n")
+    
+    start_time = time.time()
     
     with open(zip_path, 'rb') as f:
         for i in range(total_chunks):
@@ -23,7 +26,21 @@ def upload_chunked(zip_path, host):
             for attempt in range(retries):
                 try:
                     progress = (i + 1) / total_chunks * 100
-                    print(f"Uploading chunk {i+1}/{total_chunks} ({progress:.1f}%)" + (f" [Attempt {attempt+1}]" if attempt > 0 else ""))
+                    elapsed = time.time() - start_time
+                    
+                    if i > 0:
+                        speed = (i * CHUNK_SIZE) / elapsed
+                        eta = ((total_chunks - i) * CHUNK_SIZE) / speed if speed > 0 else 0
+                        eta_mins, eta_secs = divmod(int(eta), 60)
+                        eta_str = f"{eta_mins}m {eta_secs}s"
+                    else:
+                        eta_str = "Calculating..."
+                        
+                    status_line = f"\rUploading chunk {i+1}/{total_chunks} ({progress:.1f}%) - ETA: {eta_str}"
+                    if attempt > 0:
+                        status_line += f" [Attempt {attempt+1}]"
+                    sys.stdout.write(status_line.ljust(80))
+                    sys.stdout.flush()
                     
                     files = {'file': (filename, chunk_data, 'application/octet-stream')}
                     data = {
@@ -38,19 +55,19 @@ def upload_chunked(zip_path, host):
                     if response.status_code == 200:
                         break
                     else:
-                        print(f"  -> Failed with status {response.status_code}: {response.text}")
+                        print(f"\n  -> Failed with status {response.status_code}: {response.text}")
                         if attempt == retries - 1:
-                            print("Max retries reached. Upload aborted.")
+                            print("\nMax retries reached. Upload aborted.")
                             return
                         time.sleep(2)
                 except requests.exceptions.RequestException as e:
-                    print(f"  -> Network error: {e}")
+                    print(f"\n  -> Network error: {e}")
                     if attempt == retries - 1:
-                        print("Max retries reached. Upload aborted.")
+                        print("\nMax retries reached. Upload aborted.")
                         return
                     time.sleep(2)
                     
-    print("Upload and server-side extraction successful!")
+    print("\n\nUpload and server-side extraction successful!")
 
 def upload_path(path, host):
     if not host.startswith(('http://', 'https://')):

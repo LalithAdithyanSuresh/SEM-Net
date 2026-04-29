@@ -68,22 +68,49 @@
                     <span class="psnr-badge" id="m2PsnrBadge">M2 PSNR: --</span>
                 </div>
                 <div class="nav-right">
-                    <button id="viewScoredBtn" class="btn">View Scored Images</button>
-                    <button id="toggleGtBtn" class="btn">Toggle GT Panel</button>
-                    <button id="toggleDiffBtn" class="btn">Toggle Pixel Diff (M1 vs M2)</button>
-                    <button id="resetZoomBtn" class="btn">Reset Zoom</button>
-                    <select id="sizeSelect">
+                    <button id="toggleDiffBtn" class="btn">Toggle Pixel Diff</button>
+                    <select id="sizeSelect" class="category-select">
                         <option value="SMALL">SMALL</option>
                         <option value="MEDIUM">MEDIUM</option>
                         <option value="LARGE">LARGE</option>
                     </select>
-                    <select id="model1Select" class="model-select">
-                        <option value="">Loading...</option>
-                    </select>
-                    <span style="font-weight: bold;">VS</span>
-                    <select id="model2Select" class="model-select">
-                        <option value="">Loading...</option>
-                    </select>
+                    
+                    <div class="settings-container">
+                        <button id="settingsBtn" class="settings-btn" title="Settings">
+                            <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                        </button>
+                        <div id="settingsDropdown" class="settings-dropdown">
+                            <div class="settings-group">
+                                <h3>Model Selection</h3>
+                                <div class="model-selection-row">
+                                    <select id="model1Select" class="model-select">
+                                        <option value="">Loading...</option>
+                                    </select>
+                                    <span class="vs-text">VS</span>
+                                    <select id="model2Select" class="model-select">
+                                        <option value="">Loading...</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="settings-group">
+                                <h3>View Options</h3>
+                                <div class="toggle-row">
+                                    <div class="switch-item">
+                                        <span>Show GT Panel</span>
+                                        <label class="switch">
+                                            <input type="checkbox" id="gtSwitch" checked>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="settings-group">
+                                <h3>Tools</h3>
+                                <button id="viewScoredBtn" class="btn btn-block btn-outline">View Scored Images</button>
+                                <button id="resetZoomBtn" class="btn btn-block btn-outline">Reset Viewport</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </header>
 
