@@ -12,6 +12,7 @@ let state = {
     showMask: false,
     showHeatmap: false,
     showGT: false,
+    lastSyncTime: 0,
     images: {
         m1: new Image(),
         gt: new Image(),
@@ -494,14 +495,19 @@ elements.sortSelect.addEventListener('change', applyFilters);
 elements.filterPsnr1.addEventListener('input', applyFilters);
 elements.filterPsnr2.addEventListener('input', applyFilters);
 elements.filterStatus.addEventListener('change', applyFilters);
-elements.sizeSelect.addEventListener('change', fetchData);
+elements.sizeSelect.addEventListener('change', () => {
+    state.lastSyncTime = 0;
+    fetchData();
+});
 
 elements.model1Select.addEventListener('change', () => {
+    state.lastSyncTime = 0;
     updateModelLabels();
     fetchData();
 });
 
 elements.model2Select.addEventListener('change', () => {
+    state.lastSyncTime = 0;
     updateModelLabels();
     fetchData();
 });
@@ -588,30 +594,39 @@ async function syncVotes() {
     if (!m1 || !m2 || !state.data || state.data.length === 0) return;
     
     try {
-        const res = await fetch(`/api/votes_sync?size=${size}&model1=${m1}&model2=${m2}`);
+        const res = await fetch(`/api/votes_sync?size=${size}&model1=${m1}&model2=${m2}&since=${state.lastSyncTime}`);
         const dict = await res.json();
         
         let changed = false;
-        state.data.forEach(item => {
-            const voteData = dict[item.id] || {winner: null, comment: ''};
-            if (item.winner !== voteData.winner || item.comment !== voteData.comment) {
-                item.winner = voteData.winner;
-                item.comment = voteData.comment;
-                changed = true;
-                
-                // update current if looking at it
-                if (state.currentImg && state.currentImg.id === item.id) {
-                    elements.voteComment.value = item.comment;
-                    elements.voteM1Btn.classList.remove('selected');
-                    elements.voteTieBtn.classList.remove('selected');
-                    elements.voteM2Btn.classList.remove('selected');
+        let maxUpdatedAt = state.lastSyncTime;
+        
+        Object.entries(dict).forEach(([imgId, voteData]) => {
+            const item = state.data.find(d => d.id === imgId);
+            if (item) {
+                if (item.winner !== voteData.winner || item.comment !== voteData.comment) {
+                    item.winner = voteData.winner;
+                    item.comment = voteData.comment;
+                    changed = true;
                     
-                    if (item.winner === 'm1') elements.voteM1Btn.classList.add('selected');
-                    else if (item.winner === 'tie') elements.voteTieBtn.classList.add('selected');
-                    else if (item.winner === 'm2') elements.voteM2Btn.classList.add('selected');
+                    // update current if looking at it
+                    if (state.currentImg && state.currentImg.id === item.id) {
+                        elements.voteComment.value = item.comment;
+                        elements.voteM1Btn.classList.remove('selected');
+                        elements.voteTieBtn.classList.remove('selected');
+                        elements.voteM2Btn.classList.remove('selected');
+                        
+                        if (item.winner === 'm1') elements.voteM1Btn.classList.add('selected');
+                        else if (item.winner === 'tie') elements.voteTieBtn.classList.add('selected');
+                        else if (item.winner === 'm2') elements.voteM2Btn.classList.add('selected');
+                    }
                 }
             }
+            if (voteData.updated_at > maxUpdatedAt) {
+                maxUpdatedAt = voteData.updated_at;
+            }
         });
+        
+        state.lastSyncTime = maxUpdatedAt;
         
         if (changed) {
             applyFilters();

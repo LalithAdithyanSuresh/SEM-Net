@@ -36,6 +36,15 @@ def init_db():
         c.execute('''CREATE TABLE IF NOT EXISTS votes
                      (image_id TEXT, size TEXT, model1 TEXT, model2 TEXT, winner TEXT, comment TEXT, PRIMARY KEY(image_id, size, model1, model2))''')
         conn.commit()
+    
+    # Ensure updated_at column exists
+    c.execute("PRAGMA table_info(votes)")
+    columns = [col[1] for col in c.fetchall()]
+    if 'updated_at' not in columns:
+        print("Adding updated_at column...")
+        c.execute("ALTER TABLE votes ADD COLUMN updated_at INTEGER DEFAULT 0")
+        conn.commit()
+        
     conn.close()
 
 init_db()
@@ -125,17 +134,19 @@ def api_votes_sync():
     size = request.args.get('size', 'SMALL')
     model1 = request.args.get('model1')
     model2 = request.args.get('model2')
+    since = int(request.args.get('since', 0))
     
     if not model1 or not model2:
         return jsonify({})
         
     conn = sqlite3.connect('validation_results.db')
     c = conn.cursor()
-    c.execute('SELECT image_id, winner, comment FROM votes WHERE size=? AND model1=? AND model2=?', (size, model1, model2))
+    c.execute('SELECT image_id, winner, comment, updated_at FROM votes WHERE size=? AND model1=? AND model2=? AND updated_at > ?', 
+              (size, model1, model2, since))
     votes_rows = c.fetchall()
     conn.close()
     
-    votes_dict = {row[0]: {'winner': row[1], 'comment': row[2]} for row in votes_rows}
+    votes_dict = {row[0]: {'winner': row[1], 'comment': row[2], 'updated_at': row[3]} for row in votes_rows}
     return jsonify(votes_dict)
 
 @app.route('/api/vote', methods=['POST'])
@@ -148,16 +159,19 @@ def api_vote():
     winner = data.get('winner')
     comment = data.get('comment', '')
     
+    import time
+    updated_at = int(time.time())
+    
     if not image_id or not size or not model1 or not model2:
         return jsonify({'error': 'Missing required fields'}), 400
         
     conn = sqlite3.connect('validation_results.db')
     c = conn.cursor()
-    c.execute('''INSERT INTO votes (image_id, size, model1, model2, winner, comment) 
-                 VALUES (?, ?, ?, ?, ?, ?)
+    c.execute('''INSERT INTO votes (image_id, size, model1, model2, winner, comment, updated_at) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(image_id, size, model1, model2) 
-                 DO UPDATE SET winner=excluded.winner, comment=excluded.comment''',
-              (image_id, size, model1, model2, winner, comment))
+                 DO UPDATE SET winner=excluded.winner, comment=excluded.comment, updated_at=excluded.updated_at''',
+              (image_id, size, model1, model2, winner, comment, updated_at))
     conn.commit()
     conn.close()
     
