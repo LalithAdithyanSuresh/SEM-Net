@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inpainting Validation Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar for Image List -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>Images</h2>
+                <div class="controls">
+                    <input type="text" id="searchInput" placeholder="Search by ID...">
+                    
+                    <div class="filter-group">
+                        <label>Sort By:</label>
+                        <select id="sortSelect">
+                            <option value="id_asc">ID (Asc)</option>
+                            <option value="id_desc">ID (Desc)</option>
+                            <option value="psnr1_asc">Model 1 PSNR (Asc)</option>
+                            <option value="psnr1_desc">Model 1 PSNR (Desc)</option>
+                            <option value="psnr2_asc">Model 2 PSNR (Asc)</option>
+                            <option value="psnr2_desc">Model 2 PSNR (Desc)</option>
+                            <option value="diff_psnr_desc">Diff PSNR (M1 - M2)</option>
+                        </select>
+                    </div>
+
+                    <div class="filter-group">
+                        <label>Filter PSNR 1 >= :</label>
+                        <input type="number" id="filterPsnr1" placeholder="e.g. 30" step="0.1">
+                    </div>
+                    <div class="filter-group">
+                        <label>Filter PSNR 2 >= :</label>
+                        <input type="number" id="filterPsnr2" placeholder="e.g. 30" step="0.1">
+                    </div>
+                    <div class="filter-group">
+                        <label>Status:</label>
+                        <select id="filterStatus">
+                            <option value="all">All</option>
+                            <option value="unscored">Unscored</option>
+                            <option value="scored">Any Scored</option>
+                            <option value="m1">ONLY VA MAMBA Won</option>
+                            <option value="m2">VA + DA MAMBA Won</option>
+                            <option value="tie">Tie</option>
+                            <option value="commented">Has Comment</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="stats" id="statsDisplay">Loading...</div>
+            </div>
+            <div class="image-list" id="imageList">
+                <!-- List items injected by JS -->
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Top Navbar in Main Content -->
+            <header class="navbar">
+                <div class="nav-left">
+                    <h1 id="currentImageTitle">Select an image</h1>
+                    <span class="psnr-badge" id="maskPercentageBadge">Mask: --%</span>
+                    <span class="psnr-badge" id="m1PsnrBadge">M1 PSNR: --</span>
+                    <span class="psnr-badge" id="m2PsnrBadge">M2 PSNR: --</span>
+                </div>
+                <div class="nav-right">
+                    <button id="viewScoredBtn" class="btn">View Scored Images</button>
+                    <button id="toggleGtBtn" class="btn">Toggle GT Panel</button>
+                    <button id="toggleDiffBtn" class="btn">Toggle Pixel Diff (M1 vs M2)</button>
+                    <button id="resetZoomBtn" class="btn">Reset Zoom</button>
+                    <select id="sizeSelect">
+                        <option value="SMALL">SMALL</option>
+                        <option value="MEDIUM">MEDIUM</option>
+                        <option value="LARGE">LARGE</option>
+                    </select>
+                    <select id="model1Select" class="model-select">
+                        <option value="">Loading...</option>
+                    </select>
+                    <span style="font-weight: bold;">VS</span>
+                    <select id="model2Select" class="model-select">
+                        <option value="">Loading...</option>
+                    </select>
+                </div>
+            </header>
+
+            <!-- Viewer Area -->
+            <div class="viewer-container">
+                <!-- Split View -->
+                <div class="split-view" id="splitView">
+                    <div class="panel">
+                        <div class="panel-header" id="panelHeader1">Model 1</div>
+                        <div class="canvas-container" id="container1">
+                            <canvas id="canvas1"></canvas>
+                        </div>
+                    </div>
+                    <div class="panel" id="gtPanel">
+                        <div class="panel-header">Ground Truth (GT)</div>
+                        <div class="canvas-container" id="containerGT">
+                            <canvas id="canvasGT"></canvas>
+                        </div>
+                    </div>
+                    <div class="panel">
+                        <div class="panel-header" id="panelHeader2">Model 2</div>
+                        <div class="canvas-container" id="container2">
+                            <canvas id="canvas2"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Voting and Comments Panel -->
+                <div class="voting-panel" id="votingPanel">
+                    <div class="vote-buttons">
+                        <button id="voteM1Btn" class="btn vote-btn">🏆 <span id="voteText1">Model 1</span> Wins</button>
+                        <button id="voteTieBtn" class="btn vote-btn">⚖️ Tie / Unsure</button>
+                        <button id="voteM2Btn" class="btn vote-btn">🏆 <span id="voteText2">Model 2</span> Wins</button>
+                    </div>
+                    <div class="comment-section">
+                        <textarea id="voteComment" placeholder="Add a comment about why..."></textarea>
+                        <button id="saveVoteBtn" class="btn">Save Comment</button>
+                    </div>
+                </div>
+
+                <!-- Bottom Grids -->
+                <div class="bottom-grids" id="bottomGrids">
+                    <div class="grid-panel">
+                        <div class="panel-header" id="gridHeader1">Model 1 - 5 Image Grid</div>
+                        <div class="img-container">
+                            <img id="grid1Img" src="" alt="Model 1 Grid">
+                        </div>
+                    </div>
+                    <div class="grid-panel">
+                        <div class="panel-header" id="gridHeader2">Model 2 - 5 Image Grid</div>
+                        <div class="img-container">
+                            <img id="grid2Img" src="" alt="Model 2 Grid">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Hidden canvas for difference calculation -->
+    <canvas id="hiddenCanvas1" style="display:none;"></canvas>
+    <canvas id="hiddenCanvas2" style="display:none;"></canvas>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
