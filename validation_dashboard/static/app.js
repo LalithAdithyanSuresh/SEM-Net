@@ -17,7 +17,8 @@ let state = {
     images: {
         m1: new Image(),
         gt: new Image(),
-        m2: new Image()
+        m2: new Image(),
+        mask: new Image()
     }
 };
 
@@ -303,10 +304,14 @@ function loadCanvases(item) {
     state.images.m1.onload = checkLoaded;
     state.images.gt.onload = checkLoaded;
     state.images.m2.onload = checkLoaded;
+    state.images.mask.onload = drawImages; // Redraw when mask arrives
     
     state.images.m1.src = item.f1_fake;
     state.images.gt.src = item.gt;
     state.images.m2.src = item.f2_fake;
+    
+    const m1_name = elements.model1Select.value;
+    state.images.mask.src = `/api/mask_only/${m1_name}/${elements.sizeSelect.value}/${item.id}`;
 }
 
 function drawImages() {
@@ -359,8 +364,8 @@ function drawImages() {
     }
     
     // Calculate and display mask percentage
-    if (elements.grid1Img.complete && elements.grid1Img.naturalWidth > 0) {
-        contexts.h1.drawImage(elements.grid1Img, w, 0, w, h, 0, 0, w, h);
+    if (state.images.mask.complete && state.images.mask.naturalWidth > 0) {
+        contexts.h1.drawImage(state.images.mask, 0, 0, w, h);
         const maskData = contexts.h1.getImageData(0, 0, w, h).data;
         let whiteCount = 0;
         for (let i = 0; i < maskData.length; i += 4) {
@@ -374,13 +379,11 @@ function drawImages() {
         elements.maskPercentageBadge.textContent = `Mask: --%`;
     }
     
-    if (state.showMask && elements.grid1Img.complete) {
-        // The masked image is the 2nd image in the 5-image grid
+    if (state.showMask && state.images.mask.complete) {
         [contexts.c1, contexts.cGT, contexts.c2].forEach(ctx => {
-            ctx.drawImage(elements.grid1Img, w, 0, w, h, 0, 0, w, h);
+            ctx.drawImage(state.images.mask, 0, 0, w, h);
         });
-    } else if (state.showHeatmap && elements.grid1Img.complete) {
-        contexts.h1.drawImage(elements.grid1Img, w, 0, w, h, 0, 0, w, h);
+    } else if (state.showHeatmap && state.images.mask.complete) {
         const maskData = contexts.h1.getImageData(0, 0, w, h).data;
         const gtData = contexts.cGT.getImageData(0, 0, w, h).data;
         

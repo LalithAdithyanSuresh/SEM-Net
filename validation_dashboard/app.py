@@ -2,12 +2,15 @@ import os
 import glob
 import pandas as pd
 pd.options.compute.use_bottleneck = False
+import json
 import sqlite3
 import zipfile
 import shutil
+import io
+from PIL import Image
 from werkzeug.utils import secure_filename
 
-from flask import Flask, jsonify, render_template, request, send_from_directory
+from flask import Flask, jsonify, render_template, request, send_from_directory, send_file
 
 app = Flask(__name__)
 
@@ -270,6 +273,39 @@ def serve_image(model_name, filename):
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/api/mask_only/<model>/<size>/<image_name>')
+def api_mask_only(model, size, image_name):
+    model_dir = os.path.join(DATA_DIR, model)
+    grid_dir = os.path.join(model_dir, '5_image_grid', size)
+    
+    # Try to find the grid file that matches the image_id
+    img_id = image_name.split('_')[0]
+    grid_file = None
+    if os.path.exists(grid_dir):
+        for f in os.listdir(grid_dir):
+            if f.startswith(img_id):
+                grid_file = f
+                break
+                
+    if not grid_file:
+        return "Grid not found", 404
+        
+    grid_path = os.path.join(grid_dir, grid_file)
+    try:
+        with Image.open(grid_path) as img:
+            W, H = img.size
+            w = W // 5 # Assume 5-image layout
+            # Crop the 2nd image (masked input)
+            mask_crop = img.crop((w, 0, 2*w, H))
+            
+            # Save to buffer
+            buf = io.BytesIO()
+            mask_crop.save(buf, format='PNG', optimize=True)
+            buf.seek(0)
+            return send_file(buf, mimetype='image/png')
+    except Exception as e:
+        return str(e), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5003, debug=True)
