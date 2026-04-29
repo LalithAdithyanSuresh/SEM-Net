@@ -381,7 +381,10 @@ function drawImages() {
     
     if (state.showMask && state.images.mask.complete) {
         [contexts.c1, contexts.cGT, contexts.c2].forEach(ctx => {
+            // Use 'lighten' to overlay the white mask while keeping the image in black areas
+            ctx.globalCompositeOperation = 'lighten';
             ctx.drawImage(state.images.mask, 0, 0, w, h);
+            ctx.globalCompositeOperation = 'source-over'; // Reset
         });
     } else if (state.showHeatmap && state.images.mask.complete) {
         const maskData = contexts.h1.getImageData(0, 0, w, h).data;
