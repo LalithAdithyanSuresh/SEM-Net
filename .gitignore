@@ -7,3 +7,4 @@ checkpoints_places/
 src/__pycache__/
 evaluation_results*/
 inference_results/
+*.zip

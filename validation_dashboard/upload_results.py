@@ -3,41 +3,86 @@ import sys
 import shutil
 import requests
 import argparse
+import time
+import math
 
-def upload_folder(folder_path, host):
-    if not os.path.isdir(folder_path):
-        print(f"Error: {folder_path} is not a valid directory.")
+def upload_chunked(zip_path, host):
+    CHUNK_SIZE = 50 * 1024 * 1024  # 50MB
+    file_size = os.path.getsize(zip_path)
+    total_chunks = math.ceil(file_size / CHUNK_SIZE)
+    filename = os.path.basename(zip_path)
+    upload_url = f"{host.rstrip('/')}/api/upload_chunk"
+    
+    print(f"Uploading {zip_path} ({file_size / 1e6:.1f} MB) in {total_chunks} chunks...")
+    
+    with open(zip_path, 'rb') as f:
+        for i in range(total_chunks):
+            chunk_data = f.read(CHUNK_SIZE)
+            retries = 3
+            
+            for attempt in range(retries):
+                try:
+                    progress = (i + 1) / total_chunks * 100
+                    print(f"Uploading chunk {i+1}/{total_chunks} ({progress:.1f}%)" + (f" [Attempt {attempt+1}]" if attempt > 0 else ""))
+                    
+                    files = {'file': (filename, chunk_data, 'application/octet-stream')}
+                    data = {
+                        'filename': filename,
+                        'chunk_index': i,
+                        'total_chunks': total_chunks
+                    }
+                    
+                    # 60s timeout for a 50MB chunk
+                    response = requests.post(upload_url, files=files, data=data, timeout=60)
+                    
+                    if response.status_code == 200:
+                        break
+                    else:
+                        print(f"  -> Failed with status {response.status_code}: {response.text}")
+                        if attempt == retries - 1:
+                            print("Max retries reached. Upload aborted.")
+                            return
+                        time.sleep(2)
+                except requests.exceptions.RequestException as e:
+                    print(f"  -> Network error: {e}")
+                    if attempt == retries - 1:
+                        print("Max retries reached. Upload aborted.")
+                        return
+                    time.sleep(2)
+                    
+    print("Upload and server-side extraction successful!")
+
+def upload_path(path, host):
+    if not host.startswith(('http://', 'https://')):
+        host = 'https://' + host
+
+    cleanup = False
+    if os.path.isdir(path):
+        folder_name = os.path.basename(os.path.normpath(path))
+        zip_path = f"{folder_name}.zip"
+        print(f"Zipping {path} to {zip_path}...")
+        shutil.make_archive(folder_name, 'zip', path)
+        cleanup = True
+    elif os.path.isfile(path) and path.endswith('.zip'):
+        zip_path = path
+        print(f"Using existing zip file: {zip_path}")
+    else:
+        print(f"Error: {path} must be a valid directory or a .zip file.")
         return
         
-    folder_name = os.path.basename(os.path.normpath(folder_path))
-    zip_path = f"{folder_name}.zip"
-    
-    print(f"Zipping {folder_path} to {zip_path}...")
-    shutil.make_archive(folder_name, 'zip', folder_path)
-    
-    upload_url = f"{host.rstrip('/')}/api/upload"
-    
-    print(f"Uploading {zip_path} to {upload_url}...")
     try:
-        with open(zip_path, 'rb') as f:
-            files = {'file': (zip_path, f, 'application/zip')}
-            response = requests.post(upload_url, files=files)
-            
-        if response.status_code == 200:
-            print("Upload successful!")
-        else:
-            print(f"Upload failed with status {response.status_code}: {response.text}")
+        upload_chunked(zip_path, host)
     except Exception as e:
         print(f"An error occurred: {e}")
     finally:
-        if os.path.exists(zip_path):
+        if cleanup and os.path.exists(zip_path):
             os.remove(zip_path)
             print("Cleaned up temporary zip file.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Upload validation results to the dashboard server.")
-    parser.add_argument("folder", help="Path to the folder containing results (e.g. inference_results/deterministic_strided)")
-    parser.add_argument("--host", default="http://localhost:5003", help="URL of the dashboard server (e.g. https://validate.lalithadithyan.dev)")
+    parser.add_argument("path", help="Path to the folder or .zip file containing results")
+    parser.add_argument("--host", default="http://localhost:5003", help="URL of the dashboard server")
     
     args = parser.parse_args()
-    upload_folder(args.folder, args.host)
+    upload_path(args.path, args.host)

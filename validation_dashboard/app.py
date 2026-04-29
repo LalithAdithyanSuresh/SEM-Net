@@ -4,6 +4,7 @@ import pandas as pd
 pd.options.compute.use_bottleneck = False
 import sqlite3
 import zipfile
+import shutil
 from werkzeug.utils import secure_filename
 
 from flask import Flask, jsonify, render_template, request, send_from_directory
@@ -161,6 +162,62 @@ def api_vote():
     conn.close()
     
     return jsonify({'success': True})
+
+@app.route('/api/upload_chunk', methods=['POST'])
+def api_upload_chunk():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+        
+    file = request.files['file']
+    filename = secure_filename(request.form.get('filename', ''))
+    
+    try:
+        chunk_index = int(request.form.get('chunk_index', -1))
+        total_chunks = int(request.form.get('total_chunks', -1))
+    except ValueError:
+        return jsonify({'error': 'Invalid chunk metadata'}), 400
+    
+    if not filename or chunk_index < 0 or total_chunks <= 0:
+        return jsonify({'error': 'Missing metadata'}), 400
+        
+    temp_dir = os.path.join(DATA_DIR, f"temp_{filename}")
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    chunk_path = os.path.join(temp_dir, str(chunk_index))
+    file.save(chunk_path)
+    
+    # Check if all chunks have been received
+    downloaded_chunks = len(os.listdir(temp_dir))
+    if downloaded_chunks == total_chunks:
+        final_zip_path = os.path.join(DATA_DIR, filename)
+        try:
+            with open(final_zip_path, 'wb') as outfile:
+                for i in range(total_chunks):
+                    cp = os.path.join(temp_dir, str(i))
+                    with open(cp, 'rb') as infile:
+                        shutil.copyfileobj(infile, outfile)
+            
+            # Clean up chunks
+            shutil.rmtree(temp_dir)
+            
+            # Extract
+            extract_dir = os.path.join(DATA_DIR, filename.replace('.zip', ''))
+            os.makedirs(extract_dir, exist_ok=True)
+            
+            with zipfile.ZipFile(final_zip_path, 'r') as zip_ref:
+                zip_ref.extractall(DATA_DIR)
+                
+            os.remove(final_zip_path)
+            return jsonify({'success': True, 'message': 'Upload and extraction complete'})
+            
+        except Exception as e:
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+            if os.path.exists(final_zip_path):
+                os.remove(final_zip_path)
+            return jsonify({'error': f'Assembly failed: {str(e)}'}), 500
+            
+    return jsonify({'success': True, 'message': f'Chunk {chunk_index} received'})
 
 @app.route('/api/upload', methods=['POST'])
 def api_upload():
