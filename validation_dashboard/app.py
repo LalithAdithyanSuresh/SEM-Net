@@ -278,7 +278,6 @@ def index():
 def api_mask_only(model, size, image_name):
     model_dir = os.path.join(DATA_DIR, model)
     grid_mapping = get_grid_files(model_dir, size)
-    
     grid_file = grid_mapping.get(image_name)
     
     if not grid_file:
@@ -288,13 +287,14 @@ def api_mask_only(model, size, image_name):
     try:
         with Image.open(grid_path) as img:
             W, H = img.size
-            w = W // 5 # Assume 5-image layout
+            w = W // 5
             # Crop the 2nd image (masked input)
             mask_crop = img.crop((w, 0, 2*w, H))
+            # Convert to binary (Black & White) - threshold > 250
+            mask_binary = mask_crop.convert('L').point(lambda p: 255 if p > 250 else 0)
             
-            # Save to buffer
             buf = io.BytesIO()
-            mask_crop.save(buf, format='PNG', optimize=True)
+            mask_binary.save(buf, format='PNG', optimize=True)
             buf.seek(0)
             return send_file(buf, mimetype='image/png')
     except Exception as e:
