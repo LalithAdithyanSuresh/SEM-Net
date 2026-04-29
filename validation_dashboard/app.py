@@ -7,6 +7,7 @@ import sqlite3
 import zipfile
 import shutil
 import io
+import numpy as np
 from PIL import Image
 from werkzeug.utils import secure_filename
 
@@ -49,6 +50,56 @@ def init_db():
         conn.commit()
         
     conn.close()
+
+# --- Mask Indexing Logic (Matches evaluate_GPT.py) ---
+indexed_masks_cache = None
+
+def get_indexed_masks():
+    global indexed_masks_cache
+    if indexed_masks_cache is not None:
+        return indexed_masks_cache
+        
+    # Search for masks in cloud-portable and local paths
+    possible_paths = [
+        os.path.join(DATA_DIR, 'masks'),
+        "/mnt/datadrive/inpaint/iregularmask/test_mask/mask/testing_mask_dataset"
+    ]
+    
+    mask_dir = None
+    for p in possible_paths:
+        if os.path.exists(p):
+            mask_dir = p
+            break
+            
+    if not mask_dir:
+        print("Warning: No mask directory found in search paths!")
+        return {'SMALL': [], 'MEDIUM': [], 'LARGE': []}
+        
+    print(f"Indexing original masks from {mask_dir}...")
+    categories = {'SMALL': [], 'MEDIUM': [], 'LARGE': []}
+    
+    mask_files = [f for f in os.listdir(mask_dir) if f.endswith(('.png', '.jpg', '.jpeg'))]
+    mask_files.sort()
+    
+    for f in mask_files:
+        mask_path = os.path.join(mask_dir, f)
+        try:
+            with Image.open(mask_path) as mask_img:
+                mask_np = np.array(mask_img.convert('L'))
+                ratio = np.mean(mask_np) / 255.0
+                
+                if 0.01 < ratio <= 0.20:
+                    categories['SMALL'].append(mask_path)
+                elif 0.20 < ratio <= 0.40:
+                    categories['MEDIUM'].append(mask_path)
+                elif 0.40 < ratio <= 0.60:
+                    categories['LARGE'].append(mask_path)
+        except:
+            continue
+                
+    indexed_masks_cache = categories
+    print("Mask indexing complete.")
+    return categories
 
 init_db()
 
@@ -276,25 +327,47 @@ def index():
 
 @app.route('/api/mask_only/<model>/<size>/<image_name>')
 def api_mask_only(model, size, image_name):
-    model_dir = os.path.join(DATA_DIR, model)
-    grid_mapping = get_grid_files(model_dir, size)
-    grid_file = grid_mapping.get(image_name)
-    
-    if not grid_file:
-        return f"Grid not found for ID {image_name}", 404
+    # 1. Identify the index of the image in the current category
+    # We use the fid_real folder as the reference for alphabetical order
+    real_dir = os.path.join(DATA_DIR, model, f'fid_real_{size}')
+    if not os.path.exists(real_dir):
+        return "Category directory not found", 404
         
-    grid_path = os.path.join(model_dir, '5_image_grid', size, grid_file)
+    all_images = [f for f in os.listdir(real_dir) if f.endswith(('.png', '.jpg'))]
+    all_images.sort()
+    
+    image_filename = None
+    for f in all_images:
+        if f.startswith(image_name): # image_name is the ID
+            image_filename = f
+            break
+            
+    if not image_filename:
+        return f"Image {image_name} not found in category {size}", 404
+        
+    img_index = all_images.index(image_filename)
+    
+    # 2. Get the corresponding mask using the same formula as inference
+    indexed_masks = get_indexed_masks()
+    cat_masks = indexed_masks.get(size, [])
+    
+    if not cat_masks:
+        return f"No masks found for category {size}", 404
+        
+    # Formula: indexed_masks[cat][(index * 2) % len(indexed_masks[cat])]
+    mask_path = cat_masks[(img_index * 2) % len(cat_masks)]
+    
     try:
-        with Image.open(grid_path) as img:
-            W, H = img.size
-            w = W // 5
-            # Crop the 2nd image (masked input)
-            mask_crop = img.crop((w, 0, 2*w, H))
-            # Convert to binary (Black & White) - threshold > 250
-            mask_binary = mask_crop.convert('L').point(lambda p: 255 if p > 250 else 0)
+        with Image.open(mask_path) as mask_img:
+            # We must ensure the mask is the same size as the results (usually 256x256 or 512x512)
+            # We'll check the size of the real image to match
+            with Image.open(os.path.join(real_dir, image_filename)) as ref_img:
+                w, h = ref_img.size
+            
+            mask_resized = mask_img.convert('L').resize((w, h), Image.NEAREST)
             
             buf = io.BytesIO()
-            mask_binary.save(buf, format='PNG', optimize=True)
+            mask_resized.save(buf, format='PNG', optimize=True)
             buf.seek(0)
             return send_file(buf, mimetype='image/png')
     except Exception as e:

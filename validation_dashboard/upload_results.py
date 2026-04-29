@@ -69,13 +69,13 @@ def upload_chunked(zip_path, host):
                     
     print("\n\nUpload and server-side extraction successful!")
 
-def upload_path(path, host):
+def upload_path(path, host, target_name=None):
     if not host.startswith(('http://', 'https://')):
-        host = 'https://' + host
+        host = 'http://' + host # Default to http for local/custom domains
 
     cleanup = False
     if os.path.isdir(path):
-        folder_name = os.path.basename(os.path.normpath(path))
+        folder_name = target_name or os.path.basename(os.path.normpath(path))
         zip_path = f"{folder_name}.zip"
         print(f"Zipping {path} to {zip_path}...")
         shutil.make_archive(folder_name, 'zip', path)
@@ -98,8 +98,17 @@ def upload_path(path, host):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Upload validation results to the dashboard server.")
-    parser.add_argument("path", help="Path to the folder or .zip file containing results")
-    parser.add_argument("--host", default="http://localhost:5003", help="URL of the dashboard server")
+    parser.add_argument("path", nargs='?', help="Path to the folder or .zip file containing results")
+    parser.add_argument("--host", default="http://validate.lalithadithyan.dev", help="URL of the dashboard server")
+    parser.add_argument("--masks", help="Path to the original mask directory to upload")
     
     args = parser.parse_args()
-    upload_path(args.path, args.host)
+    
+    if args.masks:
+        print(f"Targeting masks folder: {args.masks}")
+        upload_path(args.masks, args.host, target_name="masks")
+    
+    if args.path:
+        upload_path(args.path, args.host)
+    elif not args.masks:
+        parser.print_help()
