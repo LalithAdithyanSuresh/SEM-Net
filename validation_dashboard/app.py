@@ -62,17 +62,27 @@ def get_indexed_masks():
     # Search for masks in cloud-portable and local paths
     possible_paths = [
         os.path.join(DATA_DIR, 'masks'),
+        os.path.join(DATA_DIR, 'testing_mask_dataset'),
         "/mnt/datadrive/inpaint/iregularmask/test_mask/mask/testing_mask_dataset"
     ]
     
     mask_dir = None
     for p in possible_paths:
-        if os.path.exists(p):
-            mask_dir = p
-            break
+        if os.path.exists(p) and os.path.isdir(p):
+            # Check if it has images directly
+            if any(f.lower().endswith(('.png', '.jpg', '.jpeg')) for f in os.listdir(p)):
+                mask_dir = p
+                break
+            # Check for one level deeper (common zip artifact)
+            for sub in os.listdir(p):
+                sub_p = os.path.join(p, sub)
+                if os.path.isdir(sub_p) and any(f.lower().endswith(('.png', '.jpg', '.jpeg')) for f in os.listdir(sub_p)):
+                    mask_dir = sub_p
+                    break
+            if mask_dir: break
             
     if not mask_dir:
-        print("Warning: No mask directory found in search paths!")
+        print(f"Warning: No mask directory found! Searched: {possible_paths}")
         return {'SMALL': [], 'MEDIUM': [], 'LARGE': []}
         
     print(f"Indexing original masks from {mask_dir}...")

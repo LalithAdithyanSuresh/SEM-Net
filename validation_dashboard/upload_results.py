@@ -71,7 +71,8 @@ def upload_chunked(zip_path, host):
 
 def upload_path(path, host, target_name=None):
     if not host.startswith(('http://', 'https://')):
-        host = 'http://' + host # Default to http for local/custom domains
+        # Prefer https to avoid 405 redirect issues
+        host = 'https://' + host
 
     cleanup = False
     if os.path.isdir(path):
@@ -105,8 +106,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     if args.masks:
-        print(f"Targeting masks folder: {args.masks}")
-        upload_path(args.masks, args.host, target_name="masks")
+        if os.path.isdir(args.masks):
+            print(f"Targeting masks folder: {args.masks}")
+            upload_path(args.masks, args.host, target_name="masks")
+        elif os.path.isfile(args.masks) and args.masks.endswith('.zip'):
+            print(f"Targeting existing masks zip: {args.masks}")
+            upload_chunked(args.masks, args.host)
+        else:
+            print(f"Error: {args.masks} must be a directory or a masks.zip file.")
     
     if args.path:
         upload_path(args.path, args.host)
