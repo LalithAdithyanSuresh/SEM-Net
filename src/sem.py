@@ -233,158 +233,169 @@ class sem():
                     create_dir(path_val)
                     
                     self.inpaint_model.eval()
-                    val_loader = DataLoader(dataset=self.test_dataset, batch_size=1, num_workers=0, shuffle=False)
                     import matplotlib.pyplot as plt
                     import io
                     import numpy as np
+                    from torch.utils.data import Subset
+
+                    # 5 from start + 5 from end of test dataset
+                    n_test      = len(self.test_dataset)
+                    first_idx   = list(range(min(5, n_test)))
+                    last_idx    = list(range(max(0, n_test - 5), n_test))
+                    all_indices = list(dict.fromkeys(first_idx + last_idx))
+                    val_loader  = DataLoader(dataset=Subset(self.test_dataset, all_indices),
+                                             batch_size=1, num_workers=0, shuffle=False)
+
+                    # ── Helper: render one scan-path panel ────────────────────
+                    def _draw_path_panel(scan_orders, mask_np, bg_pil, patch_size, img_size, hole_only=False):
+                        from matplotlib.collections import LineCollection
+                        fig = plt.figure(figsize=(img_size[0]/100, img_size[1]/100), dpi=100)
+                        ax  = fig.add_axes([0, 0, 1, 1])
+                        ax.axis('off')
+                        if hole_only:
+                            ax.imshow(np.zeros((img_size[1], img_size[0], 3), dtype=np.uint8))
+                        else:
+                            ax.imshow(np.array(bg_pil))
+                        if scan_orders:
+                            H_m, W_m = mask_np.shape
+                            y_all = np.array([r * patch_size + patch_size/2.0 for r, c in scan_orders])
+                            x_all = np.array([c * patch_size + patch_size/2.0 for r, c in scan_orders])
+                            if hole_only:
+                                keep = [k for k, (r, c) in enumerate(scan_orders)
+                                        if mask_np[min(int(r*patch_size+patch_size//2), H_m-1),
+                                                   min(int(c*patch_size+patch_size//2), W_m-1)] > 0.5]
+                                if not keep:
+                                    plt.close(fig)
+                                    return Image.new('RGB', img_size, (30, 30, 30))
+                                y_coords, x_coords = y_all[keep], x_all[keep]
+                            else:
+                                y_coords, x_coords = y_all, x_all
+                            pts  = np.array([x_coords, y_coords]).T.reshape(-1, 1, 2)
+                            segs = np.concatenate([pts[:-1], pts[1:]], axis=1)
+                            lc   = LineCollection(segs, cmap='rainbow',
+                                                  norm=plt.Normalize(0, len(x_coords)),
+                                                  alpha=0.80, linewidths=1.5)
+                            lc.set_array(np.arange(len(x_coords)))
+                            ax.add_collection(lc)
+                            if len(x_coords) > 0:
+                                ax.scatter([x_coords[0]],  [y_coords[0]],  color='lime', s=45, zorder=5, edgecolors='black')
+                                ax.scatter([x_coords[-1]], [y_coords[-1]], color='red',  s=45, zorder=5, edgecolors='black')
+                                step = max(1, len(x_coords) // 15)
+                                for k in range(0, len(x_coords)-1, step):
+                                    ddx = x_coords[k+1]-x_coords[k]; ddy = y_coords[k+1]-y_coords[k]
+                                    dist = np.hypot(ddx, ddy)
+                                    if dist > 0:
+                                        ax.arrow(x_coords[k], y_coords[k],
+                                                 (ddx/dist)*(patch_size*0.45), (ddy/dist)*(patch_size*0.45),
+                                                 color='white', head_width=patch_size*0.4, alpha=1.0, zorder=6)
+                        buf = io.BytesIO()
+                        plt.savefig(buf, format='png', dpi=100)
+                        plt.close(fig)
+                        buf.seek(0)
+                        return Image.open(buf).convert('RGB').resize(img_size)
 
                     val_count = 0
                     for val_items in val_loader:
-                        if val_count >= 5: break
                         val_images, val_masks = self.cuda(*val_items)
                         val_inputs = (val_images * (1 - val_masks)) + val_masks
                         with torch.no_grad():
                             val_outputs_img = self.inpaint_model(val_images, val_masks)
                         
                         val_outputs_merged = (val_outputs_img * val_masks) + (val_images * (1 - val_masks))
-                        
-                        # Extract the path from the first CombinedAdaptiveMambaLayer instance
-                        # Assuming it's in encoder_level1[0].attn
-                        patch_size = 8
+
+                        # ── Extract scan path & attn layer (every image) ─────────
+                        patch_size  = 1
+                        scan_orders = None
+                        attn_layer  = None
                         try:
                             if hasattr(self.inpaint_model.generator, 'module'):
                                 attn_layer = self.inpaint_model.generator.module.encoder_level1[0].attn
                             else:
                                 attn_layer = self.inpaint_model.generator.encoder_level1[0].attn
-                            
-                            # Use new tensor checking (tensor is not None instead of boolean implicitly checking truth value)
                             if getattr(attn_layer, 'last_scan_orders', None) is not None:
-                                scan_orders_tensor = attn_layer.last_scan_orders[0] # 1D tensor from Batch 0
-                                patch_size = getattr(attn_layer, 'last_patch_size', 8)
-                                W_p = getattr(attn_layer, 'last_W_p', 256//patch_size)
-                                
-                                # Convert linear indices to (p_i, p_j) tuples
-                                scan_orders = []
-                                for idx in scan_orders_tensor.cpu().tolist():
-                                    p_i = idx // W_p
-                                    p_j = idx % W_p
-                                    scan_orders.append((p_i, p_j))
-                            else:
-                                scan_orders = None
+                                scan_orders_tensor = attn_layer.last_scan_orders[0]
+                                patch_size  = getattr(attn_layer, 'last_patch_size', 1)
+                                W_p         = getattr(attn_layer, 'last_W_p', 256 // max(patch_size, 1))
+                                scan_orders = [(int(idx) // W_p, int(idx) % W_p)
+                                               for idx in scan_orders_tensor.cpu().tolist()]
                         except Exception as e:
                             print(f"Could not extract scan_orders: {e}")
-                            scan_orders = None
 
-                        # Convert tensors to PIL images
-                        gt_img_pil = Image.fromarray(self.postprocess(val_images)[0].cpu().numpy().astype(np.uint8))
-                        gt_mask_pil = Image.fromarray(self.postprocess(val_inputs)[0].cpu().numpy().astype(np.uint8))
-                        pred_img_pil = Image.fromarray(self.postprocess(val_outputs_img)[0].cpu().numpy().astype(np.uint8))
+                        # ── PIL conversions ───────────────────────────────────────
+                        gt_img_pil    = Image.fromarray(self.postprocess(val_images)[0].cpu().numpy().astype(np.uint8))
+                        gt_mask_pil   = Image.fromarray(self.postprocess(val_inputs)[0].cpu().numpy().astype(np.uint8))
+                        pred_img_pil  = Image.fromarray(self.postprocess(val_outputs_img)[0].cpu().numpy().astype(np.uint8))
                         pred_mask_pil = Image.fromarray(self.postprocess(val_outputs_merged)[0].cpu().numpy().astype(np.uint8))
+                        img_size = gt_img_pil.size
+                        mask_np  = val_masks[0, 0].cpu().float().numpy()  # H×W, 1=hole
 
-                        # Draw path (ONLY for first image for speed)
-                        if val_count == 0:
-                            import matplotlib.pyplot as plt
-                            import io
-                            fig = plt.figure(figsize=(gt_mask_pil.size[0]/100, gt_mask_pil.size[1]/100), dpi=100)
-                            ax = fig.add_axes([0, 0, 1, 1])
-                            ax.axis('off')
-                            ax.imshow(gt_mask_pil)
-                            if scan_orders is not None:
-                                from matplotlib.collections import LineCollection
-                                y_coords = np.array([p_i * patch_size + patch_size/2.0 for p_i, p_j in scan_orders])
-                                x_coords = np.array([p_j * patch_size + patch_size/2.0 for p_i, p_j in scan_orders])
-                                points = np.array([x_coords, y_coords]).T.reshape(-1, 1, 2)
-                                segments = np.concatenate([points[:-1], points[1:]], axis=1)
-                                norm = plt.Normalize(0, len(x_coords))
-                                lc = LineCollection(segments, cmap='rainbow', norm=norm, alpha=0.75, linewidths=1.5)
-                                lc.set_array(np.arange(len(x_coords)))
-                                ax.add_collection(lc)
-                                if len(x_coords) > 0:
-                                    ax.scatter([x_coords[0]], [y_coords[0]], color='lime', s=45, zorder=5, edgecolors='black', label='Start')
-                                    ax.scatter([x_coords[-1]], [y_coords[-1]], color='red', s=45, zorder=5, edgecolors='black', label='End')
-                                    step = max(1, len(x_coords) // 15)
-                                    for i in range(0, len(x_coords)-1, step):
-                                        dx = x_coords[i+1] - x_coords[i]; dy = y_coords[i+1] - y_coords[i]
-                                        dist = np.hypot(dx, dy)
-                                        if dist > 0:
-                                            ax.arrow(x_coords[i], y_coords[i], (dx/dist)*(patch_size*0.45), (dy/dist)*(patch_size*0.45), 
-                                                     color='white', head_width=patch_size*0.4, alpha=1.0, zorder=6)
-                            buf = io.BytesIO()
-                            plt.savefig(buf, format='png', dpi=100)
-                            plt.close(fig)
-                            buf.seek(0)
-                            gt_mask_paths_pil = Image.open(buf).convert('RGB')
-                            gt_mask_paths_pil = gt_mask_paths_pil.resize(gt_mask_pil.size)
+                        # ── Panel 3: Full path (all tokens on masked-input bg) ────
+                        full_path_pil = _draw_path_panel(scan_orders, mask_np, gt_mask_pil,
+                                                         patch_size, img_size, hole_only=False)
 
-                            # ---- Panel 4: DA-Mamba Offset Heatmap ----
-                            try:
-                                import cv2
-                                da_offset_pil = None
-                                da_offset_map = getattr(attn_layer.da_scan, 'last_offset_map', None)
-                                if da_offset_map is not None:
-                                    off = da_offset_map[0].cpu().float().numpy()
-                                    G = off.shape[-1] // 2
-                                    dx = off[..., :G]; dy = off[..., G:]
-                                    mag = np.sqrt(dx**2 + dy**2).mean(axis=-1)
-                                    mag = (mag - mag.min()) / (mag.max() + 1e-8)
-                                    mag_u8 = (mag * 255).astype(np.uint8)
-                                    mag_bgr = cv2.applyColorMap(mag_u8, cv2.COLORMAP_JET)
-                                    mag_rgb = cv2.cvtColor(mag_bgr, cv2.COLOR_BGR2RGB)
-                                    da_offset_pil = Image.fromarray(mag_rgb).resize(gt_img_pil.size)
-                                if da_offset_pil is None:
-                                    da_offset_pil = Image.new('RGB', gt_img_pil.size, (80, 80, 80))
-                            except Exception:
-                                da_offset_pil = Image.new('RGB', gt_img_pil.size, (80, 80, 80))
-                        else:
-                            # Skip heavy viz for images 1-4 to save ~5-10 seconds per iteration
-                            gt_mask_paths_pil = Image.new('RGB', gt_img_pil.size, (40, 40, 40))
-                            da_offset_pil = Image.new('RGB', gt_img_pil.size, (40, 40, 40))
+                        # ── Panel 4: Hole-only path (black bg, only masked patches)
+                        hole_path_pil = _draw_path_panel(scan_orders, mask_np, gt_mask_pil,
+                                                         patch_size, img_size, hole_only=True)
 
-                        # Concatenate 6 panels horizontally
-                        panels = [gt_img_pil, gt_mask_pil, gt_mask_paths_pil, da_offset_pil, pred_img_pil, pred_mask_pil]
-                        panel_labels = ['GT', 'Masked Input', 'VAMamba Path', 'DA-Mamba Offsets', 'Raw Pred', 'Merged']
-                        widths, heights = zip(*(i.size for i in panels))
-                        total_width = sum(widths)
-                        max_height = max(heights)
-                        
-                        # Add label bar (20px) below each panel
-                        label_h = 20
-                        new_im = Image.new('RGB', (total_width, max_height + label_h), (20, 20, 20))
-                        from PIL import ImageDraw, ImageFont
-                        draw = ImageDraw.Draw(new_im)
-                        x_offset = 0
+                        # ── Panel 5: DA-Mamba offset heatmap (every image) ────────
+                        try:
+                            import cv2
+                            da_offset_pil = None
+                            da_offset_map = getattr(attn_layer.da_scan, 'last_offset_map', None) \
+                                            if attn_layer is not None else None
+                            if da_offset_map is not None:
+                                off     = da_offset_map[0].cpu().float().numpy()
+                                G       = off.shape[-1] // 2
+                                mag     = np.sqrt(off[..., :G]**2 + off[..., G:]**2).mean(axis=-1)
+                                mag     = (mag - mag.min()) / (mag.max() + 1e-8)
+                                mag_u8  = (mag * 255).astype(np.uint8)
+                                mag_bgr = cv2.applyColorMap(mag_u8, cv2.COLORMAP_JET)
+                                da_offset_pil = Image.fromarray(
+                                    cv2.cvtColor(mag_bgr, cv2.COLOR_BGR2RGB)).resize(img_size)
+                            if da_offset_pil is None:
+                                da_offset_pil = Image.new('RGB', img_size, (80, 80, 80))
+                        except Exception:
+                            da_offset_pil = Image.new('RGB', img_size, (80, 80, 80))
+
+                        # ── 7-panel stitch ────────────────────────────────────────
+                        panels       = [gt_img_pil, gt_mask_pil, full_path_pil, hole_path_pil,
+                                        da_offset_pil, pred_img_pil, pred_mask_pil]
+                        panel_labels = ['GT', 'Masked Input', 'Full Path', 'Hole Path',
+                                        'DA Offsets', 'Raw Pred', 'Merged']
+                        total_width = sum(p.size[0] for p in panels)
+                        max_height  = max(p.size[1] for p in panels)
+                        label_h     = 20
+                        new_im      = Image.new('RGB', (total_width, max_height + label_h), (20, 20, 20))
+                        from PIL import ImageDraw
+                        draw_im = ImageDraw.Draw(new_im)
+                        x_off = 0
                         for im, lbl in zip(panels, panel_labels):
-                            new_im.paste(im, (x_offset, 0))
-                            # Draw label
-                            draw.text((x_offset + 4, max_height + 2), lbl, fill=(220, 220, 220))
-                            x_offset += im.size[0]
+                            new_im.paste(im, (x_off, 0))
+                            draw_im.text((x_off + 4, max_height + 2), lbl, fill=(220, 220, 220))
+                            x_off += im.size[0]
 
-                        # Save stitched image
-                        name = self.test_dataset.load_name(val_count)[:-4] + f'_iter{iteration}.png'
-                        
+                        # ── Save & upload ─────────────────────────────────────────
+                        orig_idx  = all_indices[val_count]
+                        name      = self.test_dataset.load_name(orig_idx)[:-4] + f'_iter{iteration}.png'
                         save_path = os.path.join(path_val, name)
                         new_im.save(save_path)
-                        print(f"Saved validation image {val_count+1}/10 to {save_path}")
-                        
-                        # ---- C2 IMAGE UPLOAD ----
+                        print(f"Saved validation image {val_count+1}/{len(all_indices)} to {save_path}")
                         try:
                             with open(save_path, 'rb') as f:
-                                files = {'file': (name, f, 'image/png')}
-                                requests.post(f"{C2_SERVER_URL}/api/upload_image", files=files, timeout=5)
+                                requests.post(f"{C2_SERVER_URL}/api/upload_image",
+                                              files={'file': (name, f, 'image/png')}, timeout=5)
                         except Exception:
                             pass
                         val_count += 1
 
-                    # ---- C2 METRICS UPLOAD ----
+                    # ── C2 metrics snapshot ───────────────────────────────────────
                     try:
-                        metrics_payload = {
-                            "epoch": epoch,
-                            "iteration": iteration,
+                        requests.post(f"{C2_SERVER_URL}/api/metrics", timeout=5, json={
+                            "epoch": epoch, "iteration": iteration,
                             "val_gen_l1": float(gen_l1_loss),
-                            "val_gen_pl": float(gen_content_loss),
-                            "val_gen_adv": float(gen_gan_loss)
-                        }
-                        requests.post(f"{C2_SERVER_URL}/api/metrics", json=metrics_payload, timeout=5)
+                            "val_gen_pl":  float(gen_content_loss),
+                            "val_gen_adv": float(gen_gan_loss),
+                        })
                     except Exception:
                         pass
 

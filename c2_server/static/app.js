@@ -14,17 +14,17 @@ const runSelector = document.getElementById('run-selector');
 // Viper / Snake Mamba Colorscheme 🐍
 // ═══════════════════════════════════════════════════════════════
 const LOSS_DATASETS = [
-    { key: 'gen_loss',        label: 'Gen Loss (total)', color: '#10b981', axis: 'y' }, // Emerald
-    { key: 'dis_loss',        label: 'Dis Loss',         color: '#f59e0b', axis: 'y' }, // Amber/Venom
-    { key: 'l1_loss',         label: 'L1 Loss',          color: '#059669', axis: 'y' }, // Deep green
-    { key: 'perceptual_loss', label: 'Perceptual',       color: '#34d399', axis: 'y' }, // Light green
-    { key: 'style_loss',      label: 'Style',            color: '#84cc16', axis: 'y' }, // Lime scale
-    { key: 'sym_loss',        label: 'Symmetry',         color: '#475569', axis: 'y' }, // Slate gray
+    { key: 'gen_loss',        label: 'Gen Loss (total)', color: '#00ff88', axis: 'y' }, // neon green
+    { key: 'dis_loss',        label: 'Dis Loss',         color: '#ff6b00', axis: 'y' }, // vivid orange
+    { key: 'l1_loss',         label: 'L1 Loss',          color: '#00cfff', axis: 'y' }, // electric cyan
+    { key: 'perceptual_loss', label: 'Perceptual',       color: '#ff2d78', axis: 'y' }, // hot pink
+    { key: 'style_loss',      label: 'Style',            color: '#c97dff', axis: 'y' }, // vivid violet
+    { key: 'sym_loss',        label: 'Symmetry',         color: '#ffe600', axis: 'y' }, // neon yellow
 ];
 
 const QUALITY_DATASETS = [
-    { key: 'psnr', label: 'PSNR (dB)', color: '#10b981', axis: 'y'  },
-    { key: 'mae',  label: 'MAE',       color: '#f59e0b', axis: 'y2' },
+    { key: 'psnr', label: 'PSNR (dB)', color: '#00ff88', axis: 'y'  }, // neon green
+    { key: 'mae',  label: 'MAE',       color: '#ff6b00', axis: 'y2' }, // vivid orange
 ];
 
 function smooth(arr, w) {
@@ -57,9 +57,9 @@ function renderChart(data) {
             name: d.label,
             type: 'scatter',
             mode: 'lines',
-            line: { color: d.color, width: 2 },
+            line: { color: d.color, width: 2.5 },
             fill: 'tozeroy',
-            fillcolor: d.color + '1A', // 10% opacity
+            fillcolor: d.color + '22', // ~13% opacity fill
             yaxis: d.axis
         };
     });
