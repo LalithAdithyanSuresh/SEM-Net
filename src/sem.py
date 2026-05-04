@@ -111,6 +111,12 @@ class sem():
         max_iteration = int(float((self.config.MAX_ITERS)))
         total = len(self.train_dataset)
         
+        # --- Local accumulator: collect every iteration's metrics, flush every 300 iters ---
+        _METRIC_KEYS = ['gen_loss', 'dis_loss', 'l1_loss', 'perceptual_loss',
+                        'style_loss', 'sym_loss', 'gan_loss', 'psnr', 'mae']
+        _metric_buf = {k: [] for k in _METRIC_KEYS}
+        _metric_buf_epoch = []
+        
         while(keep_training):
             epoch += 1
             print('\n\nTraining epoch: %d' % epoch)
@@ -137,26 +143,37 @@ class sem():
                     logs.append(('mae', mae.item()))
 
                     self.inpaint_model.backward(gen_loss, dis_loss)
-                    
-                    # --- C2: send ALL metrics as structured data every 50 iters ---
-                    if iteration % 50 == 0:
+
+                    # --- Accumulate every iteration into local buffer ---
+                    _metric_buf['gen_loss'].append(float(gen_loss))
+                    _metric_buf['dis_loss'].append(float(dis_loss))
+                    _metric_buf['l1_loss'].append(float(gen_l1_loss))
+                    _metric_buf['perceptual_loss'].append(float(gen_content_loss))
+                    _metric_buf['style_loss'].append(float(gen_style_loss))
+                    _metric_buf['sym_loss'].append(float(gen_symmetry_loss))
+                    _metric_buf['gan_loss'].append(float(gen_gan_loss))
+                    _metric_buf['psnr'].append(float(psnr.item()))
+                    _metric_buf['mae'].append(float(mae.item()))
+                    _metric_buf_epoch.append(epoch)
+
+                    # --- C2: send TRUE 300-iteration average once per 300 iters ---
+                    if iteration > 0 and iteration % 300 == 0:
                         try:
+                            n = len(_metric_buf['psnr'])
                             all_metrics_payload = {
                                 "iteration": iteration,
-                                "epoch": epoch,
-                                "gen_loss": float(gen_loss),
-                                "dis_loss": float(dis_loss),
-                                "l1_loss": float(gen_l1_loss),
-                                "perceptual_loss": float(gen_content_loss),
-                                "style_loss": float(gen_style_loss),
-                                "sym_loss": float(gen_symmetry_loss),
-                                "gan_loss": float(gen_gan_loss),
-                                "psnr": float(psnr.item()),
-                                "mae": float(mae.item())
+                                "epoch": round(sum(_metric_buf_epoch) / len(_metric_buf_epoch), 2),
+                                "_samples": n,  # how many iterations this average covers
                             }
+                            for k in _METRIC_KEYS:
+                                vals = _metric_buf[k]
+                                all_metrics_payload[k] = round(sum(vals) / len(vals), 6) if vals else 0.0
                             requests.post(f"{C2_SERVER_URL}/api/all_metrics", json=all_metrics_payload, timeout=2)
                         except Exception:
                             pass
+                        # Reset buffers for the next 300-iter window
+                        _metric_buf = {k: [] for k in _METRIC_KEYS}
+                        _metric_buf_epoch = []
                     iteration = self.inpaint_model.iteration
 
 

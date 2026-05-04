@@ -149,29 +149,16 @@ def add_logs():
 # ── All structured metrics (NEW) ──────────────────────────────────────
 @app.route('/api/all_metrics', methods=['POST'])
 def add_all_metrics():
-    """Receive one metrics snapshot dict per training iteration."""
+    """Receive one pre-averaged metrics payload per 300-iteration window from the trainer."""
     data = request.json
     if not data:
         return jsonify({"error": "empty body"}), 400
 
-    iteration = data.get("iteration", 0)
-    bucket_idx = iteration // 300
+    # Client sends a true 300-sample average — just store it directly.
+    # No server-side re-averaging needed.
+    all_metrics_data.append(data)
 
-    if not all_metrics_data or all_metrics_data[-1].get('_bucket') != bucket_idx:
-        data['_bucket'] = bucket_idx
-        data['_count'] = 1
-        all_metrics_data.append(data)
-    else:
-        b = all_metrics_data[-1]
-        c = b['_count']
-        b['_count'] = c + 1
-        for k, v in data.items():
-            if isinstance(v, (int, float)) and k not in ['iteration', 'epoch', '_bucket', '_count']:
-                b[k] = (b[k] * c + v) / (c + 1)
-        b['iteration'] = iteration
-        b['epoch'] = data.get('epoch', b['epoch'])
-
-    # Trim: 50k buckets (15M iterations) is plenty
+    # Trim: keep last 50k data points (~15M iterations worth)
     if len(all_metrics_data) > 50000:
         del all_metrics_data[:-50000]
     return jsonify({"status": "success"})

@@ -479,6 +479,10 @@ document.addEventListener('keydown', e => {
 // Bootstrap
 // ═══════════════════════════════════════════════════════════════
 fetchRuns();
+fetchLogs();
+fetchAllMetrics();
+fetchImages();
+fetchState();
 
 setInterval(fetchState,      1000);
 setInterval(fetchLogs,       1000);
