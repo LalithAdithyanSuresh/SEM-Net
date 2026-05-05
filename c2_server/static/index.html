@@ -86,45 +86,66 @@
             <div class="column">
                 <!-- Multi-series Loss Chart -->
                 <section class="glass-panel chart-section">
-                    <div class="section-header">
-                        <h2>Training Losses</h2>
-                        <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;width:100%;">
-                            <span class="label" style="font-size:0.75rem;color:#94a3b8;">Smooth over:</span>
-                            <input type="number" id="smooth-window" value="10" min="1" step="1"
-                                style="width:55px;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.1);color:#d8b4fe;border-radius:4px;padding:2px 5px;outline:none;font-size:0.8rem;">
-                            <span class="label" style="font-size:0.75rem;color:#94a3b8;">iters</span>
-                            
-                            <div style="margin-left: 0.5rem; display:flex; gap: 0.5rem; align-items:center;">
-                                <label style="font-size:0.75rem;color:#94a3b8;cursor:pointer;display:flex;align-items:center;gap:0.25rem;">
-                                    <input type="checkbox" id="toggle-roc" onchange="renderChart(allMetricsCache)"> PSNR RoC
-                                </label>
-                                <label style="font-size:0.75rem;color:#94a3b8;cursor:pointer;display:flex;align-items:center;gap:0.25rem;">
-                                    <input type="checkbox" id="toggle-predict" onchange="renderChart(allMetricsCache)"> Predict:
-                                </label>
-                                <input type="number" id="predict-m" value="5" min="1" step="1"
-                                    style="width:45px;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.1);color:#d8b4fe;border-radius:4px;padding:2px 5px;outline:none;font-size:0.8rem;"
-                                    onchange="if(document.getElementById('toggle-predict').checked) renderChart(allMetricsCache)">
-                                <span class="label" style="font-size:0.75rem;color:#94a3b8;">k</span>
-                                <span id="predict-coverage" style="font-size:0.7rem;font-family:var(--font-mono);font-weight:700;padding:1px 5px;border-radius:4px;border:1px solid rgba(255,255,255,0.15);background:rgba(0,0,0,0.2);cursor:help;display:none;" title="Prior knowledge coverage"></span>
-                                <label style="font-size:0.75rem;color:#94a3b8;cursor:pointer;display:flex;align-items:center;gap:0.25rem;" title="Force prediction to use all available iteration data">
-                                    <input type="checkbox" id="toggle-full-prior" onchange="renderChart(allMetricsCache)"> All data
-                                </label>
-                                
-                                <label style="font-size:0.75rem;color:#94a3b8;cursor:pointer;display:flex;align-items:center;gap:0.25rem;margin-left:0.5rem;">
-                                    <input type="checkbox" id="toggle-filter" onchange="renderChart(allMetricsCache)"> Show last:
-                                </label>
-                                <input type="number" id="filter-k" value="28" min="1" step="1"
-                                    style="width:45px;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.1);color:#ef4444;border-radius:4px;padding:2px 5px;outline:none;font-size:0.8rem;"
-                                    onchange="if(document.getElementById('toggle-filter').checked) renderChart(allMetricsCache)">
-                                <span class="label" style="font-size:0.75rem;color:#94a3b8;">k</span>
-                            </div>
-
-                            <div class="chart-tabs" style="margin-left: auto;">
-                                <button class="chart-tab" id="tab-losses" onclick="switchTab('losses')">Losses / MAE</button>
-                                <button class="chart-tab active" id="tab-quality" onclick="switchTab('quality')">PSNR</button>
-                            </div>
+                    <div class="section-header" style="flex-wrap:wrap;gap:0.5rem;">
+                        <h2>Training Metrics</h2>
+                        <div class="chart-tabs" style="margin-left:auto;">
+                            <button class="chart-tab" id="tab-losses" onclick="switchTab('losses')">Losses / MAE</button>
+                            <button class="chart-tab active" id="tab-quality" onclick="switchTab('quality')">PSNR</button>
                         </div>
                     </div>
+
+                    <!-- Controls Panel -->
+                    <div class="chart-controls-panel">
+                        <!-- Row 1: View -->
+                        <div class="chart-controls-row">
+                            <span class="ctrl-group-label">VIEW</span>
+                            <div class="ctrl-group">
+                                <span class="ctrl-label">Smooth</span>
+                                <input type="number" id="smooth-window" value="10" min="1" step="1" class="ctrl-input-sm">
+                                <span class="ctrl-label">iters</span>
+                            </div>
+                            <div class="ctrl-sep"></div>
+                            <label class="toggle-switch" title="Show alternating epoch bands with numbers">
+                                <input type="checkbox" id="toggle-epochs" onchange="renderChart(allMetricsCache)">
+                                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                                Epoch Bands
+                            </label>
+                            <label class="toggle-switch" title="Show PSNR rate of change on right axis">
+                                <input type="checkbox" id="toggle-roc" onchange="renderChart(allMetricsCache)">
+                                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                                PSNR RoC
+                            </label>
+                        </div>
+                        <!-- Row 2: Prediction + Filter -->
+                        <div class="chart-controls-row">
+                            <span class="ctrl-group-label">PREDICT</span>
+                            <label class="toggle-switch" title="Project future values">
+                                <input type="checkbox" id="toggle-predict" onchange="renderChart(allMetricsCache)">
+                                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                                Enable
+                            </label>
+                            <input type="number" id="predict-m" value="5" min="1" step="1" class="ctrl-input-sm"
+                                onchange="if(document.getElementById('toggle-predict').checked) renderChart(allMetricsCache)">
+                            <span class="ctrl-label">k iters ahead</span>
+                            <label class="toggle-switch" title="Use 100% of all iteration data as prior">
+                                <input type="checkbox" id="toggle-full-prior" onchange="renderChart(allMetricsCache)">
+                                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                                All data
+                            </label>
+                            <span id="predict-coverage" class="ctrl-badge" style="display:none;" title="Prior knowledge coverage"></span>
+                            <div class="ctrl-sep"></div>
+                            <span class="ctrl-group-label">WINDOW</span>
+                            <label class="toggle-switch" title="Zoom into the last N thousand iterations">
+                                <input type="checkbox" id="toggle-filter" onchange="renderChart(allMetricsCache)">
+                                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                                Show last
+                            </label>
+                            <input type="number" id="filter-k" value="28" min="1" step="1" class="ctrl-input-sm ctrl-input-danger"
+                                onchange="if(document.getElementById('toggle-filter').checked) renderChart(allMetricsCache)">
+                            <span class="ctrl-label">k</span>
+                        </div>
+                    </div>
+
                     <div class="chart-container">
                         <div id="metricsChart" style="width:100%;height:100%;"></div>
                     </div>

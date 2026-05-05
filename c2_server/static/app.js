@@ -246,6 +246,59 @@ function renderChart(data) {
         legend: { orientation: 'h', y: 1.1 },
     };
 
+    const showEpochs = document.getElementById('toggle-epochs')?.checked;
+    if (showEpochs && filteredData.length > 0) {
+        let shapes = [];
+        let annotations = [];
+        
+        let startIter = filteredData[0].iteration;
+        let startEpoch = filteredData[0].epoch || 1;
+        
+        for (let i = 1; i <= filteredData.length; i++) {
+            let currentEpoch = i < filteredData.length ? filteredData[i].epoch : null;
+            let currentIter = i < filteredData.length ? filteredData[i].iteration : filteredData[filteredData.length - 1].iteration;
+            
+            // if we hit a new epoch or end of data
+            if (currentEpoch !== startEpoch || i === filteredData.length) {
+                let isEven = startEpoch % 2 === 0;
+                shapes.push({
+                    type: 'rect',
+                    xref: 'x',
+                    yref: 'paper',
+                    x0: startIter,
+                    y0: 0,
+                    x1: currentIter,
+                    y1: 1,
+                    fillcolor: isEven ? 'rgba(255,255,255,0.015)' : 'rgba(255,255,255,0.05)',
+                    line: { width: 0 },
+                    layer: 'below'
+                });
+                
+                // only add annotation if the band is wide enough
+                if (currentIter - startIter > 1000) {
+                    annotations.push({
+                        x: (startIter + currentIter) / 2,
+                        y: 1, // At the very top
+                        xref: 'x',
+                        yref: 'paper',
+                        text: `Ep ${startEpoch}`,
+                        showarrow: false,
+                        font: { size: 10, color: 'rgba(255,255,255,0.3)' },
+                        yanchor: 'bottom'
+                    });
+                }
+                
+                startIter = currentIter;
+                startEpoch = currentEpoch;
+            }
+        }
+        
+        layout.shapes = shapes;
+        layout.annotations = annotations;
+        // make top margin slightly larger to accommodate epoch labels
+        layout.margin.t = 20;
+    }
+
     if (currentTab === 'losses') {
         layout.yaxis2 = {
             overlaying: 'y',
