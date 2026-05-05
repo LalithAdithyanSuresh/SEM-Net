@@ -51,7 +51,7 @@ function renderChart(data) {
         if (filteredData.length > 0) {
             const maxIter = filteredData[filteredData.length - 1].iteration;
             const threshold = maxIter - (kHide * 1000);
-            filteredData = filteredData.filter(d => d.iteration <= threshold);
+            filteredData = filteredData.filter(d => d.iteration >= threshold);
         }
     }
     if (filteredData.length === 0) return;
@@ -70,18 +70,35 @@ function renderChart(data) {
     defs.forEach(d => {
         const raw = filteredData.map(pt => pt[d.key] != null ? pt[d.key] : null);
         const smoothed = smooth(raw.map(v => v ?? 0), w);
+        let isMapped = currentTab === 'quality' && d.key === 'psnr';
+        let mappedY = smoothed;
+
+        if (isMapped) {
+            mappedY = smoothed.map(y => {
+                if (y == null) return null;
+                if (y <= 25) return y;
+                return 25 + (y - 25) * 5; // 5x stretch above 25
+            });
+        }
         
-        plotData.push({
+        let trace = {
             x: iterations,
-            y: smoothed,
+            y: mappedY,
             name: d.label,
             type: 'scatter',
             mode: 'lines',
             line: { color: d.color, width: 2.5 },
             fill: 'tozeroy',
-            fillcolor: d.color + '22', // ~13% opacity fill
+            fillcolor: d.color + '22',
             yaxis: d.axis
-        });
+        };
+
+        if (isMapped) {
+            trace.customdata = smoothed;
+            trace.hovertemplate = '%{customdata:.2f}';
+        }
+
+        plotData.push(trace);
 
         if (showRoC && d.key === 'psnr') {
             let roc = [0];
@@ -115,17 +132,28 @@ function renderChart(data) {
                 let slope = (n * sum_xy - sum_x * sum_y) / (n * sum_xx - sum_x * sum_x);
                 let intercept = (sum_y - slope * sum_x) / n;
                 
-                let last_x = iterations[iterations.length - 1];
-                let next_x = last_x + (predictM * 1000);
-                plotData.push({
+                let pred_y1 = slope * last_x + intercept;
+                let pred_y2 = slope * next_x + intercept;
+                
+                let mapped_pred_y1 = isMapped ? (pred_y1 <= 25 ? pred_y1 : 25 + (pred_y1 - 25)*5) : pred_y1;
+                let mapped_pred_y2 = isMapped ? (pred_y2 <= 25 ? pred_y2 : 25 + (pred_y2 - 25)*5) : pred_y2;
+
+                let predTrace = {
                     x: [last_x, next_x],
-                    y: [slope * last_x + intercept, slope * next_x + intercept],
+                    y: [mapped_pred_y1, mapped_pred_y2],
                     name: d.label + ' (Pred)',
                     type: 'scatter',
                     mode: 'lines',
                     line: { color: d.color, width: 2, dash: 'dash' },
                     yaxis: d.axis
-                });
+                };
+                
+                if (isMapped) {
+                    predTrace.customdata = [pred_y1, pred_y2];
+                    predTrace.hovertemplate = '%{customdata:.2f}';
+                }
+                
+                plotData.push(predTrace);
             }
         }
     });
@@ -212,6 +240,17 @@ function renderChart(data) {
             layout.yaxis.zeroline = true;
             layout.yaxis2.zeroline = true;
         }
+    }
+
+    if (currentTab === 'quality') {
+        let tvals = [];
+        let ttext = [];
+        for(let i=-200; i<0; i+=20) { tvals.push(i); ttext.push(i.toString()); }
+        for(let i=0; i<=25; i+=5) { tvals.push(i); ttext.push(i.toString()); }
+        for(let i=26; i<=40; i+=1) { tvals.push(25 + (i - 25) * 5); ttext.push(i.toString()); }
+        for(let i=42; i<=100; i+=2) { tvals.push(25 + (i - 25) * 5); ttext.push(i.toString()); }
+        layout.yaxis.tickvals = tvals;
+        layout.yaxis.ticktext = ttext;
     }
 
     Plotly.react('metricsChart', plotData, layout, { responsive: true, displayModeBar: false });
