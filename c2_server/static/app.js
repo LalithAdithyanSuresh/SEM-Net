@@ -20,11 +20,11 @@ const LOSS_DATASETS = [
     { key: 'perceptual_loss', label: 'Perceptual',       color: '#ff2d78', axis: 'y' }, // hot pink
     { key: 'style_loss',      label: 'Style',            color: '#c97dff', axis: 'y' }, // vivid violet
     { key: 'sym_loss',        label: 'Symmetry',         color: '#ffe600', axis: 'y' }, // neon yellow
+    { key: 'mae',             label: 'MAE',              color: '#ffffff', axis: 'y2' }, // crisp white
 ];
 
 const QUALITY_DATASETS = [
     { key: 'psnr', label: 'PSNR (dB)', color: '#00ff88', axis: 'y'  }, // neon green
-    { key: 'mae',  label: 'MAE',       color: '#ff6b00', axis: 'y2' }, // vivid orange
 ];
 
 function smooth(arr, w) {
@@ -43,6 +43,19 @@ function smooth(arr, w) {
 // ═══════════════════════════════════════════════════════════════
 function renderChart(data) {
     if (data.length === 0) return;
+    
+    let filteredData = data;
+    const hideLast = document.getElementById('toggle-filter')?.checked;
+    if (hideLast) {
+        const kHide = parseFloat(document.getElementById('filter-k')?.value || 28);
+        if (filteredData.length > 0) {
+            const maxIter = filteredData[filteredData.length - 1].iteration;
+            const threshold = maxIter - (kHide * 1000);
+            filteredData = filteredData.filter(d => d.iteration <= threshold);
+        }
+    }
+    if (filteredData.length === 0) return;
+
     const w = Math.max(1, parseInt(document.getElementById('smooth-window').value) || 10);
     const defs = currentTab === 'losses' ? LOSS_DATASETS : QUALITY_DATASETS;
 
@@ -50,12 +63,12 @@ function renderChart(data) {
     const showPredict = document.getElementById('toggle-predict')?.checked;
     const predictM = parseFloat(document.getElementById('predict-m')?.value || 0);
 
-    const iterations = data.map(d => d.iteration);
+    const iterations = filteredData.map(d => d.iteration);
     
     let plotData = [];
 
     defs.forEach(d => {
-        const raw = data.map(pt => pt[d.key] != null ? pt[d.key] : null);
+        const raw = filteredData.map(pt => pt[d.key] != null ? pt[d.key] : null);
         const smoothed = smooth(raw.map(v => v ?? 0), w);
         
         plotData.push({
@@ -85,7 +98,7 @@ function renderChart(data) {
                 type: 'scatter',
                 mode: 'lines',
                 line: { color: '#ff2d78', width: 2, dash: 'dot' },
-                yaxis: 'y3'
+                yaxis: 'y2'
             });
         }
 
@@ -135,15 +148,16 @@ function renderChart(data) {
         legend: { orientation: 'h', y: 1.1 },
     };
 
-    if (currentTab === 'quality') {
+    if (currentTab === 'losses') {
         layout.yaxis2 = {
             overlaying: 'y',
             side: 'right',
             showgrid: false,
             zeroline: false
         };
+    } else if (currentTab === 'quality') {
         if (showRoC) {
-            layout.yaxis3 = {
+            layout.yaxis2 = {
                 overlaying: 'y',
                 side: 'right',
                 anchor: 'free',
