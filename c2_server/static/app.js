@@ -160,13 +160,57 @@ function renderChart(data) {
             layout.yaxis2 = {
                 overlaying: 'y',
                 side: 'right',
-                anchor: 'free',
-                position: 1,
                 showgrid: false,
                 zeroline: true,
                 zerolinecolor: 'rgba(255,45,120,0.3)',
-                showticklabels: false
+                showticklabels: true
             };
+        }
+    }
+
+    if (layout.yaxis2) {
+        let min1 = Infinity, max1 = -Infinity;
+        let min2 = Infinity, max2 = -Infinity;
+        let hasY1 = false, hasY2 = false;
+
+        plotData.forEach(p => {
+            let yArr = p.y.filter(v => v != null);
+            if (yArr.length === 0) return;
+            let pmin = Math.min(...yArr);
+            let pmax = Math.max(...yArr);
+            if (p.yaxis === 'y' || p.yaxis === undefined) {
+                min1 = Math.min(min1, pmin);
+                max1 = Math.max(max1, pmax);
+                hasY1 = true;
+            } else if (p.yaxis === 'y2') {
+                min2 = Math.min(min2, pmin);
+                max2 = Math.max(max2, pmax);
+                hasY2 = true;
+            }
+        });
+
+        if (hasY1 && hasY2) {
+            if (max1 === min1) { max1 += 1; min1 -= 1; }
+            if (max2 === min2) { max2 += 1; min2 -= 1; }
+
+            let pad1 = (max1 - min1) * 0.05; min1 -= pad1; max1 += pad1;
+            let pad2 = (max2 - min2) * 0.05; min2 -= pad2; max2 += pad2;
+
+            if (max1 > 0 && max2 > 0) {
+                let f1 = max1 / (max1 - min1);
+                let f2 = max2 / (max2 - min2);
+                let f = Math.min(f1, f2);
+                
+                if (f > 0) {
+                    if (f1 > f) min1 = max1 * (1 - 1/f);
+                    else if (f2 > f) min2 = max2 * (1 - 1/f);
+                }
+            }
+
+            layout.yaxis.range = [min1, max1];
+            layout.yaxis2.range = [min2, max2];
+            layout.yaxis.zeroline = true;
+            layout.yaxis2.zeroline = true;
         }
     }
 
