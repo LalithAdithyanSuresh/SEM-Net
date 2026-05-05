@@ -120,42 +120,89 @@ function renderChart(data) {
         }
 
         if (showPredict) {
-            let n = Math.min(smoothed.length, Math.max(10, Math.floor(smoothed.length * 0.2)));
-            if (n >= 2) {
-                let x_slice = iterations.slice(-n);
-                let y_slice = smoothed.slice(-n);
-                let sum_x = 0, sum_y = 0, sum_xy = 0, sum_xx = 0;
-                for(let i=0; i<n; i++) {
-                    sum_x += x_slice[i]; sum_y += y_slice[i];
-                    sum_xy += x_slice[i] * y_slice[i]; sum_xx += x_slice[i] * x_slice[i];
+            // Use at minimum last 50k iters worth of data, or 30% of data (whichever is more)
+            const FIT_ITERS = 50000;
+            let last_x = iterations[iterations.length - 1];
+            let next_x = last_x + (predictM * 1000);
+
+            let fitStart = 0;
+            for (let i = iterations.length - 1; i >= 0; i--) {
+                if (last_x - iterations[i] >= FIT_ITERS) { fitStart = i; break; }
+            }
+            let n30 = Math.floor(smoothed.length * 0.3);
+            fitStart = Math.min(fitStart, smoothed.length - n30);
+            fitStart = Math.max(0, fitStart);
+
+            let x_sl = iterations.slice(fitStart);
+            let y_sl = smoothed.slice(fitStart);
+            let n = x_sl.length;
+            if (n >= 4) {
+                // Fit: y = a * log(x - x0) + b  where x0 = x_sl[0] - 1
+                // Transform: t = log(x - x0 + 1)
+                let x0 = x_sl[0] - 1;
+                let t_sl = x_sl.map(x => Math.log(x - x0 + 1));
+                let sum_t = 0, sum_y = 0, sum_tt = 0, sum_ty = 0;
+                for (let i = 0; i < n; i++) {
+                    sum_t  += t_sl[i];
+                    sum_y  += y_sl[i];
+                    sum_tt += t_sl[i] * t_sl[i];
+                    sum_ty += t_sl[i] * y_sl[i];
                 }
-                let slope = (n * sum_xy - sum_x * sum_y) / (n * sum_xx - sum_x * sum_x);
-                let intercept = (sum_y - slope * sum_x) / n;
-                
-                let last_x = iterations[iterations.length - 1];
-                let next_x = last_x + (predictM * 1000);
+                let denom = n * sum_tt - sum_t * sum_t;
+                let a = denom !== 0 ? (n * sum_ty - sum_t * sum_y) / denom : 0;
+                let b = (sum_y - a * sum_t) / n;
 
-                let pred_y1 = slope * last_x + intercept;
-                let pred_y2 = slope * next_x + intercept;
-                
-                let mapped_pred_y1 = isMapped ? (pred_y1 <= 25 ? pred_y1 : 25 + (pred_y1 - 25)*5) : pred_y1;
-                let mapped_pred_y2 = isMapped ? (pred_y2 <= 25 ? pred_y2 : 25 + (pred_y2 - 25)*5) : pred_y2;
+                // Also compute linear fit for blending (handles decelerating / still-rising)
+                let sum_x2 = 0, sum_xy2 = 0;
+                for (let i = 0; i < n; i++) {
+                    sum_x2  += x_sl[i];
+                    sum_xy2 += x_sl[i] * y_sl[i];
+                }
+                let lin_denom = n * x_sl.reduce((acc, v) => acc + v*v, 0) - sum_x2 * sum_x2;
+                let lin_slope = lin_denom !== 0 ? (n * sum_xy2 - sum_x2 * sum_y) / lin_denom : 0;
+                let lin_int   = (sum_y - lin_slope * sum_x2) / n;
 
+                // Pick model with lower residual on fit window
+                let res_log = 0, res_lin = 0;
+                for (let i = 0; i < n; i++) {
+                    let yhat_log = a * t_sl[i] + b;
+                    let yhat_lin = lin_slope * x_sl[i] + lin_int;
+                    res_log += (y_sl[i] - yhat_log) ** 2;
+                    res_lin += (y_sl[i] - yhat_lin) ** 2;
+                }
+                let useLog = res_log <= res_lin;
+
+                // Generate 30 evenly spaced prediction points from last_x → next_x
+                const PRED_POINTS = 30;
+                let pred_xs = [], pred_ys = [], pred_mapped = [];
+                for (let i = 0; i <= PRED_POINTS; i++) {
+                    let xi = last_x + (i / PRED_POINTS) * (next_x - last_x);
+                    let yi;
+                    if (useLog) {
+                        yi = a * Math.log(xi - x0 + 1) + b;
+                    } else {
+                        yi = lin_slope * xi + lin_int;
+                    }
+                    pred_xs.push(xi);
+                    pred_ys.push(yi);
+                    pred_mapped.push(isMapped ? (yi <= 25 ? yi : 25 + (yi - 25) * 5) : yi);
+                }
+
+                let modelLabel = useLog ? 'Log-fit' : 'Linear';
                 let predTrace = {
-                    x: [last_x, next_x],
-                    y: [mapped_pred_y1, mapped_pred_y2],
-                    name: d.label + ' (Pred)',
+                    x: pred_xs,
+                    y: pred_mapped,
+                    name: `${d.label} Pred (${modelLabel})`,
                     type: 'scatter',
-                    mode: 'lines',
+                    mode: 'lines+markers',
                     line: { color: d.color, width: 2, dash: 'dash' },
+                    marker: { color: d.color, size: 5, symbol: 'circle-open' },
                     yaxis: d.axis
                 };
-                
                 if (isMapped) {
-                    predTrace.customdata = [pred_y1, pred_y2];
-                    predTrace.hovertemplate = '%{customdata:.2f}';
+                    predTrace.customdata = pred_ys;
+                    predTrace.hovertemplate = '%{customdata:.2f} dB<extra></extra>';
                 }
-                
                 plotData.push(predTrace);
             }
         }
