@@ -88,14 +88,28 @@
                 <section class="glass-panel chart-section">
                     <div class="section-header">
                         <h2>Training Losses</h2>
-                        <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                        <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;width:100%;">
                             <span class="label" style="font-size:0.75rem;color:#94a3b8;">Smooth over:</span>
                             <input type="number" id="smooth-window" value="10" min="1" step="1"
                                 style="width:55px;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.1);color:#d8b4fe;border-radius:4px;padding:2px 5px;outline:none;font-size:0.8rem;">
                             <span class="label" style="font-size:0.75rem;color:#94a3b8;">iters</span>
-                            <div class="chart-tabs">
-                                <button class="chart-tab active" id="tab-losses" onclick="switchTab('losses')">Losses</button>
-                                <button class="chart-tab" id="tab-quality" onclick="switchTab('quality')">PSNR / MAE</button>
+                            
+                            <div style="margin-left: 0.5rem; display:flex; gap: 0.5rem; align-items:center;">
+                                <label style="font-size:0.75rem;color:#94a3b8;cursor:pointer;display:flex;align-items:center;gap:0.25rem;">
+                                    <input type="checkbox" id="toggle-roc" onchange="renderChart(allMetricsCache)"> PSNR RoC
+                                </label>
+                                <label style="font-size:0.75rem;color:#94a3b8;cursor:pointer;display:flex;align-items:center;gap:0.25rem;">
+                                    <input type="checkbox" id="toggle-predict" onchange="renderChart(allMetricsCache)"> Predict:
+                                </label>
+                                <input type="number" id="predict-m" value="5" min="1" step="1"
+                                    style="width:45px;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.1);color:#d8b4fe;border-radius:4px;padding:2px 5px;outline:none;font-size:0.8rem;"
+                                    onchange="if(document.getElementById('toggle-predict').checked) renderChart(allMetricsCache)">
+                                <span class="label" style="font-size:0.75rem;color:#94a3b8;">k iters</span>
+                            </div>
+
+                            <div class="chart-tabs" style="margin-left: auto;">
+                                <button class="chart-tab" id="tab-losses" onclick="switchTab('losses')">Losses</button>
+                                <button class="chart-tab active" id="tab-quality" onclick="switchTab('quality')">PSNR / MAE</button>
                             </div>
                         </div>
                     </div>

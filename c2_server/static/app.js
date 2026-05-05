@@ -6,7 +6,7 @@ const API_BASE = '/api';
 let selectedRun = '';
 let allMetricsCache = [];   // full structured metrics for current view
 let lastLogCount = 0;       // tracks total lines received for delta fetching
-let currentTab = 'losses';  // 'losses' | 'quality'
+let currentTab = 'quality'; // 'losses' | 'quality'
 
 const runSelector = document.getElementById('run-selector');
 
@@ -46,12 +46,19 @@ function renderChart(data) {
     const w = Math.max(1, parseInt(document.getElementById('smooth-window').value) || 10);
     const defs = currentTab === 'losses' ? LOSS_DATASETS : QUALITY_DATASETS;
 
+    const showRoC = document.getElementById('toggle-roc')?.checked;
+    const showPredict = document.getElementById('toggle-predict')?.checked;
+    const predictM = parseFloat(document.getElementById('predict-m')?.value || 0);
+
     const iterations = data.map(d => d.iteration);
     
-    const plotData = defs.map(d => {
+    let plotData = [];
+
+    defs.forEach(d => {
         const raw = data.map(pt => pt[d.key] != null ? pt[d.key] : null);
         const smoothed = smooth(raw.map(v => v ?? 0), w);
-        return {
+        
+        plotData.push({
             x: iterations,
             y: smoothed,
             name: d.label,
@@ -61,7 +68,53 @@ function renderChart(data) {
             fill: 'tozeroy',
             fillcolor: d.color + '22', // ~13% opacity fill
             yaxis: d.axis
-        };
+        });
+
+        if (showRoC && d.key === 'psnr') {
+            let roc = [0];
+            for (let i = 1; i < smoothed.length; i++) {
+                let dx = iterations[i] - iterations[i-1];
+                let dy = smoothed[i] - smoothed[i-1];
+                roc.push(dx === 0 ? 0 : dy / dx * 1000); // ROC per 1k iters
+            }
+            roc = smooth(roc, w);
+            plotData.push({
+                x: iterations,
+                y: roc,
+                name: 'PSNR RoC (/1k iters)',
+                type: 'scatter',
+                mode: 'lines',
+                line: { color: '#ff2d78', width: 2, dash: 'dot' },
+                yaxis: 'y3'
+            });
+        }
+
+        if (showPredict) {
+            let n = Math.min(smoothed.length, Math.max(10, Math.floor(smoothed.length * 0.2)));
+            if (n >= 2) {
+                let x_slice = iterations.slice(-n);
+                let y_slice = smoothed.slice(-n);
+                let sum_x = 0, sum_y = 0, sum_xy = 0, sum_xx = 0;
+                for(let i=0; i<n; i++) {
+                    sum_x += x_slice[i]; sum_y += y_slice[i];
+                    sum_xy += x_slice[i] * y_slice[i]; sum_xx += x_slice[i] * x_slice[i];
+                }
+                let slope = (n * sum_xy - sum_x * sum_y) / (n * sum_xx - sum_x * sum_x);
+                let intercept = (sum_y - slope * sum_x) / n;
+                
+                let last_x = iterations[iterations.length - 1];
+                let next_x = last_x + (predictM * 1000);
+                plotData.push({
+                    x: [last_x, next_x],
+                    y: [slope * last_x + intercept, slope * next_x + intercept],
+                    name: d.label + ' (Pred)',
+                    type: 'scatter',
+                    mode: 'lines',
+                    line: { color: d.color, width: 2, dash: 'dash' },
+                    yaxis: d.axis
+                });
+            }
+        }
     });
 
     const layout = {
@@ -89,6 +142,18 @@ function renderChart(data) {
             showgrid: false,
             zeroline: false
         };
+        if (showRoC) {
+            layout.yaxis3 = {
+                overlaying: 'y',
+                side: 'right',
+                anchor: 'free',
+                position: 1,
+                showgrid: false,
+                zeroline: true,
+                zerolinecolor: 'rgba(255,45,120,0.3)',
+                showticklabels: false
+            };
+        }
     }
 
     Plotly.react('metricsChart', plotData, layout, { responsive: true, displayModeBar: false });
