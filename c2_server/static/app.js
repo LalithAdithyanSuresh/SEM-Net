@@ -130,13 +130,16 @@ function renderChart(data) {
             let last_x = iterations[iterations.length - 1];
             let next_x = last_x + (predictM * 1000);
 
+            let fullPrior = document.getElementById('toggle-full-prior')?.checked;
             let fitStart = 0;
-            for (let i = iterations.length - 1; i >= 0; i--) {
-                if (last_x - iterations[i] >= FIT_ITERS) { fitStart = i; break; }
+            if (!fullPrior) {
+                for (let i = iterations.length - 1; i >= 0; i--) {
+                    if (last_x - iterations[i] >= FIT_ITERS) { fitStart = i; break; }
+                }
+                let n30 = Math.floor(smoothed.length * 0.3);
+                fitStart = Math.min(fitStart, smoothed.length - n30);
+                fitStart = Math.max(0, fitStart);
             }
-            let n30 = Math.floor(smoothed.length * 0.3);
-            fitStart = Math.min(fitStart, smoothed.length - n30);
-            fitStart = Math.max(0, fitStart);
 
             let x_sl = iterations.slice(fitStart);
             let y_sl = smoothed.slice(fitStart);
