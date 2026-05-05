@@ -132,6 +132,9 @@ function renderChart(data) {
                 let slope = (n * sum_xy - sum_x * sum_y) / (n * sum_xx - sum_x * sum_x);
                 let intercept = (sum_y - slope * sum_x) / n;
                 
+                let last_x = iterations[iterations.length - 1];
+                let next_x = last_x + (predictM * 1000);
+
                 let pred_y1 = slope * last_x + intercept;
                 let pred_y2 = slope * next_x + intercept;
                 
