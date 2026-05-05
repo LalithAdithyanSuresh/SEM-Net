@@ -105,6 +105,7 @@
                                     style="width:45px;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.1);color:#d8b4fe;border-radius:4px;padding:2px 5px;outline:none;font-size:0.8rem;"
                                     onchange="if(document.getElementById('toggle-predict').checked) renderChart(allMetricsCache)">
                                 <span class="label" style="font-size:0.75rem;color:#94a3b8;">k</span>
+                                <span id="predict-coverage" style="font-size:0.7rem;font-family:var(--font-mono);font-weight:700;padding:1px 5px;border-radius:4px;border:1px solid rgba(255,255,255,0.15);background:rgba(0,0,0,0.2);cursor:help;display:none;" title="Prior knowledge coverage"></span>
                                 
                                 <label style="font-size:0.75rem;color:#94a3b8;cursor:pointer;display:flex;align-items:center;gap:0.25rem;margin-left:0.5rem;">
                                     <input type="checkbox" id="toggle-filter" onchange="renderChart(allMetricsCache)"> Show last:

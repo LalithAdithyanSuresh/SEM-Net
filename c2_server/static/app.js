@@ -119,6 +119,11 @@ function renderChart(data) {
             });
         }
 
+        if (!showPredict) {
+            const b = document.getElementById('predict-coverage');
+            if (b) b.style.display = 'none';
+        }
+
         if (showPredict) {
             // Use at minimum last 50k iters worth of data, or 30% of data (whichever is more)
             const FIT_ITERS = 50000;
@@ -136,6 +141,18 @@ function renderChart(data) {
             let x_sl = iterations.slice(fitStart);
             let y_sl = smoothed.slice(fitStart);
             let n = x_sl.length;
+
+            // Update prior coverage badge
+            let coveragePct = Math.round((n / iterations.length) * 100);
+            let badge = document.getElementById('predict-coverage');
+            if (badge) {
+                badge.style.display = 'inline';
+                badge.textContent = `Prior: ${coveragePct}%`;
+                badge.style.color = coveragePct >= 90 ? '#00ff88'
+                                  : coveragePct >= 60 ? '#ffe600'
+                                  : '#ff6b00';
+                badge.title = `Using ${n} of ${iterations.length} data points (${coveragePct}%) for model fit`;
+            }
             if (n >= 4) {
                 // Fit: y = a * log(x - x0) + b  where x0 = x_sl[0] - 1
                 // Transform: t = log(x - x0 + 1)
