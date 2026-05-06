@@ -727,12 +727,21 @@ document.getElementById('smooth-window').addEventListener('input', () => renderC
 // ═══════════════════════════════════════════════════════════════
 let isModalOpen = false, modalBaseName = null, modalIterIdx = 0;
 
+// Pan & Zoom state
+let zoomLevel = 1;
+let panX = 0;
+let panY = 0;
+let isPanning = false;
+let startX = 0;
+let startY = 0;
+
 window.openModal = function(base) {
     if (!progressionGroups[base]) return;
     modalBaseName = base; modalIterIdx = progressionGroups[base].length - 1;
     isModalOpen = true;
     document.getElementById('evolution-modal').style.display = 'flex';
     document.getElementById('modal-basename').textContent = base;
+    resetZoomPan();
     updateModalImage();
 };
 
@@ -742,6 +751,37 @@ window.closeModal = function() {
 };
 
 window.modalStep = function(dir) { modalIterIdx += dir; updateModalImage(); };
+
+window.modalStepBase = function(dir) {
+    if (!isModalOpen || !modalBaseName) return;
+    const baseNames = Object.keys(progressionGroups);
+    if (baseNames.length === 0) return;
+    let idx = baseNames.indexOf(modalBaseName);
+    if (idx === -1) return;
+    idx = (idx + dir + baseNames.length) % baseNames.length;
+
+    const currentGroup = progressionGroups[modalBaseName];
+    let targetIter = currentGroup[modalIterIdx]?.iter;
+
+    modalBaseName = baseNames[idx];
+    const newGroup = progressionGroups[modalBaseName];
+    
+    let newIdx = 0;
+    if (targetIter !== undefined) {
+        let bestDiff = Infinity;
+        for (let i = 0; i < newGroup.length; i++) {
+            let diff = Math.abs(newGroup[i].iter - targetIter);
+            if (diff < bestDiff) {
+                bestDiff = diff;
+                newIdx = i;
+            }
+        }
+    }
+    modalIterIdx = newIdx;
+    
+    document.getElementById('modal-basename').textContent = modalBaseName;
+    updateModalImage();
+};
 
 function updateModalImage() {
     if (!isModalOpen || !modalBaseName) return;
@@ -758,7 +798,75 @@ document.addEventListener('keydown', e => {
     if (e.key === 'Escape') closeModal();
     if (e.key === 'ArrowLeft')  modalStep(-1);
     if (e.key === 'ArrowRight') modalStep(1);
+    if (e.key === 'ArrowUp') { e.preventDefault(); modalStepBase(-1); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); modalStepBase(1); }
 });
+
+const modalImg = document.getElementById('modal-img');
+const imgWrapper = document.querySelector('.modal-img-wrapper');
+
+function resetZoomPan() {
+    zoomLevel = 1;
+    panX = 0;
+    panY = 0;
+    applyTransform();
+}
+
+function applyTransform() {
+    if (modalImg) {
+        modalImg.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
+    }
+}
+
+if (imgWrapper) {
+    imgWrapper.style.cursor = 'grab';
+
+    imgWrapper.addEventListener('wheel', (e) => {
+        if (!isModalOpen) return;
+        e.preventDefault();
+        const zoomFactor = 0.15;
+        const delta = Math.sign(e.deltaY) > 0 ? -1 : 1;
+        const oldZoom = zoomLevel;
+        zoomLevel = Math.max(0.1, Math.min(zoomLevel + delta * zoomFactor * zoomLevel, 40));
+
+        const rect = imgWrapper.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        panX = mouseX - (mouseX - panX) * (zoomLevel / oldZoom);
+        panY = mouseY - (mouseY - panY) * (zoomLevel / oldZoom);
+
+        applyTransform();
+    });
+
+    imgWrapper.addEventListener('mousedown', (e) => {
+        if (!isModalOpen) return;
+        e.preventDefault();
+        isPanning = true;
+        startX = e.clientX - panX;
+        startY = e.clientY - panY;
+        imgWrapper.style.cursor = 'grabbing';
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!isPanning || !isModalOpen) return;
+        panX = e.clientX - startX;
+        panY = e.clientY - startY;
+        applyTransform();
+    });
+
+    window.addEventListener('mouseup', () => {
+        if (isPanning) {
+            isPanning = false;
+            imgWrapper.style.cursor = 'grab';
+        }
+    });
+
+    imgWrapper.addEventListener('dblclick', (e) => {
+        if (!isModalOpen) return;
+        resetZoomPan();
+    });
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Bootstrap
