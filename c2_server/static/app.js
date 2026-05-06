@@ -718,6 +718,37 @@ document.getElementById('btn-pull').addEventListener('click', () => {
     if (confirm('Git Pull & Restart?')) sendCommand('restart_pull');
 });
 
+const settingsMenu = document.getElementById('settings-menu');
+if (settingsMenu) {
+    document.getElementById('btn-settings').addEventListener('click', (e) => {
+        e.stopPropagation();
+        settingsMenu.style.display = settingsMenu.style.display === 'none' ? 'block' : 'none';
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.settings-dropdown')) {
+            settingsMenu.style.display = 'none';
+        }
+    });
+
+    document.getElementById('btn-git-pull-ui').addEventListener('click', async () => {
+        settingsMenu.style.display = 'none';
+        try {
+            const res = await fetch(`${API_BASE}/git_pull`, { method: 'POST' });
+            const data = await res.json();
+            if (data.status === 'success') {
+                console.log(data.output);
+                alert('Git pull successful! Refreshing page...');
+                window.location.reload();
+            } else {
+                alert('Error pulling: ' + (data.message || data.error));
+            }
+        } catch (e) {
+            alert('Failed to execute git pull');
+        }
+    });
+}
+
 document.getElementById('btn-send-cmd').addEventListener('click', () => sendShellCommand(terminalInput.value));
 terminalInput.addEventListener('keypress', e => { if (e.key === 'Enter') sendShellCommand(terminalInput.value); });
 document.getElementById('smooth-window').addEventListener('input', () => renderChart(allMetricsCache));

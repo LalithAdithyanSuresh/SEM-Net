@@ -27,6 +27,12 @@
                         <button class="btn btn-primary" id="btn-run">▶ Run Training</button>
                         <button class="btn btn-danger" id="btn-stop">■ Stop</button>
                         <button class="btn btn-secondary" id="btn-pull">⟲ Git Pull &amp; Restart</button>
+                        <div class="settings-dropdown" style="position:relative; display:inline-block;">
+                            <button class="btn" id="btn-settings" style="background:transparent; border:none; font-size:1.2rem; cursor:pointer; padding:0.5rem;" title="Settings">⚙️</button>
+                            <div id="settings-menu" style="display:none; position:absolute; right:0; top:100%; background:var(--glass-bg); padding:0.5rem; border-radius:8px; border:1px solid var(--glass-border); z-index:100; min-width:180px;">
+                                <button class="btn btn-secondary" id="btn-git-pull-ui" style="width:100%; font-size:0.8rem; padding:0.5rem;">↓ Git Pull UI Updates</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

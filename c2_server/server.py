@@ -4,6 +4,7 @@ from flask import Flask, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
 import shutil
 import re
+import subprocess
 
 app = Flask(__name__, static_folder='static', static_url_path='')
 
@@ -247,6 +248,15 @@ def sync_result():
     save_path = os.path.join(data_dir, filename)
     file.save(save_path)
     return jsonify({"status": "success", "path": save_path})
+
+@app.route('/api/git_pull', methods=['POST'])
+def git_pull():
+    try:
+        # Run git pull in the app.root_path directory to update the repo
+        result = subprocess.run(['git', 'pull'], cwd=app.root_path, capture_output=True, text=True)
+        return jsonify({"status": "success", "output": result.stdout, "error": result.stderr})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
