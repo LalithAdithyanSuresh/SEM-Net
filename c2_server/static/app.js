@@ -6,7 +6,7 @@ const API_BASE = '/api';
 let selectedRun = '';
 let allMetricsCache = [];   // full structured metrics for current view
 let lastLogCount = 0;       // tracks total lines received for delta fetching
-let currentTab = 'losses';  // 'losses' | 'quality'
+let currentTab = 'quality'; // 'losses' | 'quality'
 
 const runSelector = document.getElementById('run-selector');
 
@@ -20,11 +20,11 @@ const LOSS_DATASETS = [
     { key: 'perceptual_loss', label: 'Perceptual',       color: '#ff2d78', axis: 'y' }, // hot pink
     { key: 'style_loss',      label: 'Style',            color: '#c97dff', axis: 'y' }, // vivid violet
     { key: 'sym_loss',        label: 'Symmetry',         color: '#ffe600', axis: 'y' }, // neon yellow
+    { key: 'mae',             label: 'MAE',              color: '#ffffff', axis: 'y2' }, // crisp white
 ];
 
 const QUALITY_DATASETS = [
     { key: 'psnr', label: 'PSNR (dB)', color: '#00ff88', axis: 'y'  }, // neon green
-    { key: 'mae',  label: 'MAE',       color: '#ff6b00', axis: 'y2' }, // vivid orange
 ];
 
 function smooth(arr, w) {
@@ -43,25 +43,189 @@ function smooth(arr, w) {
 // ═══════════════════════════════════════════════════════════════
 function renderChart(data) {
     if (data.length === 0) return;
+    
+    let filteredData = data;
+    const hideLast = document.getElementById('toggle-filter')?.checked;
+    if (hideLast) {
+        const kHide = parseFloat(document.getElementById('filter-k')?.value || 28);
+        if (filteredData.length > 0) {
+            const maxIter = filteredData[filteredData.length - 1].iteration;
+            const threshold = maxIter - (kHide * 1000);
+            filteredData = filteredData.filter(d => d.iteration >= threshold);
+        }
+    }
+    if (filteredData.length === 0) return;
+
     const w = Math.max(1, parseInt(document.getElementById('smooth-window').value) || 10);
     const defs = currentTab === 'losses' ? LOSS_DATASETS : QUALITY_DATASETS;
 
-    const iterations = data.map(d => d.iteration);
+    const showRoC = document.getElementById('toggle-roc')?.checked;
+    const showPredict = document.getElementById('toggle-predict')?.checked;
+    const predictM = parseFloat(document.getElementById('predict-m')?.value || 0);
+
+    const iterations = filteredData.map(d => d.iteration);
     
-    const plotData = defs.map(d => {
-        const raw = data.map(pt => pt[d.key] != null ? pt[d.key] : null);
+    let plotData = [];
+
+    defs.forEach(d => {
+        const raw = filteredData.map(pt => pt[d.key] != null ? pt[d.key] : null);
         const smoothed = smooth(raw.map(v => v ?? 0), w);
-        return {
+        let isMapped = currentTab === 'quality' && d.key === 'psnr';
+        let mappedY = smoothed;
+
+        if (isMapped) {
+            mappedY = smoothed.map(y => {
+                if (y == null) return null;
+                if (y <= 25) return y;
+                return 25 + (y - 25) * 5; // 5x stretch above 25
+            });
+        }
+        
+        let trace = {
             x: iterations,
-            y: smoothed,
+            y: mappedY,
             name: d.label,
             type: 'scatter',
             mode: 'lines',
             line: { color: d.color, width: 2.5 },
             fill: 'tozeroy',
-            fillcolor: d.color + '22', // ~13% opacity fill
+            fillcolor: d.color + '22',
             yaxis: d.axis
         };
+
+        if (isMapped) {
+            trace.customdata = smoothed;
+            trace.hovertemplate = '%{customdata:.2f}';
+        }
+
+        plotData.push(trace);
+
+        if (showRoC && d.key === 'psnr') {
+            let roc = [0];
+            for (let i = 1; i < smoothed.length; i++) {
+                let dx = iterations[i] - iterations[i-1];
+                let dy = smoothed[i] - smoothed[i-1];
+                roc.push(dx === 0 ? 0 : dy / dx * 1000); // ROC per 1k iters
+            }
+            roc = smooth(roc, w);
+            plotData.push({
+                x: iterations,
+                y: roc,
+                name: 'PSNR RoC (/1k iters)',
+                type: 'scatter',
+                mode: 'lines',
+                line: { color: '#ff2d78', width: 2, dash: 'dot' },
+                yaxis: 'y2'
+            });
+        }
+
+        if (!showPredict) {
+            const b = document.getElementById('predict-coverage');
+            if (b) b.style.display = 'none';
+        }
+
+        if (showPredict) {
+            // Use at minimum last 50k iters worth of data, or 30% of data (whichever is more)
+            const FIT_ITERS = 50000;
+            let last_x = iterations[iterations.length - 1];
+            let next_x = last_x + (predictM * 1000);
+
+            let fullPrior = document.getElementById('toggle-full-prior')?.checked;
+            let fitStart = 0;
+            if (!fullPrior) {
+                for (let i = iterations.length - 1; i >= 0; i--) {
+                    if (last_x - iterations[i] >= FIT_ITERS) { fitStart = i; break; }
+                }
+                let n30 = Math.floor(smoothed.length * 0.3);
+                fitStart = Math.min(fitStart, smoothed.length - n30);
+                fitStart = Math.max(0, fitStart);
+            }
+
+            let x_sl = iterations.slice(fitStart);
+            let y_sl = smoothed.slice(fitStart);
+            let n = x_sl.length;
+
+            // Update prior coverage badge
+            let coveragePct = Math.round((n / iterations.length) * 100);
+            let badge = document.getElementById('predict-coverage');
+            if (badge) {
+                badge.style.display = 'inline';
+                badge.textContent = `Prior: ${coveragePct}%`;
+                badge.style.color = coveragePct >= 90 ? '#00ff88'
+                                  : coveragePct >= 60 ? '#ffe600'
+                                  : '#ff6b00';
+                badge.title = `Using ${n} of ${iterations.length} data points (${coveragePct}%) for model fit`;
+            }
+            if (n >= 4) {
+                // Fit: y = a * log(x - x0) + b  where x0 = x_sl[0] - 1
+                // Transform: t = log(x - x0 + 1)
+                let x0 = x_sl[0] - 1;
+                let t_sl = x_sl.map(x => Math.log(x - x0 + 1));
+                let sum_t = 0, sum_y = 0, sum_tt = 0, sum_ty = 0;
+                for (let i = 0; i < n; i++) {
+                    sum_t  += t_sl[i];
+                    sum_y  += y_sl[i];
+                    sum_tt += t_sl[i] * t_sl[i];
+                    sum_ty += t_sl[i] * y_sl[i];
+                }
+                let denom = n * sum_tt - sum_t * sum_t;
+                let a = denom !== 0 ? (n * sum_ty - sum_t * sum_y) / denom : 0;
+                let b = (sum_y - a * sum_t) / n;
+
+                // Also compute linear fit for blending (handles decelerating / still-rising)
+                let sum_x2 = 0, sum_xy2 = 0;
+                for (let i = 0; i < n; i++) {
+                    sum_x2  += x_sl[i];
+                    sum_xy2 += x_sl[i] * y_sl[i];
+                }
+                let lin_denom = n * x_sl.reduce((acc, v) => acc + v*v, 0) - sum_x2 * sum_x2;
+                let lin_slope = lin_denom !== 0 ? (n * sum_xy2 - sum_x2 * sum_y) / lin_denom : 0;
+                let lin_int   = (sum_y - lin_slope * sum_x2) / n;
+
+                // Pick model with lower residual on fit window
+                let res_log = 0, res_lin = 0;
+                for (let i = 0; i < n; i++) {
+                    let yhat_log = a * t_sl[i] + b;
+                    let yhat_lin = lin_slope * x_sl[i] + lin_int;
+                    res_log += (y_sl[i] - yhat_log) ** 2;
+                    res_lin += (y_sl[i] - yhat_lin) ** 2;
+                }
+                let useLog = res_log <= res_lin;
+
+                // Generate 30 evenly spaced prediction points from last_x → next_x
+                const PRED_POINTS = 30;
+                let pred_xs = [], pred_ys = [], pred_mapped = [];
+                for (let i = 0; i <= PRED_POINTS; i++) {
+                    let xi = last_x + (i / PRED_POINTS) * (next_x - last_x);
+                    let yi;
+                    if (useLog) {
+                        yi = a * Math.log(xi - x0 + 1) + b;
+                    } else {
+                        yi = lin_slope * xi + lin_int;
+                    }
+                    pred_xs.push(xi);
+                    pred_ys.push(yi);
+                    pred_mapped.push(isMapped ? (yi <= 25 ? yi : 25 + (yi - 25) * 5) : yi);
+                }
+
+                let modelLabel = useLog ? 'Log-fit' : 'Linear';
+                let predTrace = {
+                    x: pred_xs,
+                    y: pred_mapped,
+                    name: `${d.label} Pred (${modelLabel})`,
+                    type: 'scatter',
+                    mode: 'lines+markers',
+                    line: { color: d.color, width: 2, dash: 'dash' },
+                    marker: { color: d.color, size: 5, symbol: 'circle-open' },
+                    yaxis: d.axis
+                };
+                if (isMapped) {
+                    predTrace.customdata = pred_ys;
+                    predTrace.hovertemplate = '%{customdata:.2f} dB<extra></extra>';
+                }
+                plotData.push(predTrace);
+            }
+        }
     });
 
     const layout = {
@@ -82,13 +246,134 @@ function renderChart(data) {
         legend: { orientation: 'h', y: 1.1 },
     };
 
-    if (currentTab === 'quality') {
+    const showEpochs = document.getElementById('toggle-epochs')?.checked;
+    if (showEpochs && filteredData.length > 0) {
+        let shapes = [];
+        let annotations = [];
+        
+        let startIter = filteredData[0].iteration;
+        let startEpoch = filteredData[0].epoch || 1;
+        
+        for (let i = 1; i <= filteredData.length; i++) {
+            let currentEpoch = i < filteredData.length ? filteredData[i].epoch : null;
+            let currentIter = i < filteredData.length ? filteredData[i].iteration : filteredData[filteredData.length - 1].iteration;
+            
+            // if we hit a new epoch or end of data
+            if (currentEpoch !== startEpoch || i === filteredData.length) {
+                let isEven = startEpoch % 2 === 0;
+                shapes.push({
+                    type: 'rect',
+                    xref: 'x',
+                    yref: 'paper',
+                    x0: startIter,
+                    y0: 0,
+                    x1: currentIter,
+                    y1: 1,
+                    fillcolor: isEven ? 'rgba(255,255,255,0.015)' : 'rgba(255,255,255,0.05)',
+                    line: { width: 0 },
+                    layer: 'below'
+                });
+                
+                // only add annotation if the band is wide enough
+                if (currentIter - startIter > 1000) {
+                    annotations.push({
+                        x: (startIter + currentIter) / 2,
+                        y: 1, // At the very top
+                        xref: 'x',
+                        yref: 'paper',
+                        text: `Ep ${startEpoch}`,
+                        showarrow: false,
+                        font: { size: 10, color: 'rgba(255,255,255,0.3)' },
+                        yanchor: 'bottom'
+                    });
+                }
+                
+                startIter = currentIter;
+                startEpoch = currentEpoch;
+            }
+        }
+        
+        layout.shapes = shapes;
+        layout.annotations = annotations;
+        // make top margin slightly larger to accommodate epoch labels
+        layout.margin.t = 20;
+    }
+
+    if (currentTab === 'losses') {
         layout.yaxis2 = {
             overlaying: 'y',
             side: 'right',
             showgrid: false,
             zeroline: false
         };
+    } else if (currentTab === 'quality') {
+        if (showRoC) {
+            layout.yaxis2 = {
+                overlaying: 'y',
+                side: 'right',
+                showgrid: false,
+                zeroline: true,
+                zerolinecolor: 'rgba(255,45,120,0.3)',
+                showticklabels: true
+            };
+        }
+    }
+
+    if (layout.yaxis2) {
+        let min1 = Infinity, max1 = -Infinity;
+        let min2 = Infinity, max2 = -Infinity;
+        let hasY1 = false, hasY2 = false;
+
+        plotData.forEach(p => {
+            let yArr = p.y.filter(v => v != null);
+            if (yArr.length === 0) return;
+            let pmin = Math.min(...yArr);
+            let pmax = Math.max(...yArr);
+            if (p.yaxis === 'y' || p.yaxis === undefined) {
+                min1 = Math.min(min1, pmin);
+                max1 = Math.max(max1, pmax);
+                hasY1 = true;
+            } else if (p.yaxis === 'y2') {
+                min2 = Math.min(min2, pmin);
+                max2 = Math.max(max2, pmax);
+                hasY2 = true;
+            }
+        });
+
+        if (hasY1 && hasY2) {
+            if (max1 === min1) { max1 += 1; min1 -= 1; }
+            if (max2 === min2) { max2 += 1; min2 -= 1; }
+
+            let pad1 = (max1 - min1) * 0.05; min1 -= pad1; max1 += pad1;
+            let pad2 = (max2 - min2) * 0.05; min2 -= pad2; max2 += pad2;
+
+            if (max1 > 0 && max2 > 0) {
+                let f1 = max1 / (max1 - min1);
+                let f2 = max2 / (max2 - min2);
+                let f = Math.min(f1, f2);
+                
+                if (f > 0) {
+                    if (f1 > f) min1 = max1 * (1 - 1/f);
+                    else if (f2 > f) min2 = max2 * (1 - 1/f);
+                }
+            }
+
+            layout.yaxis.range = [min1, max1];
+            layout.yaxis2.range = [min2, max2];
+            layout.yaxis.zeroline = true;
+            layout.yaxis2.zeroline = true;
+        }
+    }
+
+    if (currentTab === 'quality') {
+        let tvals = [];
+        let ttext = [];
+        for(let i=-200; i<0; i+=20) { tvals.push(i); ttext.push(i.toString()); }
+        for(let i=0; i<=25; i+=5) { tvals.push(i); ttext.push(i.toString()); }
+        for(let i=26; i<=40; i+=1) { tvals.push(25 + (i - 25) * 5); ttext.push(i.toString()); }
+        for(let i=42; i<=100; i+=2) { tvals.push(25 + (i - 25) * 5); ttext.push(i.toString()); }
+        layout.yaxis.tickvals = tvals;
+        layout.yaxis.ticktext = ttext;
     }
 
     Plotly.react('metricsChart', plotData, layout, { responsive: true, displayModeBar: false });
@@ -433,6 +718,37 @@ document.getElementById('btn-pull').addEventListener('click', () => {
     if (confirm('Git Pull & Restart?')) sendCommand('restart_pull');
 });
 
+const settingsMenu = document.getElementById('settings-menu');
+if (settingsMenu) {
+    document.getElementById('btn-settings').addEventListener('click', (e) => {
+        e.stopPropagation();
+        settingsMenu.style.display = settingsMenu.style.display === 'none' ? 'block' : 'none';
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.settings-dropdown')) {
+            settingsMenu.style.display = 'none';
+        }
+    });
+
+    document.getElementById('btn-git-pull-ui').addEventListener('click', async () => {
+        settingsMenu.style.display = 'none';
+        try {
+            const res = await fetch(`${API_BASE}/git_pull`, { method: 'POST' });
+            const data = await res.json();
+            if (data.status === 'success') {
+                console.log(data.output);
+                alert('Git pull successful! Refreshing page...');
+                window.location.reload();
+            } else {
+                alert('Error pulling: ' + (data.message || data.error));
+            }
+        } catch (e) {
+            alert('Failed to execute git pull');
+        }
+    });
+}
+
 document.getElementById('btn-send-cmd').addEventListener('click', () => sendShellCommand(terminalInput.value));
 terminalInput.addEventListener('keypress', e => { if (e.key === 'Enter') sendShellCommand(terminalInput.value); });
 document.getElementById('smooth-window').addEventListener('input', () => renderChart(allMetricsCache));
@@ -442,12 +758,21 @@ document.getElementById('smooth-window').addEventListener('input', () => renderC
 // ═══════════════════════════════════════════════════════════════
 let isModalOpen = false, modalBaseName = null, modalIterIdx = 0;
 
+// Pan & Zoom state
+let zoomLevel = 1;
+let panX = 0;
+let panY = 0;
+let isPanning = false;
+let startX = 0;
+let startY = 0;
+
 window.openModal = function(base) {
     if (!progressionGroups[base]) return;
     modalBaseName = base; modalIterIdx = progressionGroups[base].length - 1;
     isModalOpen = true;
     document.getElementById('evolution-modal').style.display = 'flex';
     document.getElementById('modal-basename').textContent = base;
+    resetZoomPan();
     updateModalImage();
 };
 
@@ -457,6 +782,37 @@ window.closeModal = function() {
 };
 
 window.modalStep = function(dir) { modalIterIdx += dir; updateModalImage(); };
+
+window.modalStepBase = function(dir) {
+    if (!isModalOpen || !modalBaseName) return;
+    const baseNames = Object.keys(progressionGroups);
+    if (baseNames.length === 0) return;
+    let idx = baseNames.indexOf(modalBaseName);
+    if (idx === -1) return;
+    idx = (idx + dir + baseNames.length) % baseNames.length;
+
+    const currentGroup = progressionGroups[modalBaseName];
+    let targetIter = currentGroup[modalIterIdx]?.iter;
+
+    modalBaseName = baseNames[idx];
+    const newGroup = progressionGroups[modalBaseName];
+    
+    let newIdx = 0;
+    if (targetIter !== undefined) {
+        let bestDiff = Infinity;
+        for (let i = 0; i < newGroup.length; i++) {
+            let diff = Math.abs(newGroup[i].iter - targetIter);
+            if (diff < bestDiff) {
+                bestDiff = diff;
+                newIdx = i;
+            }
+        }
+    }
+    modalIterIdx = newIdx;
+    
+    document.getElementById('modal-basename').textContent = modalBaseName;
+    updateModalImage();
+};
 
 function updateModalImage() {
     if (!isModalOpen || !modalBaseName) return;
@@ -473,7 +829,75 @@ document.addEventListener('keydown', e => {
     if (e.key === 'Escape') closeModal();
     if (e.key === 'ArrowLeft')  modalStep(-1);
     if (e.key === 'ArrowRight') modalStep(1);
+    if (e.key === 'ArrowUp') { e.preventDefault(); modalStepBase(-1); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); modalStepBase(1); }
 });
+
+const modalImg = document.getElementById('modal-img');
+const imgWrapper = document.querySelector('.modal-img-wrapper');
+
+function resetZoomPan() {
+    zoomLevel = 1;
+    panX = 0;
+    panY = 0;
+    applyTransform();
+}
+
+function applyTransform() {
+    if (modalImg) {
+        modalImg.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
+    }
+}
+
+if (imgWrapper) {
+    imgWrapper.style.cursor = 'grab';
+
+    imgWrapper.addEventListener('wheel', (e) => {
+        if (!isModalOpen) return;
+        e.preventDefault();
+        const zoomFactor = 0.15;
+        const delta = Math.sign(e.deltaY) > 0 ? -1 : 1;
+        const oldZoom = zoomLevel;
+        zoomLevel = Math.max(0.1, Math.min(zoomLevel + delta * zoomFactor * zoomLevel, 40));
+
+        const rect = imgWrapper.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        panX = mouseX - (mouseX - panX) * (zoomLevel / oldZoom);
+        panY = mouseY - (mouseY - panY) * (zoomLevel / oldZoom);
+
+        applyTransform();
+    });
+
+    imgWrapper.addEventListener('mousedown', (e) => {
+        if (!isModalOpen) return;
+        e.preventDefault();
+        isPanning = true;
+        startX = e.clientX - panX;
+        startY = e.clientY - panY;
+        imgWrapper.style.cursor = 'grabbing';
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!isPanning || !isModalOpen) return;
+        panX = e.clientX - startX;
+        panY = e.clientY - startY;
+        applyTransform();
+    });
+
+    window.addEventListener('mouseup', () => {
+        if (isPanning) {
+            isPanning = false;
+            imgWrapper.style.cursor = 'grab';
+        }
+    });
+
+    imgWrapper.addEventListener('dblclick', (e) => {
+        if (!isModalOpen) return;
+        resetZoomPan();
+    });
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Bootstrap
