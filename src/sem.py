@@ -227,7 +227,7 @@ class sem():
                     except Exception:
                         pass # Ignore net errors
 
-                if iteration % 1000 == 0:
+                if iteration % 500 == 0:
                     create_dir(self.results_path)
                     path_val = os.path.join(self.results_path, self.model_name, 'validation')
                     create_dir(path_val)
@@ -246,48 +246,150 @@ class sem():
                     val_loader  = DataLoader(dataset=Subset(self.test_dataset, all_indices),
                                              batch_size=1, num_workers=0, shuffle=False)
 
-                    # ── Helper: render one scan-path panel ────────────────────
-                    def _draw_path_panel(scan_orders, mask_np, bg_pil, patch_size, img_size, hole_only=False):
+                    # ── Helper: render full scan-path panel (lines, for known+hole) ─
+                    def _draw_path_panel(scan_orders, mask_np, bg_pil, patch_size, img_size):
                         from matplotlib.collections import LineCollection
                         fig = plt.figure(figsize=(img_size[0]/100, img_size[1]/100), dpi=100)
                         ax  = fig.add_axes([0, 0, 1, 1])
                         ax.axis('off')
-                        if hole_only:
-                            ax.imshow(np.zeros((img_size[1], img_size[0], 3), dtype=np.uint8))
-                        else:
-                            ax.imshow(np.array(bg_pil))
+                        ax.imshow(np.array(bg_pil))
                         if scan_orders:
-                            H_m, W_m = mask_np.shape
                             y_all = np.array([r * patch_size + patch_size/2.0 for r, c in scan_orders])
                             x_all = np.array([c * patch_size + patch_size/2.0 for r, c in scan_orders])
-                            if hole_only:
-                                keep = [k for k, (r, c) in enumerate(scan_orders)
-                                        if mask_np[min(int(r*patch_size+patch_size//2), H_m-1),
-                                                   min(int(c*patch_size+patch_size//2), W_m-1)] > 0.5]
-                                if not keep:
-                                    plt.close(fig)
-                                    return Image.new('RGB', img_size, (30, 30, 30))
-                                y_coords, x_coords = y_all[keep], x_all[keep]
-                            else:
-                                y_coords, x_coords = y_all, x_all
-                            pts  = np.array([x_coords, y_coords]).T.reshape(-1, 1, 2)
+                            pts  = np.array([x_all, y_all]).T.reshape(-1, 1, 2)
                             segs = np.concatenate([pts[:-1], pts[1:]], axis=1)
                             lc   = LineCollection(segs, cmap='rainbow',
-                                                  norm=plt.Normalize(0, len(x_coords)),
+                                                  norm=plt.Normalize(0, len(x_all)),
                                                   alpha=0.80, linewidths=1.5)
-                            lc.set_array(np.arange(len(x_coords)))
+                            lc.set_array(np.arange(len(x_all)))
                             ax.add_collection(lc)
-                            if len(x_coords) > 0:
-                                ax.scatter([x_coords[0]],  [y_coords[0]],  color='lime', s=45, zorder=5, edgecolors='black')
-                                ax.scatter([x_coords[-1]], [y_coords[-1]], color='red',  s=45, zorder=5, edgecolors='black')
-                                step = max(1, len(x_coords) // 15)
-                                for k in range(0, len(x_coords)-1, step):
-                                    ddx = x_coords[k+1]-x_coords[k]; ddy = y_coords[k+1]-y_coords[k]
+                            if len(x_all) > 0:
+                                ax.scatter([x_all[0]],  [y_all[0]],  color='lime', s=45, zorder=5, edgecolors='black')
+                                ax.scatter([x_all[-1]], [y_all[-1]], color='red',  s=45, zorder=5, edgecolors='black')
+                                step = max(1, len(x_all) // 15)
+                                for k in range(0, len(x_all)-1, step):
+                                    ddx = x_all[k+1]-x_all[k]; ddy = y_all[k+1]-y_all[k]
                                     dist = np.hypot(ddx, ddy)
                                     if dist > 0:
-                                        ax.arrow(x_coords[k], y_coords[k],
+                                        ax.arrow(x_all[k], y_all[k],
                                                  (ddx/dist)*(patch_size*0.45), (ddy/dist)*(patch_size*0.45),
                                                  color='white', head_width=patch_size*0.4, alpha=1.0, zorder=6)
+                        buf = io.BytesIO()
+                        plt.savefig(buf, format='png', dpi=100)
+                        plt.close(fig)
+                        buf.seek(0)
+                        return Image.open(buf).convert('RGB').resize(img_size)
+
+                    # ── Helper: hole-only patch heatmap (no lines, plasma gradient) ─
+                    def _draw_hole_heatmap(scan_orders, mask_np, img_size, patch_size):
+                        """
+                        For each patch inside the mask, fill its pixel rectangle with a
+                        plasma-colormap color that encodes its rank in the scan sequence.
+                        boundary patches (first visited) → dark purple
+                        deep-center patches (last visited) → bright yellow
+                        """
+                        H_px, W_px = img_size[1], img_size[0]   # PIL size is (W, H)
+                        canvas = np.zeros((H_px, W_px, 3), dtype=np.uint8)
+
+                        if not scan_orders:
+                            return Image.fromarray(canvas)
+
+                        H_m, W_m = mask_np.shape
+                        cmap = plt.cm.plasma
+
+                        # Collect only the hole patches, preserving their scan order rank
+                        hole_patches = []
+                        for (p_i, p_j) in scan_orders:
+                            cy = min(int(p_i * patch_size + patch_size // 2), H_m - 1)
+                            cx = min(int(p_j * patch_size + patch_size // 2), W_m - 1)
+                            if mask_np[cy, cx] > 0.5:
+                                hole_patches.append((p_i, p_j))
+
+                        if not hole_patches:
+                            return Image.new('RGB', img_size, (30, 30, 30))
+
+                        n = len(hole_patches)
+                        for local_rank, (p_i, p_j) in enumerate(hole_patches):
+                            t   = local_rank / max(n - 1, 1)   # 0.0 (boundary) → 1.0 (center)
+                            r, g, b, _ = cmap(t)
+                            color = (int(r * 255), int(g * 255), int(b * 255))
+
+                            # Pixel bounding box of this patch
+                            y0 = int(p_i * patch_size)
+                            x0 = int(p_j * patch_size)
+                            y1 = min(y0 + patch_size, H_px)
+                            x1 = min(x0 + patch_size, W_px)
+
+                            canvas[y0:y1, x0:x1] = color
+
+                            # 1-px dark inner border so patches are visually distinct
+                            if patch_size > 2:
+                                dark = (max(color[0]-60, 0), max(color[1]-60, 0), max(color[2]-60, 0))
+                                canvas[y0, x0:x1]   = dark  # top
+                                canvas[y1-1, x0:x1] = dark  # bottom
+                                canvas[y0:y1, x0]   = dark  # left
+                                canvas[y0:y1, x1-1] = dark  # right
+
+                        return Image.fromarray(canvas)
+
+                    # ── Helper: hole lines overlaid on plasma heatmap ────────────
+                    def _draw_hole_path_overlay(scan_orders, mask_np, img_size, patch_size):
+                        """
+                        Plasma-filled hole patches (same as heatmap) with the rainbow
+                        scan-order line drawn on top, connecting only hole patches.
+                        Shows BOTH gradient score AND traversal order.
+                        """
+                        from matplotlib.collections import LineCollection
+                        # Start from the heatmap as a numpy canvas
+                        H_px, W_px = img_size[1], img_size[0]
+                        canvas = np.zeros((H_px, W_px, 3), dtype=np.uint8)
+
+                        if not scan_orders:
+                            return Image.fromarray(canvas)
+
+                        H_m, W_m = mask_np.shape
+                        cmap_plasma = plt.cm.plasma
+
+                        hole_patches = []
+                        for (p_i, p_j) in scan_orders:
+                            cy = min(int(p_i * patch_size + patch_size // 2), H_m - 1)
+                            cx = min(int(p_j * patch_size + patch_size // 2), W_m - 1)
+                            if mask_np[cy, cx] > 0.5:
+                                hole_patches.append((p_i, p_j))
+
+                        if not hole_patches:
+                            return Image.new('RGB', img_size, (30, 30, 30))
+
+                        n = len(hole_patches)
+                        # Fill patches with plasma
+                        for local_rank, (p_i, p_j) in enumerate(hole_patches):
+                            t = local_rank / max(n - 1, 1)
+                            r, g, b, _ = cmap_plasma(t)
+                            color = (int(r*255), int(g*255), int(b*255))
+                            y0, x0 = int(p_i*patch_size), int(p_j*patch_size)
+                            y1, x1 = min(y0+patch_size, H_px), min(x0+patch_size, W_px)
+                            canvas[y0:y1, x0:x1] = color
+
+                        # Overlay rainbow line via matplotlib
+                        base_img = Image.fromarray(canvas)
+                        fig = plt.figure(figsize=(img_size[0]/100, img_size[1]/100), dpi=100)
+                        ax  = fig.add_axes([0, 0, 1, 1])
+                        ax.axis('off')
+                        ax.imshow(np.array(base_img))
+
+                        y_h = np.array([r * patch_size + patch_size/2.0 for r, c in hole_patches])
+                        x_h = np.array([c * patch_size + patch_size/2.0 for r, c in hole_patches])
+                        pts  = np.array([x_h, y_h]).T.reshape(-1, 1, 2)
+                        segs = np.concatenate([pts[:-1], pts[1:]], axis=1)
+                        lc   = LineCollection(segs, cmap='cool',
+                                              norm=plt.Normalize(0, n),
+                                              alpha=0.85, linewidths=1.2)
+                        lc.set_array(np.arange(n))
+                        ax.add_collection(lc)
+                        if n > 0:
+                            ax.scatter([x_h[0]],  [y_h[0]],  color='lime', s=40, zorder=5, edgecolors='black')
+                            ax.scatter([x_h[-1]], [y_h[-1]], color='red',  s=40, zorder=5, edgecolors='black')
+
                         buf = io.BytesIO()
                         plt.savefig(buf, format='png', dpi=100)
                         plt.close(fig)
@@ -331,11 +433,13 @@ class sem():
 
                         # ── Panel 3: Full path (all tokens on masked-input bg) ────
                         full_path_pil = _draw_path_panel(scan_orders, mask_np, gt_mask_pil,
-                                                         patch_size, img_size, hole_only=False)
+                                                         patch_size, img_size)
 
-                        # ── Panel 4: Hole-only path (black bg, only masked patches)
-                        hole_path_pil = _draw_path_panel(scan_orders, mask_np, gt_mask_pil,
-                                                         patch_size, img_size, hole_only=True)
+                        # ── Panel 4: Hole-only patch heatmap (plasma, no lines) ────
+                        hole_path_pil = _draw_hole_heatmap(scan_orders, mask_np, img_size, patch_size)
+
+                        # ── Panel 5: Hole heatmap + rainbow line overlay ──────────
+                        hole_lines_pil = _draw_hole_path_overlay(scan_orders, mask_np, img_size, patch_size)
 
                         # ── Panel 5: DA-Mamba offset heatmap (every image) ────────
                         try:
@@ -357,10 +461,12 @@ class sem():
                         except Exception:
                             da_offset_pil = Image.new('RGB', img_size, (80, 80, 80))
 
-                        # ── 7-panel stitch ────────────────────────────────────────
-                        panels       = [gt_img_pil, gt_mask_pil, full_path_pil, hole_path_pil,
+                        # ── 8-panel stitch ────────────────────────────────────────
+                        panels       = [gt_img_pil, gt_mask_pil, full_path_pil,
+                                        hole_path_pil, hole_lines_pil,
                                         da_offset_pil, pred_img_pil, pred_mask_pil]
-                        panel_labels = ['GT', 'Masked Input', 'Full Path', 'Hole Path',
+                        panel_labels = ['GT', 'Masked Input', 'Full Path',
+                                        'Hole Heatmap', 'Hole Lines',
                                         'DA Offsets', 'Raw Pred', 'Merged']
                         total_width = sum(p.size[0] for p in panels)
                         max_height  = max(p.size[1] for p in panels)

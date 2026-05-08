@@ -267,17 +267,43 @@ class CombinedAdaptiveMambaLayer(nn.Module):
                 mask_pooled = F.max_pool2d(mask.float(), kernel_size=patch_size, stride=patch_size).squeeze(1)
             else:
                 mask_pooled = mask.squeeze(1).float()
-                
-            distance_map = get_distance_map(mask_pooled.unsqueeze(1))
-            distance_map = distance_map.squeeze(1)
-            
-            known_boost = (1.0 - mask_pooled) * 10000.0 
-            spiral_boost = mask_pooled * distance_map * 100.0
-            texture_scores = score_map * 1.0
-            
+
+            # Global distance from known boundary: 1.0 = at boundary, 0.0 = deep center
+            distance_map = get_distance_map(mask_pooled.unsqueeze(1)).squeeze(1)  # [B, H_p, W_p]
+
+            # --- Island-aware priority via connected components ---
+            # Largest island first, no jumping between islands.
+            # Gap of 10000 between consecutive islands >> within-island range of dist*100.
+            island_priority = torch.zeros_like(mask_pooled)
+            try:
+                import numpy as _np
+                from scipy import ndimage as _ndi
+                mask_np = (mask_pooled > 0.5).cpu().numpy().astype(_np.uint8)
+                for b in range(B):
+                    labeled, n_isl = _ndi.label(mask_np[b])
+                    if n_isl > 0:
+                        sizes    = _np.bincount(labeled.flatten())[1:]          # size of each island
+                        rank_of  = _np.argsort(_np.argsort(sizes)[::-1])        # rank_of[i]: 0 = largest
+                        prio     = _np.zeros_like(labeled, dtype=_np.float32)
+                        for lbl in range(1, n_isl + 1):
+                            prio[labeled == lbl] = float(n_isl - rank_of[lbl - 1]) * 10000.0
+                        island_priority[b] = torch.from_numpy(prio).to(mask_pooled.device)
+            except Exception:
+                pass  # fallback: islands treated equally (global spiral)
+
+            # Score layout (no overlap between tiers):
+            #   Known pixels: 1_000_000 + texture[0,1000]  → always before any hole
+            #   Hole pixels:  island_priority(gap=10000) + dist*100(gap<100) + texture[0,1000]
+            #                 → largest island first, boundary before center within each island
+            known_boost    = (1.0 - mask_pooled) * 1_000_000.0
+            spiral_boost   = mask_pooled * (island_priority + distance_map * 100.0)
+            texture_scores = score_map * 1000.0
+
             final_scores = known_boost + spiral_boost + texture_scores
+            # Tiny jitter breaks floating-point ties (raster fallback) during early training
+            final_scores = final_scores + torch.rand_like(final_scores) * 0.1
         else:
-            final_scores = score_map
+            final_scores = score_map + torch.rand_like(score_map) * 0.1
             
         # GPU Vectorized Traversal (Importance-driven dynamic path)
         B, H_p, W_p = final_scores.shape

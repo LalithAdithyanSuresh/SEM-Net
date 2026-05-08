@@ -8,3 +8,6 @@ src/__pycache__/
 evaluation_results*/
 inference_results/
 *.zip
+Eval_SPIRAL/
+terminal_connect/
+updated_spiral/

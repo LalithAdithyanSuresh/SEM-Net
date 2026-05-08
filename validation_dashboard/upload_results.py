@@ -78,8 +78,11 @@ def upload_path(path, host, target_name=None):
     if os.path.isdir(path):
         folder_name = target_name or os.path.basename(os.path.normpath(path))
         zip_path = f"{folder_name}.zip"
-        print(f"Zipping {path} to {zip_path}...")
-        shutil.make_archive(folder_name, 'zip', path)
+        print(f"Zipping {path} → {zip_path} (folder will be preserved inside zip)...")
+        # Use parent dir as root_dir + folder name as base_dir so the zip contains
+        # `Eval_SPIRAL/...` at the root — extractall then lands in DATA_DIR/Eval_SPIRAL/
+        parent_dir = os.path.dirname(os.path.abspath(path))
+        shutil.make_archive(folder_name, 'zip', root_dir=parent_dir, base_dir=folder_name)
         cleanup = True
     elif os.path.isfile(path) and path.endswith('.zip'):
         zip_path = path
