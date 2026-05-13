@@ -165,8 +165,8 @@ class sem():
                                 "iteration": iteration,
                                 "epoch": round(sum(_metric_buf_epoch) / len(_metric_buf_epoch), 2),
                                 "_samples": n,  # how many iterations this average covers
+                                "session": C2_SESSION
                             }
-                                all_metrics_payload["session"] = C2_SESSION
                             for k in _METRIC_KEYS:
                                 vals = _metric_buf[k]
                                 all_metrics_payload[k] = round(sum(vals) / len(vals), 6) if vals else 0.0

@@ -512,7 +512,14 @@ async function fetchSessions() {
         });
         
         runSelector.innerHTML = opts.join('');
-        if (opts.find(o => o.includes(curr))) {
+        
+        // AUTO-SELECT LOGIC:
+        // If we have live sessions and we are on "default" or nothing, pick the first live one.
+        if (data.live.length > 0 && (curr === 'live:default' || !curr || !opts.find(o => o.includes(curr)))) {
+            selectedRun = `live:${data.live[0].id}`;
+            runSelector.value = selectedRun;
+            runSelector.dispatchEvent(new Event('change'));
+        } else if (opts.find(o => o.includes(curr))) {
             runSelector.value = curr;
         }
     } catch (e) { /* silent */ }
@@ -715,6 +722,14 @@ function applyWindow(centerIdx, allIters) {
 // Controls
 // ═══════════════════════════════════════════════════════════════
 async function sendCommand(cmd) {
+    if (isArchive) {
+        alert("You cannot send commands to an Archived run. Please select a Live session from the dropdown.");
+        return;
+    }
+    if (!currentSession) {
+        alert("No active session selected.");
+        return;
+    }
     await fetch(`${API_BASE}/command`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command: cmd, session: currentSession })
