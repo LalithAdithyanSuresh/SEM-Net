@@ -749,12 +749,12 @@ async function sendShellCommand(shellCmd) {
 }
 
 document.getElementById('btn-run').addEventListener('click', () => {
-    if (!selectedRun && confirm('Start training?')) sendCommand('run');
-    else if (selectedRun) alert('Return to Live Session to run training.');
+    if (!isArchive && confirm('Start training?')) sendCommand('run');
+    else if (isArchive) alert('Please select a Live Session from the dropdown to run training.');
 });
 
 document.getElementById('btn-stop').addEventListener('click', async () => {
-    if (!selectedRun && confirm('⚠️ Stop training?')) {
+    if (!isArchive && confirm('⚠️ Stop training?')) {
         await sendCommand('stop');
         const name = prompt('Save run as:', `Run_${new Date().toISOString().slice(0,10).replace(/-/g,'')}`);
         if (name) {
