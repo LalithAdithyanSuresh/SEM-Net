@@ -3,7 +3,10 @@ const API_BASE = '/api';
 // ═══════════════════════════════════════════════════════════════
 // State
 // ═══════════════════════════════════════════════════════════════
-let selectedRun = '';
+let selectedRun = 'live:default'; // Format: "live:session_id" or "archive:run_name"
+let currentSession = 'default';
+let currentRun = '';
+let isArchive = false;
 let allMetricsCache = [];   // full structured metrics for current view
 let lastLogCount = 0;       // tracks total lines received for delta fetching
 let currentTab = 'quality'; // 'losses' | 'quality'
@@ -410,7 +413,7 @@ const cmdBadge         = document.getElementById('current-command-badge');
 
 async function fetchState() {
     try {
-        const res  = await fetch(`${API_BASE}/command`);
+        const res  = await fetch(`${API_BASE}/command?session=${currentSession}`);
         const data = await res.json();
         connectionStatus.className = 'pulse-dot online';
         cmdBadge.textContent  = data.command.toUpperCase();
@@ -422,10 +425,13 @@ async function fetchState() {
 
 // Delta querying metrics
 async function fetchAllMetrics() {
-    if (selectedRun && allMetricsCache.length > 0) return;
+    if (isArchive && allMetricsCache.length > 0) return;
     try {
         const afterIter = allMetricsCache.length > 0 ? allMetricsCache[allMetricsCache.length - 1].iteration : -1;
-        const url = `${API_BASE}/all_metrics?after=${afterIter}${selectedRun ? '&run=' + selectedRun : ''}`;
+        let url = `${API_BASE}/all_metrics?after=${afterIter}`;
+        if (isArchive) url += `&run=${currentRun}`;
+        else url += `&session=${currentSession}`;
+        
         const res = await fetch(url);
         const data = await res.json();
 
@@ -442,22 +448,23 @@ async function fetchAllMetrics() {
 // Logs
 const terminalOutput = document.getElementById('terminal-output');
 async function fetchLogs() {
-    if (selectedRun && lastLogCount > 0) return; // For archives, only fetch once
+    if (isArchive && lastLogCount > 0) return; 
     try {
-        const url = `${API_BASE}/logs?after=${lastLogCount}${selectedRun ? '&run=' + selectedRun : ''}`;
+        let url = `${API_BASE}/logs?after=${lastLogCount}`;
+        if (isArchive) url += `&run=${currentRun}`;
+        else url += `&session=${currentSession}`;
+
         const res = await fetch(url);
         const data = await res.json();
 
-        // data is {lines: [], total: X} for live, or just [] for archive
         let newLines = [];
-        if (selectedRun) {
-            newLines = data;
-            lastLogCount = newLines.length;
-            terminalOutput.innerHTML = ''; // reset for archive
+        if (isArchive) {
+            newLines = data.lines;
+            lastLogCount = data.total;
+            terminalOutput.innerHTML = ''; 
         } else {
             newLines = data.lines;
             if (data.total < lastLogCount) {
-                // Server was reset or trimmed beyond our reach
                 terminalOutput.innerHTML = '';
             }
             lastLogCount = data.total;
@@ -468,7 +475,6 @@ async function fetchLogs() {
             terminalOutput.insertAdjacentHTML('beforeend', html);
             terminalOutput.scrollTop = terminalOutput.scrollHeight;
             
-            // Limit DOM size to last 2000 lines to prevent browser lag
             while (terminalOutput.children.length > 2000) {
                 terminalOutput.removeChild(terminalOutput.firstChild);
             }
@@ -486,19 +492,44 @@ function formatLogLine(line) {
 }
 
 // Archive runs list
-async function fetchRuns() {
+async function fetchSessions() {
     try {
-        const runs = await (await fetch(`${API_BASE}/runs`)).json();
-        const curr = runSelector.value;
-        const opts = ['<option value="" style="background:#1e1e1e;">[ • Current Live Session ]</option>'];
-        runs.forEach(r => opts.push(`<option value="${r}" style="background:#1e1e1e;">Archive: ${r}</option>`));
+        const res = await fetch(`${API_BASE}/sessions`);
+        const data = await res.json();
+        
+        const curr = selectedRun;
+        const opts = [];
+        
+        // Add Live Sessions
+        data.live.forEach(s => {
+            const dot = s.status === 'online' ? '🟢' : '⚪';
+            opts.push(`<option value="live:${s.id}" style="background:#1e1e1e;">${dot} Live: ${s.id}</option>`);
+        });
+        
+        // Add Archives
+        data.archived.forEach(r => {
+            opts.push(`<option value="archive:${r}" style="background:#1e1e1e;">📁 Archive: ${r}</option>`);
+        });
+        
         runSelector.innerHTML = opts.join('');
-        runSelector.value = curr;
+        if (opts.find(o => o.includes(curr))) {
+            runSelector.value = curr;
+        }
     } catch (e) { /* silent */ }
 }
 
 runSelector.addEventListener('change', e => {
     selectedRun     = e.target.value;
+    isArchive       = selectedRun.startsWith('archive:');
+    
+    if (isArchive) {
+        currentRun = selectedRun.split('archive:')[1];
+        currentSession = '';
+    } else {
+        currentSession = selectedRun.split('live:')[1];
+        currentRun = '';
+    }
+
     lastLogCount    = 0;
     allMetricsCache = [];
     progressionGroups = {};
@@ -535,14 +566,23 @@ function getAllIters() {
 }
 
 async function fetchImages() {
-    if (selectedRun && Object.keys(progressionGroups).length > 0) return;
+    if (isArchive && Object.keys(progressionGroups).length > 0) return;
     try {
-        const metaRes = await fetch(`${API_BASE}/images/meta${selectedRun ? '?run=' + selectedRun : ''}`);
+        let url = `${API_BASE}/images/meta?`;
+        if (isArchive) url += `run=${currentRun}`;
+        else url += `session=${currentSession}`;
+
+        const metaRes = await fetch(url);
         const meta = await metaRes.json();
         if (meta.count === lastImageMeta.count && meta.latest === lastImageMeta.latest) return;
         lastImageMeta = meta;
         if (meta.count === 0) { imageGallery.innerHTML = ''; imageCount.textContent = '0 groups'; return; }
-        const images = await (await fetch(`${API_BASE}/images${selectedRun ? '?run=' + selectedRun : ''}`)).json();
+        
+        let listUrl = `${API_BASE}/images?`;
+        if (isArchive) listUrl += `run=${currentRun}`;
+        else listUrl += `session=${currentSession}`;
+        
+        const images = await (await fetch(listUrl)).json();
         if (images.length > 0) buildProgressionViewer(images);
     } catch (e) { /* silent */ }
 }
@@ -637,7 +677,7 @@ function applyWindow(centerIdx, allIters) {
                 card.dataset.renderedIter = String(best.iter);
                 img.classList.add('fading');
                 setTimeout(() => {
-                    img.src = selectedRun ? `/images_archive/${selectedRun}/${best.filename}` : `/images/${best.filename}`;
+                    img.src = isArchive ? `images_archive/${currentRun}/${best.filename}` : `images/${currentSession}/${best.filename}`;
                     img.classList.remove('fading');
                 }, 120);
                 iterL.textContent = `iter ${best.iter}`;
@@ -653,7 +693,7 @@ function applyWindow(centerIdx, allIters) {
             let prev = null;
             for (const e of group) { if (e.iter <= iv) prev = e; else break; }
             if (prev) {
-                const url = selectedRun ? `/images_archive/${selectedRun}/${prev.filename}` : `/images/${prev.filename}`;
+                const url = isArchive ? `images_archive/${currentRun}/${prev.filename}` : `images/${currentSession}/${prev.filename}`;
                 urlsToKeep.add(url);
                 if (!prefetchCache.has(url)) {
                     const iObj = new Image(); iObj.src = url;
@@ -677,7 +717,7 @@ function applyWindow(centerIdx, allIters) {
 async function sendCommand(cmd) {
     await fetch(`${API_BASE}/command`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: cmd })
+        body: JSON.stringify({ command: cmd, session: currentSession })
     });
     fetchState();
 }
@@ -688,7 +728,7 @@ async function sendShellCommand(shellCmd) {
     if (!shellCmd.trim()) return;
     await fetch(`${API_BASE}/command`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shell_command: shellCmd })
+        body: JSON.stringify({ shell_command: shellCmd, session: currentSession })
     });
     terminalInput.value = '';
 }
@@ -705,10 +745,11 @@ document.getElementById('btn-stop').addEventListener('click', async () => {
         if (name) {
             await fetch(`${API_BASE}/save_run`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name })
+                body: JSON.stringify({ name: name, session: currentSession })
             });
-            await fetchRuns();
-            runSelector.value = name;
+            await fetchSessions();
+            selectedRun = `archive:${name}`;
+            runSelector.value = selectedRun;
             runSelector.dispatchEvent(new Event('change'));
         }
     }
