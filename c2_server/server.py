@@ -14,8 +14,10 @@ app = Flask(__name__, static_folder='static', static_url_path='')
 live_sessions = {}
 
 def get_session(session_id):
-    if not session_id:
+    # Sanitize session_id: remove whitespace, None, or empty
+    if not session_id or str(session_id).lower() in ["none", "undefined", "null", ""]:
         session_id = "default"
+    
     if session_id not in live_sessions:
         print(f"[NEW SESSION] Registered: {session_id}")
         live_sessions[session_id] = {

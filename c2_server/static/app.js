@@ -514,8 +514,8 @@ async function fetchSessions() {
         runSelector.innerHTML = opts.join('');
         
         // AUTO-SELECT LOGIC:
-        // If we have live sessions and we are on "default" or nothing, pick the first live one.
-        if (data.live.length > 0 && (curr === 'live:default' || !curr || !opts.find(o => o.includes(curr)))) {
+        const hasActiveSession = data.live.some(s => `live:${s.id}` === curr);
+        if (data.live.length > 0 && (!curr || curr === 'live:default' || !hasActiveSession)) {
             selectedRun = `live:${data.live[0].id}`;
             runSelector.value = selectedRun;
             runSelector.dispatchEvent(new Event('change'));
