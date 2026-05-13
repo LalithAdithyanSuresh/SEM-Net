@@ -25,6 +25,8 @@ def main(mode=None):
         print('Cuda is available')
         config.DEVICE = torch.device("cuda")
         torch.backends.cudnn.benchmark = True   # cudnn auto-tuner
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
     else:
         print('Cuda is unavailable, use cpu')
         config.DEVICE = torch.device("cpu")

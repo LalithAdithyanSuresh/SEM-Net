@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from src.config import Config
-from src.dataset import Dataset, generate_stroke_mask
+from src.dataset import Dataset
 from src.models import InpaintingModel
 from src.utils import create_dir
 from skimage.metrics import structural_similarity as compare_ssim
@@ -144,6 +144,10 @@ def main():
     config.MODE = 2
     config.MODEL = 2
     config.DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    # Override empty configs with standard dataset paths
+    config.TEST_INPAINT_IMAGE_FLIST = "/mnt/datadrive/inpaint/celebaHQ/archive/celeba_hq_256_test"
+    config.TEST_MASK_FLIST = "/mnt/datadrive/inpaint/iregularmask/test_mask/mask/testing_mask_dataset"
 
     # LPIPS
     loss_fn_vgg = lpips.LPIPS(net='vgg').to(config.DEVICE)

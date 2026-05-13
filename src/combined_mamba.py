@@ -144,16 +144,16 @@ class Dynamic_Adaptive_Scan(nn.Module):
 
         
         if DCNv3Function is not None:
-            x = DCNv3Function.apply(
+                x = DCNv3Function.apply(
                 input_last, offset, mask_dcn,
-                self.kernel_size, self.kernel_size,
-                self.stride, self.stride,
-                self.pad, self.pad,
-                self.dilation, self.dilation,
-                self.group, self.group_channels,
-                self.offset_scale,
-                256,
-                self.remove_center)
+                    self.kernel_size, self.kernel_size,
+                    self.stride, self.stride,
+                    self.pad, self.pad,
+                    self.dilation, self.dilation,
+                    self.group, self.group_channels,
+                    self.offset_scale,
+                    256,
+                    self.remove_center)
         else:
             # Fallback if DCN isn't available (should not happen in proper environment)
             x = input_last

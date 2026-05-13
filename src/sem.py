@@ -227,7 +227,7 @@ class sem():
                     except Exception:
                         pass # Ignore net errors
 
-                if iteration % 500 == 0:
+                if iteration % 3000 == 0:
                     create_dir(self.results_path)
                     path_val = os.path.join(self.results_path, self.model_name, 'validation')
                     create_dir(path_val)
@@ -533,6 +533,8 @@ class sem():
         test_loader = DataLoader(
             dataset=self.test_dataset,
             batch_size=1,
+            num_workers=4,
+            pin_memory=True,
         )
         
         psnr_list = []
@@ -551,10 +553,11 @@ class sem():
                 
 
                 inputs = (images * (1 - masks))
-                with torch.no_grad():             
+                with torch.inference_mode():             
+                    with torch.cuda.amp.autocast():
+                        outputs_img = self.inpaint_model(images, masks)
 
-                    outputs_img = self.inpaint_model(images, masks)
-
+                outputs_img = outputs_img.float()
                 outputs_merged = (outputs_img * masks) + (images * (1 - masks))
                 
                 print('outpus_size', outputs_merged.size())

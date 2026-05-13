@@ -119,8 +119,8 @@ class InpaintingModel(BaseModel):
 
         # zero optimizers
         if (self.iteration - 1) % accum_steps == 0:
-            self.gen_optimizer.zero_grad()
-            self.dis_optimizer.zero_grad()
+            self.gen_optimizer.zero_grad(set_to_none=True)
+            self.dis_optimizer.zero_grad(set_to_none=True)
 
 
         # process outputs

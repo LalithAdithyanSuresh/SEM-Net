@@ -24,6 +24,7 @@ def upload_chunked(zip_path, host):
             retries = 3
             
             for attempt in range(retries):
+
                 try:
                     progress = (i + 1) / total_chunks * 100
                     elapsed = time.time() - start_time

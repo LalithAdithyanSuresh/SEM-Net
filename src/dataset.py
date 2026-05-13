@@ -206,7 +206,10 @@ class Dataset(torch.utils.data.Dataset):
             sample_loader = DataLoader(
                 dataset=self,
                 batch_size=batch_size,
-                drop_last=True
+                drop_last=True,
+                num_workers=8,
+                pin_memory=True,
+                shuffle=True
             )
 
             for item in sample_loader:
