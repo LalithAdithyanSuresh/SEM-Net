@@ -492,40 +492,58 @@ function formatLogLine(line) {
 }
 
 // Archive runs list
+const sessionTabs = document.getElementById('session-tabs');
+
 async function fetchSessions() {
     try {
         const res = await fetch(`${API_BASE}/sessions`);
         const data = await res.json();
         
+        // 1. Update Live Buttons
         const curr = selectedRun;
-        const opts = [];
-        
-        // Add Live Sessions
+        sessionTabs.innerHTML = '';
         data.live.forEach(s => {
+            const btn = document.createElement('button');
+            const isSelected = (`live:${s.id}` === curr);
             const dot = s.status === 'online' ? '🟢' : '⚪';
-            opts.push(`<option value="live:${s.id}" style="background:#1e1e1e;">${dot} Live: ${s.id}</option>`);
+            
+            btn.className = isSelected ? 'badge badge-active' : 'badge';
+            btn.style.cursor = 'pointer';
+            btn.style.border = isSelected ? '1px solid #4ade80' : '1px solid rgba(255,255,255,0.1)';
+            btn.style.padding = '0.4rem 0.8rem';
+            btn.style.background = isSelected ? 'rgba(74, 222, 128, 0.1)' : 'rgba(255,255,255,0.05)';
+            btn.innerHTML = `${dot} ${s.id}`;
+            
+            btn.onclick = () => {
+                selectedRun = `live:${s.id}`;
+                runSelector.value = ''; // Reset archive selector
+                runSelector.dispatchEvent(new Event('change'));
+            };
+            sessionTabs.appendChild(btn);
         });
-        
-        // Add Archives
+
+        // 2. Update Archives Dropdown
+        const archiveOpts = ['<option value="">-- View History --</option>'];
         data.archived.forEach(r => {
-            opts.push(`<option value="archive:${r}" style="background:#1e1e1e;">📁 Archive: ${r}</option>`);
+            archiveOpts.push(`<option value="archive:${r}" style="background:#1e1e1e;">📁 ${r}</option>`);
         });
-        
-        runSelector.innerHTML = opts.join('');
-        
-        // AUTO-SELECT LOGIC:
+        runSelector.innerHTML = archiveOpts.join('');
+        if (curr.startsWith('archive:')) {
+            runSelector.value = curr;
+        }
+
+        // 3. AUTO-SELECT LOGIC:
         const hasActiveSession = data.live.some(s => `live:${s.id}` === curr);
         if (data.live.length > 0 && (!curr || curr === 'live:default' || !hasActiveSession)) {
             selectedRun = `live:${data.live[0].id}`;
-            runSelector.value = selectedRun;
-            runSelector.dispatchEvent(new Event('change'));
-        } else if (opts.find(o => o.includes(curr))) {
-            runSelector.value = curr;
+            // Trigger UI update manually since we aren't using runSelector.value for live anymore
+            const fakeEvent = { target: { value: selectedRun } };
+            handleSessionChange(fakeEvent);
         }
     } catch (e) { /* silent */ }
 }
 
-runSelector.addEventListener('change', e => {
+function handleSessionChange(e) {
     selectedRun     = e.target.value;
     isArchive       = selectedRun.startsWith('archive:');
     
@@ -545,7 +563,14 @@ runSelector.addEventListener('change', e => {
     terminalOutput.innerHTML = '';
     document.getElementById('image-gallery').innerHTML = '';
     fetchLogs(); fetchAllMetrics(); fetchImages();
-});
+}
+
+// Update the event listener to use the shared handler
+runSelector.removeEventListener('change', null); // dummy
+runSelector.onchange = handleSessionChange;
+
+
+
 
 // ═══════════════════════════════════════════════════════════════
 // Images / Progression Viewer
