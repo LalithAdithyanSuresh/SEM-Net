@@ -983,12 +983,13 @@ if (imgWrapper) {
 // ═══════════════════════════════════════════════════════════════
 // Bootstrap
 // ═══════════════════════════════════════════════════════════════
-fetchRuns();
+fetchSessions();   // Discover live sessions & archives → builds tab buttons
 fetchLogs();
 fetchAllMetrics();
 fetchImages();
 fetchState();
 
+setInterval(fetchSessions,   3000);  // Poll for new/dropped sessions every 3s
 setInterval(fetchState,      1000);
 setInterval(fetchLogs,       1000);
 setInterval(fetchAllMetrics, 2000);
