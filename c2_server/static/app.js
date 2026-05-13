@@ -499,74 +499,78 @@ async function fetchSessions() {
         const res = await fetch(`${API_BASE}/sessions`);
         const data = await res.json();
         
-        // 1. Update Live Buttons
-        const curr = selectedRun;
+        // 1. Rebuild Live Buttons — only update visuals, NEVER change selectedRun here
         sessionTabs.innerHTML = '';
         data.live.forEach(s => {
             const btn = document.createElement('button');
-            const isSelected = (`live:${s.id}` === curr);
+            const isSelected = (`live:${s.id}` === selectedRun);
             const dot = s.status === 'online' ? '🟢' : '⚪';
-            
-            btn.className = isSelected ? 'badge badge-active' : 'badge';
-            btn.style.cursor = 'pointer';
-            btn.style.border = isSelected ? '1px solid #4ade80' : '1px solid rgba(255,255,255,0.1)';
-            btn.style.padding = '0.4rem 0.8rem';
-            btn.style.background = isSelected ? 'rgba(74, 222, 128, 0.1)' : 'rgba(255,255,255,0.05)';
-            btn.innerHTML = `${dot} ${s.id}`;
-            
-            btn.onclick = () => {
-                selectedRun = `live:${s.id}`;
-                runSelector.value = ''; // Reset archive selector
-                runSelector.dispatchEvent(new Event('change'));
-            };
+
+            btn.style.cursor      = 'pointer';
+            btn.style.border      = isSelected ? '1px solid #4ade80' : '1px solid rgba(255,255,255,0.1)';
+            btn.style.padding     = '0.4rem 0.9rem';
+            btn.style.borderRadius = '999px';
+            btn.style.fontFamily  = 'inherit';
+            btn.style.fontSize    = '0.85rem';
+            btn.style.fontWeight  = isSelected ? '700' : '400';
+            btn.style.background  = isSelected ? 'rgba(74,222,128,0.15)' : 'rgba(255,255,255,0.06)';
+            btn.style.color       = isSelected ? '#4ade80' : '#94a3b8';
+            btn.style.boxShadow   = isSelected ? '0 0 10px rgba(74,222,128,0.3)' : 'none';
+            btn.style.transition  = 'all 0.2s';
+            btn.textContent       = `${dot} ${s.id}`;
+
+            btn.onclick = () => switchToSession(`live:${s.id}`);
             sessionTabs.appendChild(btn);
         });
 
-        // 2. Update Archives Dropdown
+        // 2. Update Archives Dropdown (archives only)
         const archiveOpts = ['<option value="">-- View History --</option>'];
         data.archived.forEach(r => {
             archiveOpts.push(`<option value="archive:${r}" style="background:#1e1e1e;">📁 ${r}</option>`);
         });
         runSelector.innerHTML = archiveOpts.join('');
-        if (curr.startsWith('archive:')) {
-            runSelector.value = curr;
+        if (selectedRun.startsWith('archive:')) {
+            runSelector.value = selectedRun;
         }
 
-        // 3. AUTO-SELECT LOGIC:
-        const hasActiveSession = data.live.some(s => `live:${s.id}` === curr);
-        if (data.live.length > 0 && (!curr || curr === 'live:default' || !hasActiveSession)) {
-            selectedRun = `live:${data.live[0].id}`;
-            // Trigger UI update manually since we aren't using runSelector.value for live anymore
-            const fakeEvent = { target: { value: selectedRun } };
-            handleSessionChange(fakeEvent);
+        // 3. AUTO-SELECT: ONLY when current selectedRun is not in any known list
+        const liveIds    = data.live.map(s => `live:${s.id}`);
+        const archiveIds = data.archived.map(r => `archive:${r}`);
+        if (![...liveIds, ...archiveIds].includes(selectedRun) && data.live.length > 0) {
+            switchToSession(`live:${data.live[0].id}`);
         }
     } catch (e) { /* silent */ }
 }
 
-function handleSessionChange(e) {
-    selectedRun     = e.target.value;
-    isArchive       = selectedRun.startsWith('archive:');
-    
+// Central session-switch — the ONLY place that mutates session state
+function switchToSession(newRun) {
+    selectedRun = newRun;
+    isArchive   = selectedRun.startsWith('archive:');
+
     if (isArchive) {
-        currentRun = selectedRun.split('archive:')[1];
+        currentRun     = selectedRun.replace('archive:', '');
         currentSession = '';
     } else {
-        currentSession = selectedRun.split('live:')[1];
-        currentRun = '';
+        currentSession = selectedRun.replace('live:', '');
+        currentRun     = '';
     }
 
-    lastLogCount    = 0;
-    allMetricsCache = [];
+    lastLogCount      = 0;
+    allMetricsCache   = [];
     progressionGroups = {};
-    lastImageMeta = { count: -1, latest: null };
+    lastImageMeta     = { count: -1, latest: null };
     Plotly.purge('metricsChart');
     terminalOutput.innerHTML = '';
     document.getElementById('image-gallery').innerHTML = '';
-    fetchLogs(); fetchAllMetrics(); fetchImages();
+    fetchLogs(); fetchAllMetrics(); fetchImages(); fetchState();
 }
 
-// Update the event listener to use the shared handler
-runSelector.removeEventListener('change', null); // dummy
+function handleSessionChange(e) {
+    const val = e.target.value;
+    if (!val) return; // "-- View History --" selected, ignore
+    switchToSession(val);
+}
+
 runSelector.onchange = handleSessionChange;
 
 
