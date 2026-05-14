@@ -183,14 +183,38 @@ def api_data():
     results = []
     for _, row in merged.iterrows():
         image_file = row['Image']
-        img_id = image_file.replace('.jpg', '').replace('.png', '')
+        img_id = image_file.replace('.jpg', '').replace('.png', '').replace('.jpeg', '')
         
         vote_data = votes_dict.get(img_id, {'winner': None, 'comment': ''})
         
+        # Helper to find image path robustly
+        def get_robust_path(model_name, subfolder_prefix, img_id_base):
+            # 1. Try standard subfolder: fid_fake_SMALL/00000.png
+            subfolder = f"{subfolder_prefix}_{size}"
+            model_path = os.path.join(DATA_DIR, model_name)
+            
+            # Extensions to try
+            exts = ['.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG']
+            
+            # Try subfolder first
+            target_sub = os.path.join(model_path, subfolder)
+            if os.path.exists(target_sub):
+                for ext in exts:
+                    if os.path.exists(os.path.join(target_sub, img_id_base + ext)):
+                        return f'/images/{model_name}/{subfolder}/{img_id_base}{ext}'
+            
+            # Try root folder second (flat structure)
+            for ext in exts:
+                if os.path.exists(os.path.join(model_path, img_id_base + ext)):
+                    return f'/images/{model_name}/{img_id_base}{ext}'
+            
+            # Fallback to original if nothing found
+            return f'/images/{model_name}/{subfolder}/{image_file}'
+
         item = {
             'id': img_id,
             'filename': image_file,
-            'gt': f'/images/{models[0]}/fid_real_{size}/{image_file}',
+            'gt': get_robust_path(models[0], 'fid_real', img_id),
             'winner': vote_data['winner'],
             'comment': vote_data['comment']
         }
@@ -198,7 +222,7 @@ def api_data():
         # Add dynamic model paths and PSNRs
         for i, m in enumerate(models):
             item[f'psnr_{i+1}'] = round(float(row.get(f'PSNR_{i+1}', 0)), 2)
-            item[f'f{i+1}_fake'] = f'/images/{m}/fid_fake_{size}/{image_file}'
+            item[f'f{i+1}_fake'] = get_robust_path(m, 'fid_fake', img_id)
             
         results.append(item)
     
