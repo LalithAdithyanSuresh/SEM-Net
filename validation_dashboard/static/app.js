@@ -202,21 +202,27 @@ function loadImages(item) {
 
 function drawImages() {
     if (!state.currentImg) return;
-    const w = state.images.gt.width, h = state.images.gt.height;
-    if (w === 0) return;
+    const gtImg = state.images.gt;
+    if (!gtImg.complete || gtImg.naturalWidth === 0) return;
+
+    const w = gtImg.width, h = gtImg.height;
     
     elements.canvases.forEach(c => { c.width = w; c.height = h; });
     elements.hiddenCanvases.forEach(c => { c.width = w; c.height = h; });
     elements.hiddenMask.width = w; elements.hiddenMask.height = h;
     
-    hiddenContexts[0].drawImage(state.images.gt, 0, 0);
-    contexts[0].drawImage(state.images.gt, 0, 0);
+    hiddenContexts[0].drawImage(gtImg, 0, 0);
+    contexts[0].drawImage(gtImg, 0, 0);
     
-    if (state.images.mask.complete) maskCtx.drawImage(state.images.mask, 0, 0, w, h);
+    const maskImg = state.images.mask;
+    const isMaskReady = maskImg.complete && maskImg.naturalWidth > 0;
+    if (isMaskReady) maskCtx.drawImage(maskImg, 0, 0, w, h);
 
     for (let i = 1; i <= 5; i++) {
         if (!elements.modelSelects[i-1].value) continue;
         const ctx = contexts[i], hCtx = hiddenContexts[i], img = state.images[`m${i}`];
+        if (!img.complete || img.naturalWidth === 0) continue;
+        
         hCtx.drawImage(img, 0, 0);
         
         if (state.showDiff) {
@@ -228,7 +234,7 @@ function drawImages() {
                 d.data[j+3] = 255;
             }
             ctx.putImageData(d, 0, 0);
-        } else if (state.showHeatmap) {
+        } else if (state.showHeatmap && isMaskReady) {
             const gt = hiddenContexts[0].getImageData(0,0,w,h), m = hCtx.getImageData(0,0,w,h), d = ctx.createImageData(w,h);
             const mask = maskCtx.getImageData(0,0,w,h).data;
             for (let j=0; j<gt.data.length; j+=4) {
@@ -246,15 +252,15 @@ function drawImages() {
             ctx.drawImage(img, 0, 0);
         }
         
-        if (state.showMask && state.images.mask.complete) {
+        if (state.showMask && isMaskReady) {
             ctx.globalCompositeOperation = 'lighten';
-            ctx.drawImage(state.images.mask, 0, 0, w, h);
+            ctx.drawImage(maskImg, 0, 0, w, h);
             ctx.globalCompositeOperation = 'source-over';
         }
     }
     
     if (state.showGT) {
-        elements.canvases.forEach((c, idx) => { if(idx > 0) contexts[idx].drawImage(state.images.gt, 0, 0); });
+        elements.canvases.forEach((c, idx) => { if(idx > 0) contexts[idx].drawImage(gtImg, 0, 0); });
     }
     updateTransforms();
 }

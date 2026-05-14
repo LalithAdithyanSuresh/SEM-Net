@@ -60,62 +60,28 @@ def get_indexed_masks():
     if indexed_masks_cache:
         return indexed_masks_cache
         
-    # 1. Try loading from disk cache
-    if os.path.exists(CACHE_FILE):
-        try:
-            with open(CACHE_FILE, 'r') as f:
-                categories = json.load(f)
-                # Quick check if paths exist
-                first_key = next((k for k in categories if categories[k]), None)
-                if first_key and os.path.exists(categories[first_key][0]):
-                    indexed_masks_cache = categories
-                    print("Loaded mask index from disk cache.")
-                    return categories
-        except:
-            pass
-
-    # 2. Re-index from scratch
     mask_dir = os.path.join(DATA_DIR, 'testing_mask_dataset')
     if not os.path.exists(mask_dir):
-        possible_paths = [os.path.join(DATA_DIR, 'masks'), os.path.join(DATA_DIR, 'iregularmask')]
-        for p in possible_paths:
-            if os.path.exists(p) and os.path.isdir(p):
-                mask_dir = p
-                break
-            
-    if not mask_dir or not os.path.exists(mask_dir):
-        print(f"Warning: No mask directory found!")
         return {'SMALL': [], 'MEDIUM': [], 'LARGE': []}
         
-    print(f"Indexing masks from {mask_dir} (fast mode)...")
-    categories = {'SMALL': [], 'MEDIUM': [], 'LARGE': []}
+    mask_files = [os.path.join(mask_dir, f) for f in os.listdir(mask_dir) 
+                  if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    mask_files.sort() # Critical for deterministic mapping
     
-    mask_files = [f for f in os.listdir(mask_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-    mask_files.sort()
+    # 4k / 4k / 4k split as specified by user
+    # Handle cases where count might not be exactly 12k
+    n = len(mask_files)
+    s1 = min(n, 4000)
+    s2 = min(n, 8000)
     
-    for f in mask_files:
-        mask_path = os.path.join(mask_dir, f)
-        try:
-            with Image.open(mask_path) as mask_img:
-                # Fast ratio check: resize to 16x16
-                small = mask_img.convert('L').resize((16, 16), Image.NEAREST)
-                ratio = np.mean(np.array(small)) / 255.0
-                
-                if ratio <= 0.25: categories['SMALL'].append(mask_path)
-                elif ratio <= 0.45: categories['MEDIUM'].append(mask_path)
-                else: categories['LARGE'].append(mask_path)
-        except:
-            continue
+    categories = {
+        'SMALL': mask_files[0:s1],
+        'MEDIUM': mask_files[s1:s2],
+        'LARGE': mask_files[s2:]
+    }
                 
     indexed_masks_cache = categories
-    # Save to disk cache
-    try:
-        with open(CACHE_FILE, 'w') as f:
-            json.dump(categories, f)
-    except:
-        pass
-        
-    print("Mask indexing complete and cached.")
+    print(f"Indexed {n} masks with 4k split: {len(categories['SMALL'])} SMALL, {len(categories['MEDIUM'])} MEDIUM, {len(categories['LARGE'])} LARGE")
     return categories
 
 init_db()
@@ -160,24 +126,33 @@ def api_data():
                 if 'Image' in df.columns and 'PSNR' in df.columns:
                     df = df[['Image', 'PSNR']].rename(columns={'PSNR': f'PSNR_{i+1}'})
                     dfs.append(df)
-            except:
-                pass
-    
-    if not dfs:
-        # If no metrics, still try to find images
-        first_model_dir = os.path.join(DATA_DIR, models[0], f'fid_real_{size}')
-        if os.path.exists(first_model_dir):
-            images = [f for f in os.listdir(first_model_dir) if f.endswith(('.png', '.jpg'))]
-            merged = pd.DataFrame({'Image': images})
-            for i in range(len(models)):
-                merged[f'PSNR_{i+1}'] = 0
-        else:
-            return jsonify([])
+            except: pass
+
+    # Normalize all dataframes to use 'ID' for robust merging
+    normalized_dfs = []
+    for df_idx, df in enumerate(dfs):
+        # Create 'ID' column by stripping extension
+        df['ID'] = df['Image'].apply(lambda x: str(x).split('.')[0])
+        df = df.drop_duplicates(subset=['ID'])
+        normalized_dfs.append(df[['ID', f'PSNR_{df_idx+1}']])
+
+    if not normalized_dfs:
+        # Fallback to directory listing
+        first_model_dir = os.path.join(DATA_DIR, models[0])
+        images = []
+        # Check standard subfolder or root
+        for d in [os.path.join(first_model_dir, f'fid_real_{size}'), first_model_dir]:
+            if os.path.exists(d):
+                images.extend([f for f in os.listdir(d) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
+        
+        unique_ids = list(set([f.split('.')[0] for f in images]))
+        merged = pd.DataFrame({'ID': unique_ids})
+        for i in range(len(models)): merged[f'PSNR_{i+1}'] = 0
     else:
-        # Merge all dataframes on 'Image'
-        merged = dfs[0]
-        for df in dfs[1:]:
-            merged = pd.merge(merged, df, on='Image', how='outer')
+        # Merge on 'ID'
+        merged = normalized_dfs[0]
+        for df in normalized_dfs[1:]:
+            merged = pd.merge(merged, df, on='ID', how='outer')
         merged = merged.fillna(0)
     
     # Load votes (optional now, but kept for compatibility)
@@ -190,49 +165,53 @@ def api_data():
     
     votes_dict = {row[0]: {'winner': row[1], 'comment': row[2]} for row in votes_rows}
     
+    # Get mask categories for filtering if using testing_mask_dataset
+    indexed_masks = get_indexed_masks()
+    valid_mask_paths = set(indexed_masks.get(size, []))
+    # Extract just the filenames for easier matching
+    valid_mask_names = {os.path.basename(p).split('.')[0] for p in valid_mask_paths}
+
     results = []
     for _, row in merged.iterrows():
-        image_file = row['Image']
-        img_id = image_file.replace('.jpg', '').replace('.png', '').replace('.jpeg', '')
-        
+        img_id = str(row['ID'])
         vote_data = votes_dict.get(img_id, {'winner': None, 'comment': ''})
         
         # Helper to find image path robustly
         def get_robust_path(model_name, subfolder_prefix, img_id_base):
-            # 1. Try standard subfolder: fid_fake_SMALL/00000.png
-            subfolder = f"{subfolder_prefix}_{size}"
-            model_path = os.path.join(DATA_DIR, model_name)
-            
-            # Extensions to try
-            exts = ['.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG']
-            
-            # Try subfolder first
-            target_sub = os.path.join(model_path, subfolder)
-            if os.path.exists(target_sub):
+            try:
+                # 1. Try standard subfolder: fid_fake_SMALL/00000.png
+                subfolder = f"{subfolder_prefix}_{size}"
+                model_path = os.path.join(DATA_DIR, model_name)
+                if not os.path.exists(model_path): return None
+                
+                exts = ['.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG']
+                
+                target_sub = os.path.join(model_path, subfolder)
+                if os.path.exists(target_sub):
+                    for ext in exts:
+                        if os.path.exists(os.path.join(target_sub, img_id_base + ext)):
+                            return f'/images/{model_name}/{subfolder}/{img_id_base}{ext}'
+                
+                # 2. Try root folder second (flat structure)
                 for ext in exts:
-                    if os.path.exists(os.path.join(target_sub, img_id_base + ext)):
-                        return f'/images/{model_name}/{subfolder}/{img_id_base}{ext}'
-            
-            # Try root folder second (flat structure)
-            for ext in exts:
-                if os.path.exists(os.path.join(model_path, img_id_base + ext)):
-                    return f'/images/{model_name}/{img_id_base}{ext}'
-            
-            # Fallback to original if nothing found
-            return f'/images/{model_name}/{subfolder}/{image_file}'
+                    if os.path.exists(os.path.join(model_path, img_id_base + ext)):
+                        return f'/images/{model_name}/{img_id_base}{ext}'
+            except:
+                pass
+            return None
+
+        gt_path = get_robust_path(models[0], 'fid_real', img_id) or ''
 
         item = {
             'id': img_id,
-            'filename': image_file,
-            'gt': get_robust_path(models[0], 'fid_real', img_id),
+            'gt': gt_path,
             'winner': vote_data['winner'],
             'comment': vote_data['comment']
         }
         
-        # Add dynamic model paths and PSNRs
         for i, m in enumerate(models):
             item[f'psnr_{i+1}'] = round(float(row.get(f'PSNR_{i+1}', 0)), 2)
-            item[f'f{i+1}_fake'] = get_robust_path(m, 'fid_fake', img_id)
+            item[f'f{i+1}_fake'] = get_robust_path(m, 'fid_fake', img_id) or ''
             
         results.append(item)
     
@@ -383,16 +362,7 @@ def index():
 
 @app.route('/api/mask_only/<model>/<size>/<image_name>')
 def api_mask_only(model, size, image_name):
-    # 1. First, try direct filename match in testing_mask_dataset (FASTEST)
-    mask_dir = os.path.join(DATA_DIR, 'testing_mask_dataset')
-    if os.path.exists(mask_dir):
-        # image_name is the ID like '00000'
-        for ext in ['.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG']:
-            potential_mask = os.path.join(mask_dir, image_name + ext)
-            if os.path.exists(potential_mask):
-                return send_from_directory(mask_dir, image_name + ext)
-
-    # 2. If no direct match, use the indexed categories (SLOWER FALLBACK)
+    # Deterministic Indexing ONLY (No direct ID mapping)
     real_dir = os.path.join(DATA_DIR, model, f'fid_real_{size}')
     if not os.path.exists(real_dir):
         real_dir = os.path.join(DATA_DIR, model)
@@ -400,7 +370,7 @@ def api_mask_only(model, size, image_name):
     if not os.path.exists(real_dir):
         return "Category directory not found", 404
         
-    all_images = [f for f in os.listdir(real_dir) if f.endswith(('.png', '.jpg', '.jpeg'))]
+    all_images = [f for f in os.listdir(real_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
     all_images.sort()
     
     image_filename = None
@@ -420,10 +390,12 @@ def api_mask_only(model, size, image_name):
     if not cat_masks:
         return f"No masks found for category {size}", 404
         
+    # Formula: (img_index * 2) % len(cat_masks)
     mask_path = cat_masks[(img_index * 2) % len(cat_masks)]
     
     try:
         with Image.open(mask_path) as mask_img:
+            # Match current reference image size
             with Image.open(os.path.join(real_dir, image_filename)) as ref_img:
                 w, h = ref_img.size
             mask_resized = mask_img.convert('L').resize((w, h), Image.NEAREST)
