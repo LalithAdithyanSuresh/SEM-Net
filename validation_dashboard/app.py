@@ -51,24 +51,33 @@ def init_db():
         
     conn.close()
 
-# --- Mask Indexing Logic (Matches evaluate_GPT.py) ---
-indexed_masks_cache = None
+import json
+
+CACHE_FILE = os.path.join(os.path.dirname(__file__), 'mask_cache.json')
 
 def get_indexed_masks():
     global indexed_masks_cache
     if indexed_masks_cache:
         return indexed_masks_cache
         
-    # User specified testing_mask_dataset as the reserved folder
+    # 1. Try loading from disk cache
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, 'r') as f:
+                categories = json.load(f)
+                # Quick check if paths exist
+                first_key = next((k for k in categories if categories[k]), None)
+                if first_key and os.path.exists(categories[first_key][0]):
+                    indexed_masks_cache = categories
+                    print("Loaded mask index from disk cache.")
+                    return categories
+        except:
+            pass
+
+    # 2. Re-index from scratch
     mask_dir = os.path.join(DATA_DIR, 'testing_mask_dataset')
-    
     if not os.path.exists(mask_dir):
-        # Fallback to previous discovery logic
-        possible_paths = [
-            os.path.join(DATA_DIR, 'masks'),
-            os.path.join(DATA_DIR, 'iregularmask'),
-            '/home/cks/places_val_masks'
-        ]
+        possible_paths = [os.path.join(DATA_DIR, 'masks'), os.path.join(DATA_DIR, 'iregularmask')]
         for p in possible_paths:
             if os.path.exists(p) and os.path.isdir(p):
                 mask_dir = p
@@ -78,31 +87,35 @@ def get_indexed_masks():
         print(f"Warning: No mask directory found!")
         return {'SMALL': [], 'MEDIUM': [], 'LARGE': []}
         
-    print(f"Indexing masks from {mask_dir}...")
+    print(f"Indexing masks from {mask_dir} (fast mode)...")
     categories = {'SMALL': [], 'MEDIUM': [], 'LARGE': []}
     
-    mask_files = [f for f in os.listdir(mask_dir) if f.endswith(('.png', '.jpg', '.jpeg'))]
+    mask_files = [f for f in os.listdir(mask_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
     mask_files.sort()
     
     for f in mask_files:
         mask_path = os.path.join(mask_dir, f)
         try:
             with Image.open(mask_path) as mask_img:
-                mask_np = np.array(mask_img.convert('L'))
-                ratio = np.mean(mask_np) / 255.0
+                # Fast ratio check: resize to 16x16
+                small = mask_img.convert('L').resize((16, 16), Image.NEAREST)
+                ratio = np.mean(np.array(small)) / 255.0
                 
-                # Broaden categories or just put all if irregular
-                if ratio <= 0.25:
-                    categories['SMALL'].append(mask_path)
-                elif ratio <= 0.45:
-                    categories['MEDIUM'].append(mask_path)
-                else:
-                    categories['LARGE'].append(mask_path)
+                if ratio <= 0.25: categories['SMALL'].append(mask_path)
+                elif ratio <= 0.45: categories['MEDIUM'].append(mask_path)
+                else: categories['LARGE'].append(mask_path)
         except:
             continue
                 
     indexed_masks_cache = categories
-    print("Mask indexing complete.")
+    # Save to disk cache
+    try:
+        with open(CACHE_FILE, 'w') as f:
+            json.dump(categories, f)
+    except:
+        pass
+        
+    print("Mask indexing complete and cached.")
     return categories
 
 init_db()
