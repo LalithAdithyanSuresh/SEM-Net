@@ -54,6 +54,7 @@ def init_db():
 import json
 
 CACHE_FILE = os.path.join(os.path.dirname(__file__), 'mask_cache.json')
+indexed_masks_cache = None
 
 def get_indexed_masks():
     global indexed_masks_cache
