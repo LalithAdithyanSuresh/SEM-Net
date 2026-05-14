@@ -3,179 +3,116 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Inpainting Validation Dashboard</title>
+    <title>Inpainting Multi-Model Dashboard</title>
     <link rel="stylesheet" href="/static/style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="app-container">
-        <!-- Sidebar for Image List -->
-        <aside class="sidebar">
-            <div class="sidebar-header">
-                <h2>Images</h2>
-                <div class="controls">
-                    <input type="text" id="searchInput" placeholder="Search by ID...">
-                    
-                    <div class="filter-group">
-                        <label>Sort By:</label>
-                        <select id="sortSelect">
-                            <option value="id_asc">ID (Asc)</option>
-                            <option value="id_desc">ID (Desc)</option>
-                            <option value="psnr1_asc">Model 1 PSNR (Asc)</option>
-                            <option value="psnr1_desc">Model 1 PSNR (Desc)</option>
-                            <option value="psnr2_asc">Model 2 PSNR (Asc)</option>
-                            <option value="psnr2_desc">Model 2 PSNR (Desc)</option>
-                            <option value="diff_psnr_desc">Diff PSNR (M1 - M2)</option>
-                        </select>
-                    </div>
+        <!-- Top Navbar Row -->
+        <header class="navbar horizontal-controls">
+            <div class="nav-section logo-section">
+                <h1>Multi-Model Validation</h1>
+                <select id="sizeSelect" class="category-select">
+                    <option value="SMALL">SMALL</option>
+                    <option value="MEDIUM">MEDIUM</option>
+                    <option value="LARGE">LARGE</option>
+                </select>
+            </div>
 
-                    <div class="filter-group">
-                        <label>Filter PSNR 1 >= :</label>
-                        <input type="number" id="filterPsnr1" placeholder="e.g. 30" step="0.1">
-                    </div>
-                    <div class="filter-group">
-                        <label>Filter PSNR 2 >= :</label>
-                        <input type="number" id="filterPsnr2" placeholder="e.g. 30" step="0.1">
-                    </div>
-                    <div class="filter-group">
-                        <label>Status:</label>
-                        <select id="filterStatus">
-                            <option value="all">All</option>
-                            <option value="unscored">Unscored</option>
-                            <option value="scored">Any Scored</option>
-                            <option value="m1">ONLY VA MAMBA Won</option>
-                            <option value="m2">VA + DA MAMBA Won</option>
-                            <option value="tie">Tie</option>
-                            <option value="commented">Has Comment</option>
+            <div class="nav-section image-selection">
+                <div class="control-group">
+                    <label>Image Selection</label>
+                    <div class="search-container">
+                        <input type="text" id="searchInput" placeholder="Search ID...">
+                        <select id="imageDropdown">
+                            <option value="">Select Image...</option>
                         </select>
                     </div>
                 </div>
-                <div class="stats" id="statsDisplay">Loading...</div>
             </div>
-            <div class="image-list" id="imageList">
-                <!-- List items injected by JS -->
-            </div>
-        </aside>
 
-        <!-- Main Content Area -->
-        <main class="main-content">
-            <!-- Top Navbar in Main Content -->
-            <header class="navbar">
-                <div class="nav-left">
-                    <h1 id="currentImageTitle">Select an image</h1>
-                    <span class="psnr-badge" id="maskPercentageBadge">Mask: --%</span>
-                    <span class="psnr-badge" id="m1PsnrBadge">M1 PSNR: --</span>
-                    <span class="psnr-badge" id="m2PsnrBadge">M2 PSNR: --</span>
+            <div class="nav-section model-config">
+                <div class="control-group">
+                    <label>Models 1-5</label>
+                    <div class="model-selects-row">
+                        <select id="model1Select" class="model-select"></select>
+                        <select id="model2Select" class="model-select"></select>
+                        <select id="model3Select" class="model-select"></select>
+                        <select id="model4Select" class="model-select"></select>
+                        <select id="model5Select" class="model-select"></select>
+                    </div>
                 </div>
-                <div class="nav-right">
-                    <button id="toggleDiffBtn" class="btn">Toggle Pixel Diff</button>
-                    <select id="sizeSelect" class="category-select">
-                        <option value="SMALL">SMALL</option>
-                        <option value="MEDIUM">MEDIUM</option>
-                        <option value="LARGE">LARGE</option>
+            </div>
+
+            <div class="nav-section sorting-filtering">
+                <div class="control-group">
+                    <label>Sort By</label>
+                    <select id="sortSelect">
+                        <option value="id_asc">ID (Asc)</option>
+                        <option value="best_psnr_desc">Best PSNR (Desc)</option>
+                        <option value="psnr1_desc">Model 1 PSNR</option>
+                        <option value="psnr2_desc">Model 2 PSNR</option>
+                        <option value="psnr3_desc">Model 3 PSNR</option>
+                        <option value="psnr4_desc">Model 4 PSNR</option>
+                        <option value="psnr5_desc">Model 5 PSNR</option>
                     </select>
-                    
-                    <div class="settings-container">
-                        <button id="settingsBtn" class="settings-btn" title="Settings">
-                            <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-                        </button>
-                        <div id="settingsDropdown" class="settings-dropdown">
-                            <div class="settings-group">
-                                <h3>Model Selection</h3>
-                                <div class="model-selection-row">
-                                    <select id="model1Select" class="model-select">
-                                        <option value="">Loading...</option>
-                                    </select>
-                                    <span class="vs-text">VS</span>
-                                    <select id="model2Select" class="model-select">
-                                        <option value="">Loading...</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="settings-group">
-                                <h3>View Options</h3>
-                                <div class="toggle-row">
-                                    <div class="switch-item">
-                                        <span>Show GT Panel</span>
-                                        <label class="switch">
-                                            <input type="checkbox" id="gtSwitch" checked>
-                                            <span class="slider"></span>
-                                        </label>
-                                    </div>
-                                    <div class="switch-item">
-                                        <span>Auto-load Grids</span>
-                                        <label class="switch">
-                                            <input type="checkbox" id="autoLoadGridSwitch" checked>
-                                            <span class="slider"></span>
-                                        </label>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="settings-group">
-                                <h3>Tools</h3>
-                                <button id="viewScoredBtn" class="btn btn-block btn-outline">View Scored Images</button>
-                                <button id="resetZoomBtn" class="btn btn-block btn-outline">Reset Viewport</button>
-                            </div>
-                        </div>
-                    </div>
                 </div>
-            </header>
+            </div>
 
-            <!-- Viewer Area -->
+            <div class="nav-section actions">
+                <button id="toggleDiffBtn" class="btn">Pixel Diff</button>
+                <button id="resetZoomBtn" class="btn btn-outline">Reset View</button>
+                <div class="stats" id="statsDisplay">-- / --</div>
+            </div>
+        </header>
+
+        <!-- Main Content Area: 6 Columns -->
+        <main class="main-content">
             <div class="viewer-container">
-                <!-- Split View -->
-                <div class="split-view" id="splitView">
-                    <div class="panel">
-                        <div class="panel-header" id="panelHeader1">Model 1</div>
-                        <div class="canvas-container" id="container1">
-                            <canvas id="canvas1"></canvas>
-                        </div>
-                    </div>
-                    <div class="panel" id="gtPanel">
-                        <div class="panel-header">Ground Truth (GT)</div>
+                <div class="split-view six-columns" id="splitView">
+                    <!-- Column 0: GT -->
+                    <div class="panel gt-panel" id="gtPanel">
+                        <div class="panel-header">Ground Truth</div>
                         <div class="canvas-container" id="containerGT">
                             <canvas id="canvasGT"></canvas>
                         </div>
                     </div>
-                    <div class="panel">
-                        <div class="panel-header" id="panelHeader2">Model 2</div>
+                    
+                    <!-- Columns 1-5: Models -->
+                    <div class="panel model-panel" id="panel1">
+                        <div class="panel-header" id="header1">Model 1</div>
+                        <div class="metrics-badge" id="badge1">--</div>
+                        <div class="canvas-container" id="container1">
+                            <canvas id="canvas1"></canvas>
+                        </div>
+                    </div>
+                    <div class="panel model-panel" id="panel2">
+                        <div class="panel-header" id="header2">Model 2</div>
+                        <div class="metrics-badge" id="badge2">--</div>
                         <div class="canvas-container" id="container2">
                             <canvas id="canvas2"></canvas>
                         </div>
                     </div>
-                </div>
-
-                <!-- Voting and Comments Panel -->
-                <div class="voting-panel" id="votingPanel">
-                    <div class="vote-buttons">
-                        <button id="voteM1Btn" class="btn vote-btn">🏆 <span id="voteText1">Model 1</span> Wins</button>
-                        <button id="voteTieBtn" class="btn vote-btn">⚖️ Tie / Unsure</button>
-                        <button id="voteM2Btn" class="btn vote-btn">🏆 <span id="voteText2">Model 2</span> Wins</button>
-                    </div>
-                    <div class="comment-section">
-                        <textarea id="voteComment" placeholder="Add a comment about why..."></textarea>
-                        <button id="saveVoteBtn" class="btn">Save Comment</button>
-                    </div>
-                </div>
-
-                <!-- Bottom Grids -->
-                <div class="bottom-grids" id="bottomGrids">
-                    <div class="grid-panel">
-                        <div class="panel-header" id="gridHeader1">Model 1 - 5 Image Grid</div>
-                        <div class="img-container">
-                            <div class="grid-placeholder" id="placeholder1">
-                                <button class="btn btn-sm load-grid-btn" onclick="loadGrid(1)">Load Grid Image (400KB)</button>
-                            </div>
-                            <img id="grid1Img" src="" alt="Model 1 Grid" style="display:none;">
+                    <div class="panel model-panel" id="panel3">
+                        <div class="panel-header" id="header3">Model 3</div>
+                        <div class="metrics-badge" id="badge3">--</div>
+                        <div class="canvas-container" id="container3">
+                            <canvas id="canvas3"></canvas>
                         </div>
                     </div>
-                    <div class="grid-panel">
-                        <div class="panel-header" id="gridHeader2">Model 2 - 5 Image Grid</div>
-                        <div class="img-container">
-                            <div class="grid-placeholder" id="placeholder2">
-                                <button class="btn btn-sm load-grid-btn" onclick="loadGrid(2)">Load Grid Image (400KB)</button>
-                            </div>
-                            <img id="grid2Img" src="" alt="Model 2 Grid" style="display:none;">
+                    <div class="panel model-panel" id="panel4">
+                        <div class="panel-header" id="header4">Model 4</div>
+                        <div class="metrics-badge" id="badge4">--</div>
+                        <div class="canvas-container" id="container4">
+                            <canvas id="canvas4"></canvas>
+                        </div>
+                    </div>
+                    <div class="panel model-panel" id="panel5">
+                        <div class="panel-header" id="header5">Model 5</div>
+                        <div class="metrics-badge" id="badge5">--</div>
+                        <div class="canvas-container" id="container5">
+                            <canvas id="canvas5"></canvas>
                         </div>
                     </div>
                 </div>
@@ -183,9 +120,13 @@
         </main>
     </div>
 
-    <!-- Hidden canvas for difference calculation -->
-    <canvas id="hiddenCanvas1" style="display:none;"></canvas>
-    <canvas id="hiddenCanvas2" style="display:none;"></canvas>
+    <!-- Hidden canvases for processing -->
+    <canvas id="hiddenGT" style="display:none;"></canvas>
+    <canvas id="hidden1" style="display:none;"></canvas>
+    <canvas id="hidden2" style="display:none;"></canvas>
+    <canvas id="hidden3" style="display:none;"></canvas>
+    <canvas id="hidden4" style="display:none;"></canvas>
+    <canvas id="hidden5" style="display:none;"></canvas>
 
     <script src="/static/app.js"></script>
 </body>

@@ -135,35 +135,46 @@ def api_folders():
 @app.route('/api/data')
 def api_data():
     size = request.args.get('size', 'SMALL')
-    model1 = request.args.get('model1')
-    model2 = request.args.get('model2')
+    models = [request.args.get(f'model{i}') for i in range(1, 6)]
+    models = [m for m in models if m] # filter out empty ones
     
-    if not model1 or not model2:
+    if not models:
         return jsonify([])
         
-    m1_path = os.path.join(DATA_DIR, model1, f'metrics_{size}.csv')
-    m2_path = os.path.join(DATA_DIR, model2, f'metrics_{size}.csv')
+    dfs = []
+    for i, m in enumerate(models):
+        path = os.path.join(DATA_DIR, m, f'metrics_{size}.csv')
+        if os.path.exists(path):
+            try:
+                df = pd.read_csv(path, on_bad_lines='skip')
+                if 'Image' in df.columns and 'PSNR' in df.columns:
+                    df = df[['Image', 'PSNR']].rename(columns={'PSNR': f'PSNR_{i+1}'})
+                    dfs.append(df)
+            except:
+                pass
     
-    df1 = pd.read_csv(m1_path, on_bad_lines='skip') if os.path.exists(m1_path) else pd.DataFrame(columns=['Image', 'PSNR'])
-    df2 = pd.read_csv(m2_path, on_bad_lines='skip') if os.path.exists(m2_path) else pd.DataFrame(columns=['Image', 'PSNR'])
+    if not dfs:
+        # If no metrics, still try to find images
+        first_model_dir = os.path.join(DATA_DIR, models[0], f'fid_real_{size}')
+        if os.path.exists(first_model_dir):
+            images = [f for f in os.listdir(first_model_dir) if f.endswith(('.png', '.jpg'))]
+            merged = pd.DataFrame({'Image': images})
+            for i in range(len(models)):
+                merged[f'PSNR_{i+1}'] = 0
+        else:
+            return jsonify([])
+    else:
+        # Merge all dataframes on 'Image'
+        merged = dfs[0]
+        for df in dfs[1:]:
+            merged = pd.merge(merged, df, on='Image', how='outer')
+        merged = merged.fillna(0)
     
-    if 'Image' not in df1.columns: df1['Image'] = []
-    if 'Image' not in df2.columns: df2['Image'] = []
-    if 'PSNR' not in df1.columns: df1['PSNR'] = 0
-    if 'PSNR' not in df2.columns: df2['PSNR'] = 0
-    
-    df1 = df1.rename(columns={'PSNR': 'PSNR_1'})
-    df2 = df2.rename(columns={'PSNR': 'PSNR_2'})
-    
-    merged = pd.merge(df1[['Image', 'PSNR_1']], df2[['Image', 'PSNR_2']], on='Image', how='outer')
-    merged = merged.fillna(0)
-    
-    grid1 = get_grid_files(os.path.join(DATA_DIR, model1), size)
-    grid2 = get_grid_files(os.path.join(DATA_DIR, model2), size)
-    
+    # Load votes (optional now, but kept for compatibility)
     conn = sqlite3.connect('validation_results.db')
     c = conn.cursor()
-    c.execute('SELECT image_id, winner, comment FROM votes WHERE size=? AND model1=? AND model2=?', (size, model1, model2))
+    # Note: Voting logic was 1vs1, so we just use model1 and model2 for voting context if exists
+    c.execute('SELECT image_id, winner, comment FROM votes WHERE size=? AND model1=? AND model2=?', (size, models[0], models[1] if len(models) > 1 else ''))
     votes_rows = c.fetchall()
     conn.close()
     
@@ -176,19 +187,20 @@ def api_data():
         
         vote_data = votes_dict.get(img_id, {'winner': None, 'comment': ''})
         
-        results.append({
+        item = {
             'id': img_id,
             'filename': image_file,
-            'psnr_1': round(float(row['PSNR_1']), 2),
-            'psnr_2': round(float(row['PSNR_2']), 2),
-            'f1_fake': f'/images/{model1}/fid_fake_{size}/{image_file}',
-            'f2_fake': f'/images/{model2}/fid_fake_{size}/{image_file}',
-            'gt': f'/images/{model1}/fid_real_{size}/{image_file}',
-            'f1_grid': f'/images/{model1}/5_image_grid/{size}/{grid1.get(img_id, "")}' if grid1.get(img_id) else "",
-            'f2_grid': f'/images/{model2}/5_image_grid/{size}/{grid2.get(img_id, "")}' if grid2.get(img_id) else "",
+            'gt': f'/images/{models[0]}/fid_real_{size}/{image_file}',
             'winner': vote_data['winner'],
             'comment': vote_data['comment']
-        })
+        }
+        
+        # Add dynamic model paths and PSNRs
+        for i, m in enumerate(models):
+            item[f'psnr_{i+1}'] = round(float(row.get(f'PSNR_{i+1}', 0)), 2)
+            item[f'f{i+1}_fake'] = f'/images/{m}/fid_fake_{size}/{image_file}'
+            
+        results.append(item)
     
     results.sort(key=lambda x: x['id'])
     return jsonify(results)

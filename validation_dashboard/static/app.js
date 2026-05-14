@@ -9,487 +9,333 @@ let state = {
     startX: 0,
     startY: 0,
     showDiff: false,
-    showMask: false,
-    showHeatmap: false,
-    showGT: false,
-    lastSyncTime: 0,
-    autoLoadGrid: true,
+    numModels: 5,
     images: {
-        m1: new Image(),
         gt: new Image(),
+        m1: new Image(),
         m2: new Image(),
-        mask: new Image()
+        m3: new Image(),
+        m4: new Image(),
+        m5: new Image()
     }
 };
 
 const elements = {
-    imageList: document.getElementById('imageList'),
     searchInput: document.getElementById('searchInput'),
+    imageDropdown: document.getElementById('imageDropdown'),
     sortSelect: document.getElementById('sortSelect'),
-    filterPsnr1: document.getElementById('filterPsnr1'),
-    filterPsnr2: document.getElementById('filterPsnr2'),
-    filterStatus: document.getElementById('filterStatus'),
+    sizeSelect: document.getElementById('sizeSelect'),
     statsDisplay: document.getElementById('statsDisplay'),
-    
-    title: document.getElementById('currentImageTitle'),
-    maskPercentageBadge: document.getElementById('maskPercentageBadge'),
-    m1PsnrBadge: document.getElementById('m1PsnrBadge'),
-    m2PsnrBadge: document.getElementById('m2PsnrBadge'),
-    
-    settingsContainer: document.querySelector('.settings-container'),
-    viewScoredBtn: document.getElementById('viewScoredBtn'),
-    gtSwitch: document.getElementById('gtSwitch'),
     toggleDiffBtn: document.getElementById('toggleDiffBtn'),
     resetZoomBtn: document.getElementById('resetZoomBtn'),
-    sizeSelect: document.getElementById('sizeSelect'),
-    model1Select: document.getElementById('model1Select'),
-    model2Select: document.getElementById('model2Select'),
     
-    settingsBtn: document.getElementById('settingsBtn'),
-    settingsDropdown: document.getElementById('settingsDropdown'),
-    autoLoadGridSwitch: document.getElementById('autoLoadGridSwitch'),
+    modelSelects: [
+        document.getElementById('model1Select'),
+        document.getElementById('model2Select'),
+        document.getElementById('model3Select'),
+        document.getElementById('model4Select'),
+        document.getElementById('model5Select')
+    ],
     
-    panelHeader1: document.getElementById('panelHeader1'),
-    panelHeader2: document.getElementById('panelHeader2'),
-    voteText1: document.getElementById('voteText1'),
-    voteText2: document.getElementById('voteText2'),
-    gridHeader1: document.getElementById('gridHeader1'),
-    gridHeader2: document.getElementById('gridHeader2'),
+    headers: [
+        null, // index 0 is GT
+        document.getElementById('header1'),
+        document.getElementById('header2'),
+        document.getElementById('header3'),
+        document.getElementById('header4'),
+        document.getElementById('header5')
+    ],
     
-    gtPanel: document.getElementById('gtPanel'),
+    badges: [
+        null,
+        document.getElementById('badge1'),
+        document.getElementById('badge2'),
+        document.getElementById('badge3'),
+        document.getElementById('badge4'),
+        document.getElementById('badge5')
+    ],
     
-    canvas1: document.getElementById('canvas1'),
-    canvasGT: document.getElementById('canvasGT'),
-    canvas2: document.getElementById('canvas2'),
+    panels: [
+        document.getElementById('gtPanel'),
+        document.getElementById('panel1'),
+        document.getElementById('panel2'),
+        document.getElementById('panel3'),
+        document.getElementById('panel4'),
+        document.getElementById('panel5')
+    ],
     
-    hidden1: document.getElementById('hiddenCanvas1'),
-    hidden2: document.getElementById('hiddenCanvas2'),
+    canvases: [
+        document.getElementById('canvasGT'),
+        document.getElementById('canvas1'),
+        document.getElementById('canvas2'),
+        document.getElementById('canvas3'),
+        document.getElementById('canvas4'),
+        document.getElementById('canvas5')
+    ],
     
-    grid1Img: document.getElementById('grid1Img'),
-    grid2Img: document.getElementById('grid2Img'),
-    
-    voteM1Btn: document.getElementById('voteM1Btn'),
-    voteTieBtn: document.getElementById('voteTieBtn'),
-    voteM2Btn: document.getElementById('voteM2Btn'),
-    voteComment: document.getElementById('voteComment'),
-    saveVoteBtn: document.getElementById('saveVoteBtn'),
+    hiddenCanvases: [
+        document.getElementById('hiddenGT'),
+        document.getElementById('hidden1'),
+        document.getElementById('hidden2'),
+        document.getElementById('hidden3'),
+        document.getElementById('hidden4'),
+        document.getElementById('hidden5')
+    ],
     
     containers: [
-        document.getElementById('container1'),
         document.getElementById('containerGT'),
-        document.getElementById('container2')
+        document.getElementById('container1'),
+        document.getElementById('container2'),
+        document.getElementById('container3'),
+        document.getElementById('container4'),
+        document.getElementById('container5')
     ]
 };
 
-const contexts = {
-    c1: elements.canvas1.getContext('2d', { willReadFrequently: true }),
-    cGT: elements.canvasGT.getContext('2d'),
-    c2: elements.canvas2.getContext('2d', { willReadFrequently: true }),
-    h1: elements.hidden1.getContext('2d', { willReadFrequently: true }),
-    h2: elements.hidden2.getContext('2d', { willReadFrequently: true })
-};
+const contexts = elements.canvases.map(c => c.getContext('2d', { willReadFrequently: true }));
+const hiddenContexts = elements.hiddenCanvases.map(c => c.getContext('2d', { willReadFrequently: true }));
 
 async function fetchFolders() {
     try {
         const response = await fetch('/api/folders');
         const folders = await response.json();
         
-        elements.model1Select.innerHTML = '';
-        elements.model2Select.innerHTML = '';
-        
-        folders.forEach(f => {
-            const opt1 = document.createElement('option');
-            opt1.value = f; opt1.textContent = f;
-            elements.model1Select.appendChild(opt1);
-            
-            const opt2 = document.createElement('option');
-            opt2.value = f; opt2.textContent = f;
-            elements.model2Select.appendChild(opt2);
+        elements.modelSelects.forEach((sel, i) => {
+            sel.innerHTML = `<option value="">-- No Model --</option>`;
+            folders.forEach(f => {
+                const opt = document.createElement('option');
+                opt.value = f; opt.textContent = f;
+                sel.appendChild(opt);
+            });
+            // Default selection
+            if (folders[i]) sel.value = folders[i];
         });
         
-        if (folders.includes('evaluation_results_standard_uniform')) {
-            elements.model1Select.value = 'evaluation_results_standard_uniform';
-        } else if (folders.length > 0) {
-            elements.model1Select.value = folders[0];
-        }
-        
-        if (folders.includes('deterministic_strided')) {
-            elements.model2Select.value = 'deterministic_strided';
-        } else if (folders.length > 1) {
-            elements.model2Select.value = folders[1];
-        } else if (folders.length > 0) {
-            elements.model2Select.value = folders[0];
-        }
-        
-        updateModelLabels();
         fetchData();
     } catch (e) {
         console.error("Failed to load folders", e);
     }
 }
 
-function updateModelLabels() {
-    const m1 = elements.model1Select.value;
-    const m2 = elements.model2Select.value;
-    
-    const l1 = m1 === 'evaluation_results_standard_uniform' ? 'ONLY VA MAMBA' : m1;
-    const l2 = m2 === 'deterministic_strided' ? 'VA + DA MAMBA' : m2;
-    
-    elements.panelHeader1.textContent = l1;
-    elements.panelHeader2.textContent = l2;
-    elements.voteText1.textContent = l1;
-    elements.voteText2.textContent = l2;
-    elements.gridHeader1.textContent = `${l1} - 5 Image Grid`;
-    elements.gridHeader2.textContent = `${l2} - 5 Image Grid`;
-}
-
 async function fetchData() {
     const size = elements.sizeSelect.value;
-    const m1 = elements.model1Select.value;
-    const m2 = elements.model2Select.value;
-    
-    if (!m1 || !m2) return;
+    const queryParams = new URLSearchParams({ size });
+    elements.modelSelects.forEach((sel, i) => {
+        if (sel.value) queryParams.append(`model${i+1}`, sel.value);
+    });
     
     elements.statsDisplay.textContent = 'Loading...';
     
     try {
-        const response = await fetch(`/api/data?size=${size}&model1=${m1}&model2=${m2}`);
+        const response = await fetch(`/api/data?${queryParams.toString()}`);
         state.data = await response.json();
-        
-        // Calculate diff PSNR for sorting
-        state.data.forEach(item => {
-            item.diff_psnr = item.psnr1 - item.psnr2; // or abs
-        });
         
         applyFilters();
     } catch (e) {
         console.error("Failed to fetch data", e);
-        elements.statsDisplay.textContent = "Error loading data.";
+        elements.statsDisplay.textContent = "Error.";
     }
 }
 
 function applyFilters() {
     const search = elements.searchInput.value.toLowerCase();
-    const minPsnr1 = parseFloat(elements.filterPsnr1.value) || -Infinity;
-    const minPsnr2 = parseFloat(elements.filterPsnr2.value) || -Infinity;
     const sort = elements.sortSelect.value;
-    const status = elements.filterStatus.value;
     
     let filtered = state.data.filter(item => {
         if (search && !item.id.toLowerCase().includes(search)) return false;
-        if (item.psnr_1 < minPsnr1) return false;
-        if (item.psnr_2 < minPsnr2) return false;
-        
-        if (status === 'unscored' && item.winner) return false;
-        if (status === 'scored' && !item.winner) return false;
-        if (status === 'm1' && item.winner !== 'm1') return false;
-        if (status === 'm2' && item.winner !== 'm2') return false;
-        if (status === 'tie' && item.winner !== 'tie') return false;
-        if (status === 'commented' && !item.comment) return false;
-        
         return true;
     });
     
     filtered.sort((a, b) => {
-        switch(sort) {
-            case 'id_asc': return a.id.localeCompare(b.id);
-            case 'id_desc': return b.id.localeCompare(a.id);
-            case 'psnr1_asc': return a.psnr_1 - b.psnr_1;
-            case 'psnr1_desc': return b.psnr_1 - a.psnr_1;
-            case 'psnr2_asc': return a.psnr_2 - b.psnr_2;
-            case 'psnr2_desc': return b.psnr_2 - a.psnr_2;
-            case 'diff_psnr_desc': return Math.abs(b.psnr_1 - b.psnr_2) - Math.abs(a.psnr_1 - a.psnr_2);
-            default: return 0;
+        if (sort === 'id_asc') return a.id.localeCompare(b.id);
+        if (sort === 'id_desc') return b.id.localeCompare(a.id);
+        
+        if (sort === 'best_psnr_desc') {
+            const getBest = (x) => Math.max(...[x.psnr_1, x.psnr_2, x.psnr_3, x.psnr_4, x.psnr_5].filter(v => v !== undefined));
+            return getBest(b) - getBest(a);
         }
+        
+        if (sort.startsWith('psnr')) {
+            const idx = sort.split('_')[0].replace('psnr', '');
+            return b[`psnr_${idx}`] - a[`psnr_${idx}`];
+        }
+        
+        return 0;
     });
     
     state.filteredData = filtered;
-    elements.statsDisplay.textContent = `Showing ${filtered.length} / ${state.data.length} images`;
+    elements.statsDisplay.textContent = `${filtered.length} / ${state.data.length}`;
     
-    renderList();
+    updateImageDropdown();
     
-    if (state.filteredData.length > 0 && !state.currentImg) {
-        selectImage(state.filteredData[0]);
+    if (state.filteredData.length > 0) {
+        // Only auto-select if no current image or current image is not in filtered data
+        if (!state.currentImg || !state.filteredData.find(d => d.id === state.currentImg.id)) {
+            selectImage(state.filteredData[0]);
+        }
     }
 }
 
-function renderList() {
-    elements.imageList.innerHTML = '';
-    
-    const fragment = document.createDocumentFragment();
+function updateImageDropdown() {
+    const val = elements.imageDropdown.value;
+    elements.imageDropdown.innerHTML = `<option value="">Select Image (${state.filteredData.length})...</option>`;
     state.filteredData.forEach(item => {
-        const div = document.createElement('div');
-        div.className = 'list-item';
-        if (state.currentImg && state.currentImg.id === item.id) {
-            div.classList.add('active');
-        }
-        
-        
-        let indicator = '';
-        if (item.winner === 'm1') indicator = '<span class="vote-indicator vote-m1">M1</span>';
-        else if (item.winner === 'm2') indicator = '<span class="vote-indicator vote-m2">M2</span>';
-        else if (item.winner === 'tie') indicator = '<span class="vote-indicator vote-tie">Tie</span>';
-
-        div.innerHTML = `
-            <div class="item-id">${item.id} ${indicator}</div>
-            <div class="item-metrics">
-                <span>M1: ${item.psnr_1.toFixed(2)}</span>
-                <span>M2: ${item.psnr_2.toFixed(2)}</span>
-            </div>
-        `;
-        
-        div.addEventListener('click', () => selectImage(item));
-        fragment.appendChild(div);
+        const opt = document.createElement('option');
+        opt.value = item.id;
+        opt.textContent = `${item.id} (Best: ${Math.max(...[item.psnr_1, item.psnr_2, item.psnr_3, item.psnr_4, item.psnr_5].filter(v => v !== undefined)).toFixed(2)})`;
+        elements.imageDropdown.appendChild(opt);
     });
-    
-    elements.imageList.appendChild(fragment);
+    elements.imageDropdown.value = state.currentImg ? state.currentImg.id : '';
 }
 
 function selectImage(item) {
+    if (!item) return;
     state.currentImg = item;
+    elements.imageDropdown.value = item.id;
     
-    // Update active class in list
-    document.querySelectorAll('.list-item').forEach(el => {
-        el.classList.remove('active');
-        if (el.querySelector('.item-id').textContent === item.id) {
-            el.classList.add('active');
+    // Determine Best Model
+    let maxPsnr = -1;
+    let bestIdx = -1;
+    for (let i = 1; i <= 5; i++) {
+        const p = item[`psnr_${i}`];
+        if (p > maxPsnr) {
+            maxPsnr = p;
+            bestIdx = i;
         }
-    });
-    
-    elements.title.textContent = `Image: ${item.id}`;
-    elements.m1PsnrBadge.textContent = `M1 PSNR: ${item.psnr_1.toFixed(2)}`;
-    elements.m2PsnrBadge.textContent = `M2 PSNR: ${item.psnr_2.toFixed(2)}`;
-    
-    // Update grid images or show placeholders
-    if (state.autoLoadGrid) {
-        document.getElementById('placeholder1').style.display = 'none';
-        document.getElementById('placeholder2').style.display = 'none';
-        elements.grid1Img.style.display = 'block';
-        elements.grid2Img.style.display = 'block';
-        elements.grid1Img.src = item.f1_grid;
-        elements.grid2Img.src = item.f2_grid;
-    } else {
-        document.getElementById('placeholder1').style.display = 'flex';
-        document.getElementById('placeholder2').style.display = 'flex';
-        elements.grid1Img.style.display = 'none';
-        elements.grid2Img.style.display = 'none';
-        elements.grid1Img.src = '';
-        elements.grid2Img.src = '';
     }
     
-    // Setup voting UI
-    elements.voteComment.value = item.comment || '';
+    // Update UI headers and badges
+    elements.modelSelects.forEach((sel, i) => {
+        const idx = i + 1;
+        const panel = elements.panels[idx];
+        const header = elements.headers[idx];
+        const badge = elements.badges[idx];
+        
+        header.textContent = sel.value || `Model ${idx}`;
+        badge.textContent = `PSNR: ${item[`psnr_${idx}`]?.toFixed(2) || '--'}`;
+        
+        panel.classList.remove('best-model');
+        if (idx === bestIdx && maxPsnr > 0) {
+            panel.classList.add('best-model');
+            badge.textContent = `🏆 BEST: ${maxPsnr.toFixed(2)}`;
+        }
+        
+        // Hide panel if no model selected
+        panel.style.display = sel.value ? 'flex' : 'none';
+    });
     
-    elements.voteM1Btn.classList.remove('selected');
-    elements.voteTieBtn.classList.remove('selected');
-    elements.voteM2Btn.classList.remove('selected');
-    
-    if (item.winner === 'm1') elements.voteM1Btn.classList.add('selected');
-    else if (item.winner === 'tie') elements.voteTieBtn.classList.add('selected');
-    else if (item.winner === 'm2') elements.voteM2Btn.classList.add('selected');
-    
-    loadCanvases(item);
+    loadImages(item);
 }
 
-function loadCanvases(item) {
+function loadImages(item) {
+    let toLoad = 1; // GT
+    elements.modelSelects.forEach(sel => { if (sel.value) toLoad++; });
+    
     let loaded = 0;
-    const checkLoaded = () => {
+    const onLoaded = () => {
         loaded++;
-        if (loaded === 3) {
+        if (loaded === toLoad) {
             drawImages();
             if (state.scale === 1) centerImages();
         }
     };
     
-    state.images.m1.onload = checkLoaded;
-    state.images.gt.onload = checkLoaded;
-    state.images.m2.onload = checkLoaded;
-    state.images.mask.onload = drawImages; // Redraw when mask arrives
-    
-    state.images.m1.src = item.f1_fake;
+    state.images.gt.onload = onLoaded;
     state.images.gt.src = item.gt;
-    state.images.m2.src = item.f2_fake;
     
-    const m1_name = elements.model1Select.value;
-    state.images.mask.src = `/api/mask_only/${m1_name}/${elements.sizeSelect.value}/${item.id}`;
+    for (let i = 1; i <= 5; i++) {
+        const sel = elements.modelSelects[i-1];
+        if (sel.value) {
+            state.images[`m${i}`].onload = onLoaded;
+            state.images[`m${i}`].src = item[`f${i}_fake`];
+        } else {
+            state.images[`m${i}`].src = '';
+        }
+    }
 }
 
 function drawImages() {
     if (!state.currentImg) return;
     
-    const w = state.images.m1.width;
-    const h = state.images.m1.height;
+    const w = state.images.gt.width;
+    const h = state.images.gt.height;
+    if (w === 0) return;
     
-    [elements.canvas1, elements.canvasGT, elements.canvas2, elements.hidden1, elements.hidden2].forEach(c => {
-        c.width = w;
-        c.height = h;
-    });
+    // Resize all canvases
+    elements.canvases.forEach(c => { c.width = w; c.height = h; });
+    elements.hiddenCanvases.forEach(c => { c.width = w; c.height = h; });
     
-    contexts.h1.drawImage(state.images.m1, 0, 0);
-    contexts.cGT.drawImage(state.images.gt, 0, 0);
-    contexts.h2.drawImage(state.images.m2, 0, 0);
-    
-    if (state.showDiff) {
-        // Calculate difference
-        const imgData1 = contexts.h1.getImageData(0, 0, w, h);
-        const imgData2 = contexts.h2.getImageData(0, 0, w, h);
-        const diffData = contexts.c1.createImageData(w, h);
-        
-        for (let i = 0; i < imgData1.data.length; i += 4) {
-            // Absolute difference for RGB
-            diffData.data[i] = Math.abs(imgData1.data[i] - imgData2.data[i]);
-            diffData.data[i+1] = Math.abs(imgData1.data[i+1] - imgData2.data[i+1]);
-            diffData.data[i+2] = Math.abs(imgData1.data[i+2] - imgData2.data[i+2]);
-            diffData.data[i+3] = 255; // Alpha
-            
-            // Boost visibility of diff
-            // diffData.data[i] = Math.min(255, diffData.data[i] * 5);
-            // diffData.data[i+1] = Math.min(255, diffData.data[i+1] * 5);
-            // diffData.data[i+2] = Math.min(255, diffData.data[i+2] * 5);
+    // Draw base images to hidden canvases
+    hiddenContexts[0].drawImage(state.images.gt, 0, 0);
+    for (let i = 1; i <= 5; i++) {
+        if (elements.modelSelects[i-1].value) {
+            hiddenContexts[i].drawImage(state.images[`m${i}`], 0, 0);
         }
-        
-        contexts.c1.putImageData(diffData, 0, 0);
-        contexts.c2.putImageData(diffData, 0, 0); // Show diff on both or just leave M2 as is? 
-        // Let's show diff on Canvas 1, and keep M2 as M2
-        contexts.c2.drawImage(state.images.m2, 0, 0);
-        
-        elements.toggleDiffBtn.textContent = "Showing Diff (M1) vs M2";
-        elements.toggleDiffBtn.classList.add('active-toggle');
-    } else {
-        contexts.c1.drawImage(state.images.m1, 0, 0);
-        contexts.c2.drawImage(state.images.m2, 0, 0);
-        
-        elements.toggleDiffBtn.textContent = "Toggle Pixel Diff (M1 vs M2)";
-        elements.toggleDiffBtn.classList.remove('active-toggle');
     }
     
-    // Calculate and display mask percentage
-    if (state.images.mask.complete && state.images.mask.naturalWidth > 0) {
-        contexts.h1.drawImage(state.images.mask, 0, 0, w, h);
-        const maskData = contexts.h1.getImageData(0, 0, w, h).data;
-        let whiteCount = 0;
-        for (let i = 0; i < maskData.length; i += 4) {
-            if (maskData[i] === 255 && maskData[i+1] === 255 && maskData[i+2] === 255) {
-                whiteCount++;
-            }
-        }
-        const ratio = (whiteCount / (w * h)) * 100;
-        elements.maskPercentageBadge.textContent = `Mask: ${ratio.toFixed(1)}%`;
-    } else {
-        elements.maskPercentageBadge.textContent = `Mask: --%`;
-    }
+    // Draw to visible canvases
+    contexts[0].drawImage(state.images.gt, 0, 0);
     
-    if (state.showMask && state.images.mask.complete) {
-        [contexts.c1, contexts.cGT, contexts.c2].forEach(ctx => {
-            // Use 'lighten' to overlay the white mask while keeping the image in black areas
-            ctx.globalCompositeOperation = 'lighten';
-            ctx.drawImage(state.images.mask, 0, 0, w, h);
-            ctx.globalCompositeOperation = 'source-over'; // Reset
-        });
-    } else if (state.showHeatmap && state.images.mask.complete) {
-        const maskData = contexts.h1.getImageData(0, 0, w, h).data;
-        const gtData = contexts.cGT.getImageData(0, 0, w, h).data;
+    for (let i = 1; i <= 5; i++) {
+        if (!elements.modelSelects[i-1].value) continue;
         
-        contexts.h1.drawImage(state.images.m1, 0, 0);
-        contexts.h2.drawImage(state.images.m2, 0, 0);
-        const m1Data = contexts.h1.getImageData(0, 0, w, h).data;
-        const m2Data = contexts.h2.getImageData(0, 0, w, h).data;
-        
-        const heat1 = contexts.c1.createImageData(w, h);
-        const heat2 = contexts.c2.createImageData(w, h);
-        
-        for (let i = 0; i < maskData.length; i += 4) {
-            const isMaskWhite = (maskData[i] === 255 && maskData[i+1] === 255 && maskData[i+2] === 255);
+        const ctx = contexts[i];
+        if (state.showDiff) {
+            const gtData = hiddenContexts[0].getImageData(0, 0, w, h);
+            const mData = hiddenContexts[i].getImageData(0, 0, w, h);
+            const diffData = ctx.createImageData(w, h);
             
-            if (isMaskWhite) {
-                const err1 = (Math.abs(m1Data[i] - gtData[i]) + Math.abs(m1Data[i+1] - gtData[i+1]) + Math.abs(m1Data[i+2] - gtData[i+2])) / 3;
-                const err2 = (Math.abs(m2Data[i] - gtData[i]) + Math.abs(m2Data[i+1] - gtData[i+1]) + Math.abs(m2Data[i+2] - gtData[i+2])) / 3;
-                
-                const maxError = 50; // Calibrated for visible gradients
-                
-                let r1 = Math.min(err1 / maxError, 1.0);
-                heat1.data[i] = Math.floor(r1 * 255);
-                heat1.data[i+1] = Math.floor((1 - r1) * 255);
-                heat1.data[i+2] = 0;
-                heat1.data[i+3] = 255;
-                
-                let r2 = Math.min(err2 / maxError, 1.0);
-                heat2.data[i] = Math.floor(r2 * 255);
-                heat2.data[i+1] = Math.floor((1 - r2) * 255);
-                heat2.data[i+2] = 0;
-                heat2.data[i+3] = 255;
-            } else {
-                heat1.data[i] = m1Data[i] * 0.3;
-                heat1.data[i+1] = m1Data[i+1] * 0.3;
-                heat1.data[i+2] = m1Data[i+2] * 0.3;
-                heat1.data[i+3] = 255;
-                
-                heat2.data[i] = m2Data[i] * 0.3;
-                heat2.data[i+1] = m2Data[i+1] * 0.3;
-                heat2.data[i+2] = m2Data[i+2] * 0.3;
-                heat2.data[i+3] = 255;
+            for (let j = 0; j < gtData.data.length; j += 4) {
+                diffData.data[j] = Math.abs(gtData.data[j] - mData.data[j]) * 2; // Boost diff
+                diffData.data[j+1] = Math.abs(gtData.data[j+1] - mData.data[j+1]) * 2;
+                diffData.data[j+2] = Math.abs(gtData.data[j+2] - mData.data[j+2]) * 2;
+                diffData.data[j+3] = 255;
             }
+            ctx.putImageData(diffData, 0, 0);
+        } else {
+            ctx.drawImage(state.images[`m${i}`], 0, 0);
         }
-        
-        contexts.c1.putImageData(heat1, 0, 0);
-        contexts.c2.putImageData(heat2, 0, 0);
-    } else if (state.showGT) {
-        contexts.c1.drawImage(state.images.gt, 0, 0);
-        contexts.c2.drawImage(state.images.gt, 0, 0);
     }
     
     updateTransforms();
 }
 
 function centerImages() {
-    if (!state.currentImg) return;
     const container = elements.containers[0];
     const cw = container.clientWidth;
     const ch = container.clientHeight;
+    const iw = state.images.gt.width;
+    const ih = state.images.gt.height;
     
-    const iw = state.images.m1.width;
-    const ih = state.images.m1.height;
-    
-    // Fit to container with some padding
-    const scaleX = (cw - 40) / iw;
-    const scaleY = (ch - 40) / ih;
-    state.scale = Math.min(scaleX, scaleY, 3); // Max scale 3 initially
-    
-    state.translateX = (cw - iw * state.scale) / 2;
-    state.translateY = (ch - ih * state.scale) / 2;
+    const scale = Math.min((cw - 20) / iw, (ch - 20) / ih, 5);
+    state.scale = scale;
+    state.translateX = (cw - iw * scale) / 2;
+    state.translateY = (ch - ih * scale) / 2;
     
     updateTransforms();
 }
 
 function updateTransforms() {
     const transform = `translate(${state.translateX}px, ${state.translateY}px) scale(${state.scale})`;
-    elements.canvas1.style.transform = transform;
-    elements.canvasGT.style.transform = transform;
-    elements.canvas2.style.transform = transform;
+    elements.canvases.forEach(c => {
+        c.style.transform = transform;
+    });
 }
 
-// Event Listeners for sync pan/zoom
+// Global Zoom/Pan sync
 elements.containers.forEach(container => {
     container.addEventListener('wheel', (e) => {
         e.preventDefault();
-        
         const rect = container.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
         
-        const zoomIntensity = 0.1;
-        const wheel = e.deltaY < 0 ? 1 : -1;
+        const zoom = Math.exp((e.deltaY < 0 ? 1 : -1) * 0.1);
+        const newScale = Math.max(0.1, Math.min(state.scale * zoom, 50));
         
-        const zoom = Math.exp(wheel * zoomIntensity);
-        const newScale = Math.max(0.1, Math.min(state.scale * zoom, 20));
-        
-        if (newScale === state.scale) return;
-        
-        // Adjust translation to zoom toward mouse pointer
         state.translateX = mouseX - (mouseX - state.translateX) * (newScale / state.scale);
         state.translateY = mouseY - (mouseY - state.translateY) * (newScale / state.scale);
         state.scale = newScale;
-        
         updateTransforms();
     }, { passive: false });
     
@@ -498,258 +344,41 @@ elements.containers.forEach(container => {
         state.startX = e.clientX - state.translateX;
         state.startY = e.clientY - state.translateY;
     });
-    
-    window.addEventListener('mousemove', (e) => {
-        if (!state.isDragging) return;
-        state.translateX = e.clientX - state.startX;
-        state.translateY = e.clientY - state.startY;
-        updateTransforms();
-    });
-    
-    window.addEventListener('mouseup', () => {
-        state.isDragging = false;
-    });
 });
 
-// UI Event Listeners
+window.addEventListener('mousemove', (e) => {
+    if (!state.isDragging) return;
+    state.translateX = e.clientX - state.startX;
+    state.translateY = e.clientY - state.startY;
+    updateTransforms();
+});
+
+window.addEventListener('mouseup', () => state.isDragging = false);
+
+// UI Listeners
 elements.searchInput.addEventListener('input', applyFilters);
+elements.imageDropdown.addEventListener('change', () => {
+    const item = state.filteredData.find(d => d.id === elements.imageDropdown.value);
+    if (item) selectImage(item);
+});
 elements.sortSelect.addEventListener('change', applyFilters);
-elements.filterPsnr1.addEventListener('input', applyFilters);
-elements.filterPsnr2.addEventListener('input', applyFilters);
-elements.filterStatus.addEventListener('change', applyFilters);
-elements.sizeSelect.addEventListener('change', () => {
-    state.lastSyncTime = 0;
-    fetchData();
-});
-
-elements.model1Select.addEventListener('change', () => {
-    state.lastSyncTime = 0;
-    updateModelLabels();
-    fetchData();
-});
-
-elements.model2Select.addEventListener('change', () => {
-    state.lastSyncTime = 0;
-    updateModelLabels();
-    fetchData();
-});
-
-elements.autoLoadGridSwitch.addEventListener('change', () => {
-    state.autoLoadGrid = elements.autoLoadGridSwitch.checked;
-    if (state.currentImg) selectImage(state.currentImg);
-});
-
-// Settings Toggle
-elements.settingsBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    elements.settingsDropdown.classList.toggle('show');
-    elements.settingsBtn.classList.toggle('active');
-});
-
-document.addEventListener('click', (e) => {
-    if (!elements.settingsContainer.contains(e.target)) {
-        elements.settingsDropdown.classList.remove('show');
-        elements.settingsBtn.classList.remove('active');
-    }
-});
-
-elements.viewScoredBtn.addEventListener('click', () => {
-    elements.filterStatus.value = 'scored';
-    applyFilters();
-});
-
+elements.sizeSelect.addEventListener('change', fetchData);
+elements.modelSelects.forEach(sel => sel.addEventListener('change', fetchData));
+elements.resetZoomBtn.addEventListener('click', centerImages);
 elements.toggleDiffBtn.addEventListener('click', () => {
     state.showDiff = !state.showDiff;
+    elements.toggleDiffBtn.classList.toggle('active', state.showDiff);
     drawImages();
 });
 
-elements.resetZoomBtn.addEventListener('click', () => {
-    centerImages();
-});
-
-window.addEventListener('resize', () => {
-    if (state.scale === 1) centerImages();
-});
-
-// Voting Logic
-async function saveVote(winner) {
-    if (!state.currentImg) return;
-    
-    const image_id = state.currentImg.id;
-    const size = elements.sizeSelect.value;
-    const m1 = elements.model1Select.value;
-    const m2 = elements.model2Select.value;
-    const comment = elements.voteComment.value;
-    
-    // Update local state immediately for fast feedback
-    if (winner !== undefined) {
-        state.currentImg.winner = winner;
-    } else {
-        winner = state.currentImg.winner; // Just saving comment
-    }
-    
-    state.currentImg.comment = comment;
-    
-    // Trigger visual update
-    selectImage(state.currentImg);
-    renderList();
-    
-    try {
-        await fetch('/api/vote', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                image_id: image_id,
-                size: size,
-                model1: m1,
-                model2: m2,
-                winner: winner,
-                comment: comment
-            })
-        });
-    } catch (e) {
-        console.error("Failed to save vote", e);
-    }
-}
-
-async function syncVotes() {
-    const size = elements.sizeSelect.value;
-    const m1 = elements.model1Select.value;
-    const m2 = elements.model2Select.value;
-    if (!m1 || !m2 || !state.data || state.data.length === 0) return;
-    
-    try {
-        const res = await fetch(`/api/votes_sync?size=${size}&model1=${m1}&model2=${m2}&since=${state.lastSyncTime}`);
-        const dict = await res.json();
-        
-        let changed = false;
-        let maxUpdatedAt = state.lastSyncTime;
-        
-        Object.entries(dict).forEach(([imgId, voteData]) => {
-            const item = state.data.find(d => d.id === imgId);
-            if (item) {
-                if (item.winner !== voteData.winner || item.comment !== voteData.comment) {
-                    item.winner = voteData.winner;
-                    item.comment = voteData.comment;
-                    changed = true;
-                    
-                    // update current if looking at it
-                    if (state.currentImg && state.currentImg.id === item.id) {
-                        elements.voteComment.value = item.comment;
-                        elements.voteM1Btn.classList.remove('selected');
-                        elements.voteTieBtn.classList.remove('selected');
-                        elements.voteM2Btn.classList.remove('selected');
-                        
-                        if (item.winner === 'm1') elements.voteM1Btn.classList.add('selected');
-                        else if (item.winner === 'tie') elements.voteTieBtn.classList.add('selected');
-                        else if (item.winner === 'm2') elements.voteM2Btn.classList.add('selected');
-                    }
-                }
-            }
-            if (voteData.updated_at > maxUpdatedAt) {
-                maxUpdatedAt = voteData.updated_at;
-            }
-        });
-        
-        state.lastSyncTime = maxUpdatedAt;
-        
-        if (changed) {
-            applyFilters();
-        }
-    } catch (e) {
-        console.error("Sync failed", e);
-    }
-}
-
-// Set up polling
-setInterval(syncVotes, 3000);
-
-elements.voteM1Btn.addEventListener('click', () => saveVote('m1'));
-elements.voteTieBtn.addEventListener('click', () => saveVote('tie'));
-elements.voteM2Btn.addEventListener('click', () => saveVote('m2'));
-elements.saveVoteBtn.addEventListener('click', () => saveVote());
-
-elements.gtSwitch.addEventListener('change', () => {
-    if (!elements.gtSwitch.checked) {
-        elements.gtPanel.style.display = 'none';
-    } else {
-        elements.gtPanel.style.display = 'flex';
-    }
-    setTimeout(() => {
-        if (state.scale === 1 || state.scale > 0) {
-            centerImages();
-        }
-    }, 10);
-});
-
-// Keyboard Shortcuts
+// Shortcuts
 window.addEventListener('keydown', (e) => {
-    // Prevent triggering shortcuts if typing in search or comment
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-    
-    if (!state.currentImg || state.filteredData.length === 0) return;
-    
-    const currentIndex = state.filteredData.findIndex(i => i.id === state.currentImg.id);
-    
-    if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        if (currentIndex > 0) selectImage(state.filteredData[currentIndex - 1]);
-    } else if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        if (currentIndex < state.filteredData.length - 1) selectImage(state.filteredData[currentIndex + 1]);
-    } else if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        saveVote('m1');
-    } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        saveVote('m2');
-    } else if (e.key === 'ArrowDown') { // Just mapping down arrow as well for tie?
-        // Let's use T for tie maybe?
-    } else if (e.key.toLowerCase() === 't') {
-        e.preventDefault();
-        saveVote('tie');
-    } else if (e.key.toLowerCase() === 'm' && !state.showMask) {
-        state.showMask = true;
-        drawImages();
-    } else if (e.key.toLowerCase() === 'n' && !state.showHeatmap) {
-        state.showHeatmap = true;
-        drawImages();
-    } else if (e.key.toLowerCase() === 'b' && !state.showGT) {
-        state.showGT = true;
-        drawImages();
-    }
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+    const idx = state.filteredData.findIndex(d => d.id === state.currentImg?.id);
+    if (e.key === 'ArrowRight' && idx < state.filteredData.length - 1) selectImage(state.filteredData[idx + 1]);
+    if (e.key === 'ArrowLeft' && idx > 0) selectImage(state.filteredData[idx - 1]);
 });
 
-window.addEventListener('keyup', (e) => {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-    if (e.key.toLowerCase() === 'm') {
-        state.showMask = false;
-        drawImages();
-    } else if (e.key.toLowerCase() === 'n') {
-        state.showHeatmap = false;
-        drawImages();
-    } else if (e.key.toLowerCase() === 'b') {
-        state.showGT = false;
-        drawImages();
-    }
-});
+window.addEventListener('resize', centerImages);
 
-// Global function for manual grid loading
-window.loadGrid = function(num) {
-    if (!state.currentImg) return;
-    
-    const placeholder = document.getElementById(`placeholder${num}`);
-    const img = document.getElementById(`grid${num}Img`);
-    const src = num === 1 ? state.currentImg.f1_grid : state.currentImg.f2_grid;
-    
-    if (placeholder && img && src) {
-        placeholder.style.display = 'none';
-        img.style.display = 'block';
-        img.src = src;
-    }
-};
-
-// Init
 fetchFolders();
