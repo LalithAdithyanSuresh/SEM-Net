@@ -56,36 +56,29 @@ indexed_masks_cache = None
 
 def get_indexed_masks():
     global indexed_masks_cache
-    if indexed_masks_cache is not None:
+    if indexed_masks_cache:
         return indexed_masks_cache
         
-    # Search for masks in cloud-portable and local paths
-    possible_paths = [
-        os.path.join(DATA_DIR, 'masks'),
-        os.path.join(DATA_DIR, 'testing_mask_dataset'),
-        "/mnt/datadrive/inpaint/iregularmask/test_mask/mask/testing_mask_dataset"
-    ]
+    # User specified testing_mask_dataset as the reserved folder
+    mask_dir = os.path.join(DATA_DIR, 'testing_mask_dataset')
     
-    mask_dir = None
-    for p in possible_paths:
-        if os.path.exists(p) and os.path.isdir(p):
-            # Check if it has images directly
-            if any(f.lower().endswith(('.png', '.jpg', '.jpeg')) for f in os.listdir(p)):
+    if not os.path.exists(mask_dir):
+        # Fallback to previous discovery logic
+        possible_paths = [
+            os.path.join(DATA_DIR, 'masks'),
+            os.path.join(DATA_DIR, 'iregularmask'),
+            '/home/cks/places_val_masks'
+        ]
+        for p in possible_paths:
+            if os.path.exists(p) and os.path.isdir(p):
                 mask_dir = p
                 break
-            # Check for one level deeper (common zip artifact)
-            for sub in os.listdir(p):
-                sub_p = os.path.join(p, sub)
-                if os.path.isdir(sub_p) and any(f.lower().endswith(('.png', '.jpg', '.jpeg')) for f in os.listdir(sub_p)):
-                    mask_dir = sub_p
-                    break
-            if mask_dir: break
             
-    if not mask_dir:
-        print(f"Warning: No mask directory found! Searched: {possible_paths}")
+    if not mask_dir or not os.path.exists(mask_dir):
+        print(f"Warning: No mask directory found!")
         return {'SMALL': [], 'MEDIUM': [], 'LARGE': []}
         
-    print(f"Indexing original masks from {mask_dir}...")
+    print(f"Indexing masks from {mask_dir}...")
     categories = {'SMALL': [], 'MEDIUM': [], 'LARGE': []}
     
     mask_files = [f for f in os.listdir(mask_dir) if f.endswith(('.png', '.jpg', '.jpeg'))]
@@ -98,11 +91,12 @@ def get_indexed_masks():
                 mask_np = np.array(mask_img.convert('L'))
                 ratio = np.mean(mask_np) / 255.0
                 
-                if 0.01 < ratio <= 0.20:
+                # Broaden categories or just put all if irregular
+                if ratio <= 0.25:
                     categories['SMALL'].append(mask_path)
-                elif 0.20 < ratio <= 0.40:
+                elif ratio <= 0.45:
                     categories['MEDIUM'].append(mask_path)
-                elif 0.40 < ratio <= 0.60:
+                else:
                     categories['LARGE'].append(mask_path)
         except:
             continue
@@ -129,7 +123,10 @@ def get_grid_files(folder, size):
 
 @app.route('/api/folders')
 def api_folders():
-    folders = [f for f in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, f))]
+    # Exclude mask datasets from model selection
+    excluded = ['testing_mask_dataset', 'masks', 'iregularmask']
+    folders = [f for f in os.listdir(DATA_DIR) 
+               if os.path.isdir(os.path.join(DATA_DIR, f)) and f not in excluded]
     return jsonify(folders)
 
 @app.route('/api/data')
