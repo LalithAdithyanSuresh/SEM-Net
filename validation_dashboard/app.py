@@ -383,8 +383,16 @@ def index():
 
 @app.route('/api/mask_only/<model>/<size>/<image_name>')
 def api_mask_only(model, size, image_name):
-    # 1. Identify the index of the image to find the corresponding mask
-    # Try subfolder first, then root
+    # 1. First, try direct filename match in testing_mask_dataset (FASTEST)
+    mask_dir = os.path.join(DATA_DIR, 'testing_mask_dataset')
+    if os.path.exists(mask_dir):
+        # image_name is the ID like '00000'
+        for ext in ['.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG']:
+            potential_mask = os.path.join(mask_dir, image_name + ext)
+            if os.path.exists(potential_mask):
+                return send_from_directory(mask_dir, image_name + ext)
+
+    # 2. If no direct match, use the indexed categories (SLOWER FALLBACK)
     real_dir = os.path.join(DATA_DIR, model, f'fid_real_{size}')
     if not os.path.exists(real_dir):
         real_dir = os.path.join(DATA_DIR, model)
@@ -396,7 +404,6 @@ def api_mask_only(model, size, image_name):
     all_images.sort()
     
     image_filename = None
-    # Support both ID matching and full filename matching
     for f in all_images:
         if f.startswith(image_name): 
             image_filename = f
@@ -407,27 +414,21 @@ def api_mask_only(model, size, image_name):
         
     img_index = all_images.index(image_filename)
     
-    # 2. Get the corresponding mask using the same formula as inference
     indexed_masks = get_indexed_masks()
     cat_masks = indexed_masks.get(size, [])
     
     if not cat_masks:
         return f"No masks found for category {size}", 404
         
-    # Formula: indexed_masks[cat][(index * 2) % len(indexed_masks[cat])]
     mask_path = cat_masks[(img_index * 2) % len(cat_masks)]
     
     try:
         with Image.open(mask_path) as mask_img:
-            # We must ensure the mask is the same size as the results (usually 256x256 or 512x512)
-            # We'll check the size of the real image to match
             with Image.open(os.path.join(real_dir, image_filename)) as ref_img:
                 w, h = ref_img.size
-            
             mask_resized = mask_img.convert('L').resize((w, h), Image.NEAREST)
-            
             buf = io.BytesIO()
-            mask_resized.save(buf, format='PNG', optimize=True)
+            mask_resized.save(buf, format='PNG')
             buf.seek(0)
             return send_file(buf, mimetype='image/png')
     except Exception as e:
