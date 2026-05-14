@@ -9,124 +9,160 @@
 </head>
 <body>
     <div class="app-container">
-        <!-- Top Navbar Row -->
-        <header class="navbar horizontal-controls">
-            <div class="nav-section logo-section">
-                <h1>Multi-Model Validation</h1>
-                <select id="sizeSelect" class="category-select">
-                    <option value="SMALL">SMALL</option>
-                    <option value="MEDIUM">MEDIUM</option>
-                    <option value="LARGE">LARGE</option>
-                </select>
-            </div>
+        <!-- Top Half: Controls and Gallery -->
+        <div class="top-half">
+            <header class="navbar horizontal-controls">
+                <div class="nav-section logo-section">
+                    <h1>Multi-Model Validation</h1>
+                    <select id="sizeSelect" class="category-select">
+                        <option value="SMALL">SMALL</option>
+                        <option value="MEDIUM">MEDIUM</option>
+                        <option value="LARGE">LARGE</option>
+                    </select>
+                </div>
 
-            <div class="nav-section image-selection">
-                <div class="control-group">
-                    <label>Image Selection</label>
-                    <div class="search-container">
-                        <input type="text" id="searchInput" placeholder="Search ID...">
-                        <select id="imageDropdown">
-                            <option value="">Select Image...</option>
+                <div class="nav-section image-selection">
+                    <div class="control-group">
+                        <label>Search & Filter</label>
+                        <div class="search-container">
+                            <input type="text" id="searchInput" placeholder="Search ID...">
+                            <select id="filterBestModel">
+                                <option value="all">Show All (Best: Any)</option>
+                                <option value="1">Model 1 is Best</option>
+                                <option value="2">Model 2 is Best</option>
+                                <option value="3">Model 3 is Best</option>
+                                <option value="4">Model 4 is Best</option>
+                                <option value="5">Model 5 is Best</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="nav-section model-config">
+                    <div class="control-group">
+                        <label>Models Configuration</label>
+                        <div class="model-selects-row">
+                            <select id="model1Select" class="model-select"></select>
+                            <select id="model2Select" class="model-select"></select>
+                            <select id="model3Select" class="model-select"></select>
+                            <select id="model4Select" class="model-select"></select>
+                            <select id="model5Select" class="model-select"></select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="nav-section sorting">
+                    <div class="control-group">
+                        <label>Sort By</label>
+                        <select id="sortSelect">
+                            <option value="id_asc">ID (Asc)</option>
+                            <option value="best_psnr_desc">Best PSNR (Desc)</option>
+                            <option value="psnr1_desc">Model 1 PSNR</option>
+                            <option value="psnr2_desc">Model 2 PSNR</option>
+                            <option value="psnr3_desc">Model 3 PSNR</option>
+                            <option value="psnr4_desc">Model 4 PSNR</option>
+                            <option value="psnr5_desc">Model 5 PSNR</option>
                         </select>
                     </div>
                 </div>
-            </div>
 
-            <div class="nav-section model-config">
-                <div class="control-group">
-                    <label>Models 1-5</label>
-                    <div class="model-selects-row">
-                        <select id="model1Select" class="model-select"></select>
-                        <select id="model2Select" class="model-select"></select>
-                        <select id="model3Select" class="model-select"></select>
-                        <select id="model4Select" class="model-select"></select>
-                        <select id="model5Select" class="model-select"></select>
+                <div class="nav-section actions">
+                    <div class="btn-group">
+                        <button id="toggleDiffBtn" class="btn btn-sm">Pixel Diff</button>
+                        <button id="resetZoomBtn" class="btn btn-sm btn-outline">Reset View</button>
                     </div>
+                    <div class="stats" id="statsDisplay">-- / --</div>
+                </div>
+            </header>
+
+            <!-- Horizontal Image Gallery -->
+            <div class="gallery-container" id="galleryContainer">
+                <div class="gallery-strip" id="imageList">
+                    <!-- Images injected by JS -->
                 </div>
             </div>
+        </div>
 
-            <div class="nav-section sorting-filtering">
-                <div class="control-group">
-                    <label>Sort By</label>
-                    <select id="sortSelect">
-                        <option value="id_asc">ID (Asc)</option>
-                        <option value="best_psnr_desc">Best PSNR (Desc)</option>
-                        <option value="psnr1_desc">Model 1 PSNR</option>
-                        <option value="psnr2_desc">Model 2 PSNR</option>
-                        <option value="psnr3_desc">Model 3 PSNR</option>
-                        <option value="psnr4_desc">Model 4 PSNR</option>
-                        <option value="psnr5_desc">Model 5 PSNR</option>
-                    </select>
-                </div>
-            </div>
+        <!-- Bottom Half: 6-Column Viewer and Voting -->
+        <div class="bottom-half">
+            <main class="main-content">
+                <div class="viewer-container">
+                    <div class="split-view six-columns" id="splitView">
+                        <!-- GT Panel -->
+                        <div class="panel gt-panel" id="gtPanel">
+                            <div class="panel-header">Ground Truth</div>
+                            <div class="canvas-container" id="containerGT">
+                                <canvas id="canvasGT"></canvas>
+                            </div>
+                        </div>
+                        
+                        <!-- Model Panels -->
+                        <div class="panel model-panel" id="panel1">
+                            <div class="panel-header" id="header1">Model 1</div>
+                            <div class="metrics-badge" id="badge1">--</div>
+                            <div class="canvas-container" id="container1">
+                                <canvas id="canvas1"></canvas>
+                            </div>
+                        </div>
+                        <div class="panel model-panel" id="panel2">
+                            <div class="panel-header" id="header2">Model 2</div>
+                            <div class="metrics-badge" id="badge2">--</div>
+                            <div class="canvas-container" id="container2">
+                                <canvas id="canvas2"></canvas>
+                            </div>
+                        </div>
+                        <div class="panel model-panel" id="panel3">
+                            <div class="panel-header" id="header3">Model 3</div>
+                            <div class="metrics-badge" id="badge3">--</div>
+                            <div class="canvas-container" id="container3">
+                                <canvas id="canvas3"></canvas>
+                            </div>
+                        </div>
+                        <div class="panel model-panel" id="panel4">
+                            <div class="panel-header" id="header4">Model 4</div>
+                            <div class="metrics-badge" id="badge4">--</div>
+                            <div class="canvas-container" id="container4">
+                                <canvas id="canvas4"></canvas>
+                            </div>
+                        </div>
+                        <div class="panel model-panel" id="panel5">
+                            <div class="panel-header" id="header5">Model 5</div>
+                            <div class="metrics-badge" id="badge5">--</div>
+                            <div class="canvas-container" id="container5">
+                                <canvas id="canvas5"></canvas>
+                            </div>
+                        </div>
+                    </div>
 
-            <div class="nav-section actions">
-                <button id="toggleDiffBtn" class="btn">Pixel Diff</button>
-                <button id="resetZoomBtn" class="btn btn-outline">Reset View</button>
-                <div class="stats" id="statsDisplay">-- / --</div>
-            </div>
-        </header>
-
-        <!-- Main Content Area: 6 Columns -->
-        <main class="main-content">
-            <div class="viewer-container">
-                <div class="split-view six-columns" id="splitView">
-                    <!-- Column 0: GT -->
-                    <div class="panel gt-panel" id="gtPanel">
-                        <div class="panel-header">Ground Truth</div>
-                        <div class="canvas-container" id="containerGT">
-                            <canvas id="canvasGT"></canvas>
+                    <!-- Voting and Comments Panel (Restored) -->
+                    <div class="voting-panel" id="votingPanel">
+                        <div class="vote-info">
+                            <h3>Comparison & Notes</h3>
+                            <p>Use <b>M</b> for Mask, <b>N</b> for Heatmap, <b>B</b> for GT Overlay</p>
                         </div>
-                    </div>
-                    
-                    <!-- Columns 1-5: Models -->
-                    <div class="panel model-panel" id="panel1">
-                        <div class="panel-header" id="header1">Model 1</div>
-                        <div class="metrics-badge" id="badge1">--</div>
-                        <div class="canvas-container" id="container1">
-                            <canvas id="canvas1"></canvas>
+                        <div class="vote-buttons">
+                            <button class="btn vote-btn" data-winner="m1">Model 1 Wins</button>
+                            <button class="btn vote-btn" data-winner="tie">Tie / Unsure</button>
+                            <button class="btn vote-btn" data-winner="m2">Model 2 Wins</button>
                         </div>
-                    </div>
-                    <div class="panel model-panel" id="panel2">
-                        <div class="panel-header" id="header2">Model 2</div>
-                        <div class="metrics-badge" id="badge2">--</div>
-                        <div class="canvas-container" id="container2">
-                            <canvas id="canvas2"></canvas>
-                        </div>
-                    </div>
-                    <div class="panel model-panel" id="panel3">
-                        <div class="panel-header" id="header3">Model 3</div>
-                        <div class="metrics-badge" id="badge3">--</div>
-                        <div class="canvas-container" id="container3">
-                            <canvas id="canvas3"></canvas>
-                        </div>
-                    </div>
-                    <div class="panel model-panel" id="panel4">
-                        <div class="panel-header" id="header4">Model 4</div>
-                        <div class="metrics-badge" id="badge4">--</div>
-                        <div class="canvas-container" id="container4">
-                            <canvas id="canvas4"></canvas>
-                        </div>
-                    </div>
-                    <div class="panel model-panel" id="panel5">
-                        <div class="panel-header" id="header5">Model 5</div>
-                        <div class="metrics-badge" id="badge5">--</div>
-                        <div class="canvas-container" id="container5">
-                            <canvas id="canvas5"></canvas>
+                        <div class="comment-section">
+                            <textarea id="voteComment" placeholder="Add notes for this image..."></textarea>
+                            <button id="saveVoteBtn" class="btn">Save Note</button>
                         </div>
                     </div>
                 </div>
-            </div>
-        </main>
+            </main>
+        </div>
     </div>
 
-    <!-- Hidden canvases for processing -->
+    <!-- Hidden canvases -->
     <canvas id="hiddenGT" style="display:none;"></canvas>
     <canvas id="hidden1" style="display:none;"></canvas>
     <canvas id="hidden2" style="display:none;"></canvas>
     <canvas id="hidden3" style="display:none;"></canvas>
     <canvas id="hidden4" style="display:none;"></canvas>
     <canvas id="hidden5" style="display:none;"></canvas>
+    <canvas id="hiddenMask" style="display:none;"></canvas>
 
     <script src="/static/app.js"></script>
 </body>
