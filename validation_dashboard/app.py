@@ -370,23 +370,27 @@ def index():
 
 @app.route('/api/mask_only/<model>/<size>/<image_name>')
 def api_mask_only(model, size, image_name):
-    # 1. Identify the index of the image in the current category
-    # We use the fid_real folder as the reference for alphabetical order
+    # 1. Identify the index of the image to find the corresponding mask
+    # Try subfolder first, then root
     real_dir = os.path.join(DATA_DIR, model, f'fid_real_{size}')
+    if not os.path.exists(real_dir):
+        real_dir = os.path.join(DATA_DIR, model)
+        
     if not os.path.exists(real_dir):
         return "Category directory not found", 404
         
-    all_images = [f for f in os.listdir(real_dir) if f.endswith(('.png', '.jpg'))]
+    all_images = [f for f in os.listdir(real_dir) if f.endswith(('.png', '.jpg', '.jpeg'))]
     all_images.sort()
     
     image_filename = None
+    # Support both ID matching and full filename matching
     for f in all_images:
-        if f.startswith(image_name): # image_name is the ID
+        if f.startswith(image_name): 
             image_filename = f
             break
             
     if not image_filename:
-        return f"Image {image_name} not found in category {size}", 404
+        return f"Image {image_name} not found in {model}", 404
         
     img_index = all_images.index(image_filename)
     

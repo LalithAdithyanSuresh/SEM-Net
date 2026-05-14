@@ -195,7 +195,9 @@ function loadImages(item) {
     }
     // Load mask separately
     state.images.mask.onload = drawImages;
-    state.images.mask.src = `/api/mask_only/${elements.model1Select.value}/${elements.sizeSelect.value}/${item.id}`;
+    const m1 = elements.modelSelects[0].value || 'none';
+    const sz = elements.sizeSelect.value;
+    state.images.mask.src = `/api/mask_only/${m1}/${sz}/${item.id}`;
 }
 
 function drawImages() {
