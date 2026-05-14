@@ -134,11 +134,15 @@ def api_data():
 
         # Normalize all dataframes to use 'ID' for robust merging
         normalized_dfs = []
-        for df_idx, df in enumerate(dfs):
+        for df in dfs:
             # Create 'ID' column by stripping extension
             df['ID'] = df['Image'].apply(lambda x: str(x).split('.')[0])
             df = df.drop_duplicates(subset=['ID'])
-            normalized_dfs.append(df[['ID', f'PSNR_{df_idx+1}']])
+            # The PSNR column was already renamed to PSNR_X in the loading loop
+            # Find which PSNR_X column exists in this dataframe
+            psnr_col = next((c for c in df.columns if c.startswith('PSNR_')), None)
+            if psnr_col:
+                normalized_dfs.append(df[['ID', psnr_col]])
 
         if not normalized_dfs:
             # Fallback to directory listing

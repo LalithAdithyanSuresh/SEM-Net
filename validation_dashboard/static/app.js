@@ -168,11 +168,22 @@ function selectImage(item) {
     elements.modelSelects.forEach((sel, i) => {
         const idx = i + 1;
         const panel = elements.panels[idx], header = elements.headers[idx], badge = elements.badges[idx];
+        const val = item[`psnr_${idx}`];
+        
         header.textContent = sel.value || `Model ${idx}`;
-        badge.textContent = `PSNR: ${item[`psnr_${idx}`]?.toFixed(2) || '--'}`;
-        panel.classList.toggle('best-model', idx === bestIdx && max > 0);
-        if (idx === bestIdx && max > 0) badge.textContent = `🏆 BEST: ${max.toFixed(2)}`;
         panel.style.display = sel.value ? 'flex' : 'none';
+        
+        if (idx === bestIdx && max > 0) {
+            badge.innerHTML = `🏆 BEST: ${max.toFixed(2)}`;
+            panel.classList.add('best-model');
+        } else if (val !== undefined && val > 0) {
+            const delta = val - max;
+            badge.innerHTML = `PSNR: ${val.toFixed(2)} <span class="psnr-delta">(${delta.toFixed(2)})</span>`;
+            panel.classList.remove('best-model');
+        } else {
+            badge.textContent = 'PSNR: --';
+            panel.classList.remove('best-model');
+        }
     });
     
     elements.voteComment.value = item.comment || '';
