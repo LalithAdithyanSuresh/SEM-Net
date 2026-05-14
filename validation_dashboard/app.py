@@ -117,43 +117,50 @@ def api_data():
     if not models:
         return jsonify([])
         
-    dfs = []
-    for i, m in enumerate(models):
-        path = os.path.join(DATA_DIR, m, f'metrics_{size}.csv')
-        if os.path.exists(path):
-            try:
-                df = pd.read_csv(path, on_bad_lines='skip')
-                if 'Image' in df.columns and 'PSNR' in df.columns:
-                    df = df[['Image', 'PSNR']].rename(columns={'PSNR': f'PSNR_{i+1}'})
-                    dfs.append(df)
-            except: pass
+    try:
+        dfs = []
+        for i, m in enumerate(models):
+            path = os.path.join(DATA_DIR, m, f'metrics_{size}.csv')
+            if os.path.exists(path):
+                try:
+                    df = pd.read_csv(path, on_bad_lines='skip')
+                    if 'Image' in df.columns and 'PSNR' in df.columns:
+                        # Use copy() to avoid SettingWithCopy warnings/errors
+                        new_df = df[['Image', 'PSNR']].rename(columns={'PSNR': f'PSNR_{i+1}'}).copy()
+                        dfs.append(new_df)
+                except Exception as e:
+                    print(f"Error reading metrics for {m}: {e}")
 
-    # Normalize all dataframes to use 'ID' for robust merging
-    normalized_dfs = []
-    for df_idx, df in enumerate(dfs):
-        # Create 'ID' column by stripping extension
-        df['ID'] = df['Image'].apply(lambda x: str(x).split('.')[0])
-        df = df.drop_duplicates(subset=['ID'])
-        normalized_dfs.append(df[['ID', f'PSNR_{df_idx+1}']])
+        # Normalize all dataframes to use 'ID' for robust merging
+        normalized_dfs = []
+        for df_idx, df in enumerate(dfs):
+            # Create 'ID' column by stripping extension
+            df['ID'] = df['Image'].apply(lambda x: str(x).split('.')[0])
+            df = df.drop_duplicates(subset=['ID'])
+            normalized_dfs.append(df[['ID', f'PSNR_{df_idx+1}']])
 
-    if not normalized_dfs:
-        # Fallback to directory listing
-        first_model_dir = os.path.join(DATA_DIR, models[0])
-        images = []
-        # Check standard subfolder or root
-        for d in [os.path.join(first_model_dir, f'fid_real_{size}'), first_model_dir]:
-            if os.path.exists(d):
-                images.extend([f for f in os.listdir(d) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
-        
-        unique_ids = list(set([f.split('.')[0] for f in images]))
-        merged = pd.DataFrame({'ID': unique_ids})
-        for i in range(len(models)): merged[f'PSNR_{i+1}'] = 0
-    else:
-        # Merge on 'ID'
-        merged = normalized_dfs[0]
-        for df in normalized_dfs[1:]:
-            merged = pd.merge(merged, df, on='ID', how='outer')
-        merged = merged.fillna(0)
+        if not normalized_dfs:
+            # Fallback to directory listing
+            first_model_dir = os.path.join(DATA_DIR, models[0])
+            images = []
+            # Check standard subfolder or root
+            search_paths = [os.path.join(first_model_dir, f'fid_real_{size}'), first_model_dir]
+            for d in search_paths:
+                if os.path.exists(d):
+                    images.extend([f for f in os.listdir(d) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
+            
+            unique_ids = sorted(list(set([f.split('.')[0] for f in images])))
+            merged = pd.DataFrame({'ID': unique_ids})
+            for i in range(len(models)): merged[f'PSNR_{i+1}'] = 0
+        else:
+            # Merge on 'ID'
+            merged = normalized_dfs[0]
+            for df in normalized_dfs[1:]:
+                merged = pd.merge(merged, df, on='ID', how='outer')
+            merged = merged.fillna(0)
+    except Exception as e:
+        print(f"Critical error in api_data processing: {e}")
+        return jsonify({'error': str(e)}), 500
     
     # Load votes (optional now, but kept for compatibility)
     conn = sqlite3.connect('validation_results.db')
