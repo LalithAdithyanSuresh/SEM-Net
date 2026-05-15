@@ -20,9 +20,7 @@ if ! pgrep -f "sync_to_gdrive.sh" > /dev/null; then
     echo "Started Google Drive sync worker (log: gdrive_sync.log)"
 fi
 
-# Activate the environment
-source /home/snuc/anaconda3/etc/profile.d/conda.sh
-conda activate inpaint_env_3.10
+# Environment already active (CAMINO_env)
 
 while true; do
     echo "Checking C2 Server status for [$C2_SESSION]..."
@@ -58,10 +56,11 @@ except Exception: pass
     echo "Starting SEM-Net Training loop: [$C2_SESSION]"
     echo "====================================="
     
-    RUN_PATH="./updated_spiral_8x8"
+    RUN_PATH="./PlacesTraining"
     
     # Run Python and pipe stdout+stderr to the log streamer script
-    python -u main.py --model 2 --path "$RUN_PATH" 2>&1 | python -u push_logs.py
+    # Run with torchrun for DDP support (Multi-GPU)
+    torchrun --nproc_per_node=2 --master_port=29501 main.py --model 2 --path "$RUN_PATH" 2>&1 | python -u push_logs.py
     
     EXIT_CODE=${PIPESTATUS[0]}
     

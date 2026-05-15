@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, DistributedSampler
 from .dataset import Dataset
 from .models import InpaintingModel
 from .utils import Progbar, create_dir, stitch_images, imsave
@@ -85,15 +85,19 @@ class sem():
 
     def train(self):
         
+        if self.config.WORLD_SIZE > 1:
+            sampler = DistributedSampler(self.train_dataset, num_replicas=self.config.WORLD_SIZE, rank=self.config.RANK)
+        else:
+            sampler = None
+
         train_loader = DataLoader(
             dataset=self.train_dataset,
-            batch_size=self.config.BATCH_SIZE,
-            num_workers=4,
+            batch_size=self.config.BATCH_SIZE // self.config.WORLD_SIZE, # Split batch across processes
+            num_workers=6,            # Optimized for 2-GPU DDP
             drop_last=True,
-            shuffle=True,
+            shuffle=(sampler is None),
             pin_memory=True,
-            persistent_workers=True,
-            prefetch_factor=4
+            sampler=sampler
         )
 
 
@@ -120,14 +124,15 @@ class sem():
         
         while(keep_training):
             epoch += 1
-            print('\n\nTraining epoch: %d' % epoch)
-
-
-            progbar = Progbar(total, width=20, stateful_metrics=['epoch', 'iter'])
+            if self.config.RANK == 0:
+                print(f"Training epoch: {epoch}")
+                # Show progress within the current epoch
+                progbar = Progbar(len(train_loader), width=20, stateful_metrics=['epoch', 'iter'])
             
-
+            if sampler is not None:
+                sampler.set_epoch(epoch)
             for items in train_loader:
-                iteration = self.inpaint_model.iteration  # read BEFORE process() increments it
+                iteration = self.inpaint_model.iteration
                 self.inpaint_model.train()
 
 
@@ -184,11 +189,13 @@ class sem():
                     break
 
                 logs = [
-                    ("epoch", epoch),
                     ("iter", iteration),
-                ] + logs
+                    ("gLoss", gen_loss.item()),
+                    ("dLoss", dis_loss.item()),
+                ] + [ (k, v.item() if hasattr(v, 'item') else v) for k, v in logs ]
 
-                progbar.add(len(images), values=logs if self.config.VERBOSE else [x for x in logs if not x[0].startswith('l_')])
+                if self.config.RANK == 0:
+                    progbar.add(1, values=logs if self.config.WORLD_SIZE == 1 else [x for x in logs if x[0] != 'iter'])
                 if iteration % 10 == 0 and wandb is not None and wandb.run is not None:
                         wandb.log({'gen_loss': gen_loss, 'l1_loss': gen_l1_loss, 'style_loss': gen_style_loss,
                                    'perceptual loss': gen_content_loss, 'gen_gan_loss': gen_gan_loss,
@@ -513,13 +520,13 @@ class sem():
 
 
                 # log model at checkpoints
-                if self.config.LOG_INTERVAL and iteration % self.config.LOG_INTERVAL == 0:
+                if self.config.RANK == 0 and self.config.LOG_INTERVAL and iteration % self.config.LOG_INTERVAL == 0:
                     self.log(logs)
 
 
 
                 # save model at checkpoints
-                if self.config.SAVE_INTERVAL and iteration % self.config.SAVE_INTERVAL == 0:
+                if self.config.RANK == 0 and self.config.SAVE_INTERVAL != 0 and iteration % self.config.SAVE_INTERVAL == 0:
                     self.save()
                     # Persist epoch so process restarts resume from the right epoch
                     with open(self.epoch_state_file, 'w') as _ef:

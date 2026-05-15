@@ -170,7 +170,7 @@ class Progbar(object):
                 else:
                     eta_format = '%ds' % eta
 
-                info = ' - ETA: %s' % eta_format
+                info = ' - ETA: %s - %.2fs/it' % (eta_format, time_per_unit)
             else:
                 if time_per_unit >= 1:
                     info += ' %.0fs/step' % time_per_unit
@@ -182,7 +182,12 @@ class Progbar(object):
             for k in self._values_order:
                 info += ' - %s:' % k
                 if isinstance(self._values[k], list):
-                    avg = np.mean(self._values[k][0] / max(1, self._values[k][1]))
+                    # Ensure we are dealing with numbers, not tensors
+                    val0 = self._values[k][0]
+                    val1 = self._values[k][1]
+                    if hasattr(val0, 'item'): val0 = val0.item()
+                    if hasattr(val1, 'item'): val1 = val1.item()
+                    avg = np.mean(val0 / max(1, val1))
                     if abs(avg) > 1e-3:
                         info += ' %.4f' % avg
                     else:
@@ -218,3 +223,14 @@ class Progbar(object):
 
     def add(self, n, values=None):
         self.update(self._seen_so_far + n, values)
+
+
+def PositionalEncoding(d_model, max_len=5000):
+    import math
+    pe = torch.zeros(max_len, d_model)
+    position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+    div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+    pe[:, 0::2] = torch.sin(position * div_term)
+    pe[:, 1::2] = torch.cos(position * div_term)
+
+    return pe

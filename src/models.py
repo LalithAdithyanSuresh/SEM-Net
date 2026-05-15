@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from .networks import SEM, Discriminator
 from .loss import AdversarialLoss, PerceptualLoss, StyleLoss, TVLoss
 import math
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 
 class BaseModel(nn.Module):
@@ -29,7 +30,14 @@ class BaseModel(nn.Module):
             else: 
                 data = torch.load(self.gen_weights_path, map_location=lambda storage, loc: storage)
 
-            self.generator.load_state_dict(data['generator'], strict=False)
+            gen_state_dict = data['generator']
+            is_parallel = isinstance(self.generator, (nn.DataParallel, DDP))
+            if is_parallel and not any(k.startswith('module.') for k in gen_state_dict.keys()):
+                gen_state_dict = {'module.' + k: v for k, v in gen_state_dict.items()}
+            elif not is_parallel and any(k.startswith('module.') for k in gen_state_dict.keys()):
+                gen_state_dict = {k.replace('module.', ''): v for k, v in gen_state_dict.items()}
+
+            self.generator.load_state_dict(gen_state_dict, strict=False)
             self.iteration = data['iteration']
             
             
@@ -44,7 +52,14 @@ class BaseModel(nn.Module):
             else:
                 data = torch.load(self.dis_weights_path, map_location=lambda storage, loc: storage)
 
-            self.discriminator.load_state_dict(data['discriminator'])
+            dis_state_dict = data['discriminator']
+            is_parallel = isinstance(self.discriminator, (nn.DataParallel, DDP))
+            if is_parallel and not any(k.startswith('module.') for k in dis_state_dict.keys()):
+                dis_state_dict = {'module.' + k: v for k, v in dis_state_dict.items()}
+            elif not is_parallel and any(k.startswith('module.') for k in dis_state_dict.keys()):
+                dis_state_dict = {k.replace('module.', ''): v for k, v in dis_state_dict.items()}
+
+            self.discriminator.load_state_dict(dis_state_dict)
 
     def save(self):
         print('\nsaving %s...\n' % self.name)
@@ -64,16 +79,18 @@ class InpaintingModel(BaseModel):
         super(InpaintingModel, self).__init__('InpaintingModel', config)
 
 
-        generator = SEM()
-        discriminator = Discriminator(in_channels=3, use_sigmoid=config.GAN_LOSS != 'hinge')
-        if len(config.GPU) > 1:
-            generator = nn.DataParallel(generator, config.GPU)
-            discriminator = nn.DataParallel(discriminator , config.GPU)
+        generator = SEM().to(config.DEVICE)
+        discriminator = Discriminator(in_channels=3, use_sigmoid=config.GAN_LOSS != 'hinge').to(config.DEVICE)
+        
+        if config.WORLD_SIZE > 1:
+            # find_unused_parameters=True is REQUIRED here because Gen/Dis are separate DDP modules
+            generator = DDP(generator, device_ids=[torch.cuda.current_device()], find_unused_parameters=True)
+            discriminator = DDP(discriminator, device_ids=[torch.cuda.current_device()], find_unused_parameters=True)
 
-        l1_loss = nn.L1Loss()
-        perceptual_loss = PerceptualLoss()
-        style_loss = StyleLoss()
-        adversarial_loss = AdversarialLoss(type=config.GAN_LOSS)
+        l1_loss = nn.L1Loss().to(config.DEVICE)
+        perceptual_loss = PerceptualLoss().to(config.DEVICE)
+        style_loss = StyleLoss().to(config.DEVICE)
+        adversarial_loss = AdversarialLoss(type=config.GAN_LOSS).to(config.DEVICE)
 
         self.add_module('generator', generator)
         self.add_module('discriminator', discriminator)
@@ -103,28 +120,14 @@ class InpaintingModel(BaseModel):
                                                                   
         self.scaler = torch.cuda.amp.GradScaler()
 
-        # Optimize Positional Encoding: Pre-calculate once and move to device
-        # 65536 is max tokens for 256x256. 70000 provides a safe buffer.
-        self.register_buffer('pos1', PositionalEncoding(48, 70000))
-        self.register_buffer('pos2', PositionalEncoding(96, 70000))
-        self.register_buffer('pos3', PositionalEncoding(192, 70000))
-        self.register_buffer('pos4', PositionalEncoding(384, 70000))
-        self.register_buffer('pos1_dec', PositionalEncoding(96, 70000))
-
         
 
     def process(self, images, masks):
         self.iteration += 1
-        accum_steps = 4
-
-        # zero optimizers
-        if (self.iteration - 1) % accum_steps == 0:
-            self.gen_optimizer.zero_grad(set_to_none=True)
-            self.dis_optimizer.zero_grad(set_to_none=True)
-
-
-        # process outputs
-
+        # Use 8-step accumulation for high-speed DDP
+        self.accum_steps = 8
+        
+        # Process outputs
         outputs_img = self(images, masks)
 
         
@@ -200,27 +203,36 @@ class InpaintingModel(BaseModel):
                                      mode='nearest')
                                      
                                      
-        outputs_img = self.generator(inputs, masks, scaled_masks_half, scaled_masks_quarter, scaled_masks_tiny, 
-                                     self.pos1, self.pos2, self.pos3, self.pos4, self.pos1_dec)
+        outputs_img = self.generator(inputs, masks, scaled_masks_half, scaled_masks_quarter, scaled_masks_tiny)
 
         return outputs_img
 
     def backward(self, gen_loss = None, dis_loss = None):
-        accum_steps = 4
         # Scale losses for gradient accumulation
-        gen_loss = gen_loss / accum_steps
-        dis_loss = dis_loss / accum_steps
+        gen_loss = gen_loss / self.accum_steps
+        dis_loss = dis_loss / self.accum_steps
 
-        self.scaler.scale(dis_loss).backward()
-        self.scaler.scale(gen_loss).backward()
+        # Use no_sync to avoid expensive GPU communication except on update steps
+        is_update_step = (self.iteration % self.accum_steps == 0)
         
-        # Only update weights every accum_steps
-        if self.iteration % accum_steps == 0:
+        if not is_update_step and self.config.WORLD_SIZE > 1:
+            with self.generator.no_sync(), self.discriminator.no_sync():
+                self.scaler.scale(dis_loss).backward()
+                self.scaler.scale(gen_loss).backward()
+        else:
+            self.scaler.scale(dis_loss).backward()
+            self.scaler.scale(gen_loss).backward()
+        
+        # Update weights every accum_steps
+        if is_update_step:
             self.scaler.step(self.dis_optimizer)
             self.scaler.step(self.gen_optimizer)
             self.scaler.update()
             
-            # Step schedulers together with opt
+            self.gen_optimizer.zero_grad(set_to_none=True)
+            self.dis_optimizer.zero_grad(set_to_none=True)
+            
+            # Step schedulers
             self.gen_scheduler.step()
             self.dis_scheduler.step()
 
@@ -238,12 +250,3 @@ def abs_smooth(x):
     minx = torch.min(absx,other=torch.ones(absx.shape).cuda())
     r = 0.5 *((absx-1)*minx + absx)
     return r
-    
-def PositionalEncoding(d_model, max_len=5000):
-    pe = torch.zeros(max_len, d_model)
-    position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-    div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
-    pe[:, 0::2] = torch.sin(position * div_term)
-    pe[:, 1::2] = torch.cos(position * div_term)
-    
-    return pe

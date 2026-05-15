@@ -8,6 +8,9 @@ from shutil import copyfile
 from src.config import Config
 from src.sem import sem
 
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+
 
 def main(mode=None):
     r"""starts the model
@@ -20,16 +23,33 @@ def main(mode=None):
     os.environ['CUDA_VISIBLE_DEVICES'] = ','.join(str(e) for e in config.GPU)
 
 
-    # init device
-    if torch.cuda.is_available():
-        print('Cuda is available')
-        config.DEVICE = torch.device("cuda")
-        torch.backends.cudnn.benchmark = True   # cudnn auto-tuner
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
+    # --- DDP Initialization ---
+    world_size = len(config.GPU)
+    if world_size > 1:
+        # If running via torchrun, these will be set
+        rank = int(os.environ.get('RANK', 0))
+        local_rank = int(os.environ.get('LOCAL_RANK', 0))
+        
+        # Set device for this process
+        torch.cuda.set_device(local_rank)
+        dist.init_process_group(backend='nccl', init_method='env://')
+        config.DEVICE = torch.device(f"cuda:{local_rank}")
+        config.RANK = rank
+        config.WORLD_SIZE = world_size
+        print(f"RANK {rank} initialized on device {config.DEVICE}")
     else:
-        print('Cuda is unavailable, use cpu')
-        config.DEVICE = torch.device("cpu")
+        config.RANK = 0
+        config.WORLD_SIZE = 1
+        if torch.cuda.is_available():
+            print('Cuda is available')
+            config.DEVICE = torch.device("cuda")
+        else:
+            print('Cuda is unavailable, use cpu')
+            config.DEVICE = torch.device("cpu")
+
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
 
 
 
@@ -52,8 +72,9 @@ def main(mode=None):
 
     # model training
     if config.MODE == 1:
-        config.print()
-        print('\nstart training...\n')
+        if config.RANK == 0:
+            config.print()
+            print('\nstart training...\n')
         model.train()
 
     # model test
@@ -98,7 +119,10 @@ def load_config(mode=None):
 
     # copy config template if does't exist
     if not os.path.exists(config_path):
-        copyfile('./config.yml', config_path)
+        if os.path.exists('./config.yml'):
+            copyfile('./config.yml', config_path)
+        else:
+            raise FileNotFoundError(f"Configuration file not found at {config_path} and no template ./config.yml exists.")
 
     # load config file
     config = Config(config_path)

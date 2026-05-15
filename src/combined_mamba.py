@@ -271,25 +271,10 @@ class CombinedAdaptiveMambaLayer(nn.Module):
             # Global distance from known boundary: 1.0 = at boundary, 0.0 = deep center
             distance_map = get_distance_map(mask_pooled.unsqueeze(1)).squeeze(1)  # [B, H_p, W_p]
 
-            # --- Island-aware priority via connected components ---
-            # Largest island first, no jumping between islands.
-            # Gap of 10000 between consecutive islands >> within-island range of dist*100.
+            # --- Simplified priority (PyTorch-only to avoid DataParallel hangs) ---
+            # Boundary pixels (high distance) have higher priority.
+            # No island-aware priority here to keep it pure GPU.
             island_priority = torch.zeros_like(mask_pooled)
-            try:
-                import numpy as _np
-                from scipy import ndimage as _ndi
-                mask_np = (mask_pooled > 0.5).cpu().numpy().astype(_np.uint8)
-                for b in range(B):
-                    labeled, n_isl = _ndi.label(mask_np[b])
-                    if n_isl > 0:
-                        sizes    = _np.bincount(labeled.flatten())[1:]          # size of each island
-                        rank_of  = _np.argsort(_np.argsort(sizes)[::-1])        # rank_of[i]: 0 = largest
-                        prio     = _np.zeros_like(labeled, dtype=_np.float32)
-                        for lbl in range(1, n_isl + 1):
-                            prio[labeled == lbl] = float(n_isl - rank_of[lbl - 1]) * 10000.0
-                        island_priority[b] = torch.from_numpy(prio).to(mask_pooled.device)
-            except Exception:
-                pass  # fallback: islands treated equally (global spiral)
 
             # Score layout (no overlap between tiers):
             #   Known pixels: 1_000_000 + texture[0,1000]  → always before any hole

@@ -5,6 +5,7 @@ from torch.cuda.amp import autocast
 from mamba_ssm import Mamba
 from .combined_mamba import CombinedAdaptiveMambaLayer
 import math
+from .utils import PositionalEncoding
 
 
 
@@ -358,39 +359,45 @@ class SEM(nn.Module):
         self.output = nn.Sequential(nn.Conv2d(int(dim * 2 ** 1), out_channels, kernel_size=3, stride=1, padding=1, bias=bias)
                                     )        
 
+        # Multi-GPU Fix: Register positional encodings as buffers so DataParallel replicates them instead of splitting
+        self.register_buffer('pos1',     PositionalEncoding(48, 70000))
+        self.register_buffer('pos2',     PositionalEncoding(96, 70000))
+        self.register_buffer('pos3',     PositionalEncoding(192, 70000))
+        self.register_buffer('pos4',     PositionalEncoding(384, 70000))
+        self.register_buffer('pos1_dec', PositionalEncoding(96, 70000))
 
-    def forward(self, inp_img, mask_whole, mask_half, mask_quarter,mask_tiny, pos1, pos2, pos3, pos4, pos1_dec):
-        
+
+    def forward(self, inp_img, mask_whole, mask_half, mask_quarter,mask_tiny):
         inp_enc_level1 = self.patch_embed(torch.cat((inp_img,mask_whole),dim=1))
 
-        out_enc_level1 = self.encoder_level1({0:inp_enc_level1, 1:pos1, 2:mask_whole})
+        out_enc_level1 = self.encoder_level1({0:inp_enc_level1, 1:self.pos1, 2:mask_whole})
 
         inp_enc_level2 = self.down1_2(out_enc_level1[0],mask_whole)
-        out_enc_level2 = self.encoder_level2({0:inp_enc_level2, 1:pos2, 2:mask_half})
+        out_enc_level2 = self.encoder_level2({0:inp_enc_level2, 1:self.pos2, 2:mask_half})
 
         inp_enc_level3 = self.down2_3(out_enc_level2[0],mask_half)
-        out_enc_level3 = self.encoder_level3({0:inp_enc_level3, 1:pos3, 2:mask_quarter})
+        out_enc_level3 = self.encoder_level3({0:inp_enc_level3, 1:self.pos3, 2:mask_quarter})
 
         inp_enc_level4 = self.down3_4(out_enc_level3[0],mask_quarter)
 
-        latent = self.latent({0:inp_enc_level4, 1:pos4, 2:mask_tiny})
+        latent = self.latent({0:inp_enc_level4, 1:self.pos4, 2:mask_tiny})
 
         inp_dec_level3 = self.up4_3(latent[0],mask_tiny)
         inp_dec_level3 = torch.cat([inp_dec_level3, out_enc_level3[0]], 1)
 
         inp_dec_level3 = self.reduce_chan_level3(inp_dec_level3)
-        out_dec_level3 = self.decoder_level3({0:inp_dec_level3, 1:pos3, 2:mask_quarter})
+        out_dec_level3 = self.decoder_level3({0:inp_dec_level3, 1:self.pos3, 2:mask_quarter})
 
         inp_dec_level2 = self.up3_2(out_dec_level3[0],mask_quarter)
         inp_dec_level2 = torch.cat([inp_dec_level2, out_enc_level2[0]], 1)
 
         inp_dec_level2 = self.reduce_chan_level2(inp_dec_level2)
-        out_dec_level2 = self.decoder_level2({0:inp_dec_level2, 1:pos2, 2:mask_half})
+        out_dec_level2 = self.decoder_level2({0:inp_dec_level2, 1:self.pos2, 2:mask_half})
 
         inp_dec_level1 = self.up2_1(out_dec_level2[0],mask_half)
         inp_dec_level1 = torch.cat([inp_dec_level1, out_enc_level1[0]], 1)
 
-        out_dec_level1 = self.decoder_level1({0:inp_dec_level1, 1:pos1_dec, 2:mask_whole})
+        out_dec_level1 = self.decoder_level1({0:inp_dec_level1, 1:self.pos1_dec, 2:mask_whole})
 
 
 
