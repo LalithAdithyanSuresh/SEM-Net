@@ -23,41 +23,83 @@ import io
 
 # ---------------- VISUALIZATION HELPERS ---------------- #
 def get_mamba_path_image(model, gt_pil):
-    """Extracts scan order from model and draws it over the GT image."""
+    """Draws the Mamba scan path over the GT image.
+
+    - Lines only between ADJACENT consecutive patches (Chebyshev distance == 1).
+    - Jumps are silently skipped (no long crossing lines).
+    - Patches only reachable via jumps get a coloured dot (same rainbow cmap).
+    - Start = lime, End = red.
+    """
     try:
-        # Hijack the last scan orders from encoder 1
         if hasattr(model.generator, 'module'):
             layer = model.generator.module.encoder_level1[0].attn
         else:
             layer = model.generator.encoder_level1[0].attn
-            
+
         scan_tensor = getattr(layer, 'last_scan_orders', None)
         if scan_tensor is None:
             return gt_pil
-            
-        indices = scan_tensor[0].cpu().tolist()
+
+        indices   = scan_tensor[0].cpu().tolist()
         patch_size = getattr(layer, 'last_patch_size', 8)
-        W_p = getattr(layer, 'last_W_p', 32)
-        
-        y_coords = np.array([ (idx // W_p) * patch_size + patch_size/2.0 for idx in indices])
-        x_coords = np.array([ (idx % W_p) * patch_size + patch_size/2.0 for idx in indices])
-        
-        fig = plt.figure(figsize=(gt_pil.size[0]/100, gt_pil.size[1]/100), dpi=100)
-        ax = fig.add_axes([0, 0, 1, 1])
+        W_p        = getattr(layer, 'last_W_p', 32)
+
+        rows = np.array([idx // W_p for idx in indices], dtype=np.int32)
+        cols = np.array([idx %  W_p for idx in indices], dtype=np.int32)
+        y_coords = rows * patch_size + patch_size / 2.0
+        x_coords = cols * patch_size + patch_size / 2.0
+
+        N    = len(indices)
+        norm = plt.Normalize(0, N - 1)
+        cmap = plt.get_cmap('rainbow')
+
+        # Which consecutive pairs are spatially adjacent (Chebyshev dist == 1)?
+        is_adjacent = np.array([
+            max(abs(int(rows[i+1]) - int(rows[i])),
+                abs(int(cols[i+1]) - int(cols[i]))) == 1
+            for i in range(N - 1)
+        ], dtype=bool)
+
+        # Track which steps participate in at least one adjacent segment
+        line_connected = np.zeros(N, dtype=bool)
+        for i, adj in enumerate(is_adjacent):
+            if adj:
+                line_connected[i]     = True
+                line_connected[i + 1] = True
+
+        # Build adjacent-only segments with per-segment colour
+        adj_segments, adj_colors = [], []
+        for i in range(N - 1):
+            if is_adjacent[i]:
+                adj_segments.append([[x_coords[i],   y_coords[i]],
+                                     [x_coords[i+1], y_coords[i+1]]])
+                adj_colors.append(cmap(norm(i)))
+
+        fig = plt.figure(figsize=(gt_pil.size[0] / 100, gt_pil.size[1] / 100), dpi=100)
+        ax  = fig.add_axes([0, 0, 1, 1])
         ax.axis('off')
         ax.imshow(gt_pil)
-        
-        points = np.array([x_coords, y_coords]).T.reshape(-1, 1, 2)
-        segments = np.concatenate([points[:-1], points[1:]], axis=1)
-        norm = plt.Normalize(0, len(x_coords))
-        lc = LineCollection(segments, cmap='rainbow', norm=norm, alpha=0.7, linewidths=1.2)
-        lc.set_array(np.arange(len(x_coords)))
-        ax.add_collection(lc)
-        
-        # Start/End
-        ax.scatter([x_coords[0]], [y_coords[0]], color='lime', s=30, zorder=5, edgecolors='black')
-        ax.scatter([x_coords[-1]], [y_coords[-1]], color='red', s=30, zorder=5, edgecolors='black')
-        
+
+        if adj_segments:
+            lc = LineCollection(adj_segments, colors=adj_colors,
+                                linewidths=1.4, alpha=0.80, zorder=3)
+            ax.add_collection(lc)
+
+        # Dots for patches only reached by jumps
+        jump_only = ~line_connected
+        if jump_only.any():
+            jx = x_coords[jump_only]
+            jy = y_coords[jump_only]
+            jc = [cmap(norm(i)) for i in np.where(jump_only)[0]]
+            ax.scatter(jx, jy, c=jc, s=18, zorder=4,
+                       edgecolors='black', linewidths=0.4, alpha=0.85)
+
+        # Start / End markers
+        ax.scatter([x_coords[0]],  [y_coords[0]],  color='lime', s=35,
+                   zorder=6, edgecolors='black', linewidths=0.6)
+        ax.scatter([x_coords[-1]], [y_coords[-1]], color='red',  s=35,
+                   zorder=6, edgecolors='black', linewidths=0.6)
+
         buf = io.BytesIO()
         plt.savefig(buf, format='png', bbox_inches=None, pad_inches=0)
         plt.close(fig)
@@ -137,12 +179,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--path', type=str, default='./checkpoints')
     parser.add_argument('--output', type=str, default='./evaluation_results')
+    parser.add_argument('--size', type=int, default=256)
     args = parser.parse_args()
 
     config = Config(os.path.join(args.path, 'config.yml'))
     config.PATH = args.path
     config.MODE = 2
     config.MODEL = 2
+    config.INPUT_SIZE = args.size
     config.DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     # Override empty configs with standard dataset paths

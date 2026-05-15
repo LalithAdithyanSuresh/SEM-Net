@@ -249,9 +249,9 @@ class CombinedAdaptiveMambaLayer(nn.Module):
         # ----------------------------------------------------
         orig_score_map = self.cnn_score_map(x_adapted) # [B, H, W]
         
-        # Dynamically set patch size: Attempt 4x4, fallback to 2x2 or 1x1 if H/W not divisible
+        # Dynamically set patch size: Attempt 8x8, fallback to 4x4, 2x2 or 1x1 if H/W not divisible
         patch_size = 1
-        for ps in [4, 2]:
+        for ps in [4, 8, 2]:
             if H % ps == 0 and W % ps == 0:
                 patch_size = ps
                 break
