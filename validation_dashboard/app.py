@@ -51,64 +51,38 @@ def init_db():
         
     conn.close()
 
-# --- Mask Indexing Logic (Matches evaluate_GPT.py) ---
+import json
+
+CACHE_FILE = os.path.join(os.path.dirname(__file__), 'mask_cache.json')
 indexed_masks_cache = None
 
 def get_indexed_masks():
     global indexed_masks_cache
-    if indexed_masks_cache is not None:
+    if indexed_masks_cache:
         return indexed_masks_cache
         
-    # Search for masks in cloud-portable and local paths
-    possible_paths = [
-        os.path.join(DATA_DIR, 'masks'),
-        os.path.join(DATA_DIR, 'testing_mask_dataset'),
-        "/mnt/datadrive/inpaint/iregularmask/test_mask/mask/testing_mask_dataset"
-    ]
-    
-    mask_dir = None
-    for p in possible_paths:
-        if os.path.exists(p) and os.path.isdir(p):
-            # Check if it has images directly
-            if any(f.lower().endswith(('.png', '.jpg', '.jpeg')) for f in os.listdir(p)):
-                mask_dir = p
-                break
-            # Check for one level deeper (common zip artifact)
-            for sub in os.listdir(p):
-                sub_p = os.path.join(p, sub)
-                if os.path.isdir(sub_p) and any(f.lower().endswith(('.png', '.jpg', '.jpeg')) for f in os.listdir(sub_p)):
-                    mask_dir = sub_p
-                    break
-            if mask_dir: break
-            
-    if not mask_dir:
-        print(f"Warning: No mask directory found! Searched: {possible_paths}")
+    mask_dir = os.path.join(DATA_DIR, 'testing_mask_dataset')
+    if not os.path.exists(mask_dir):
         return {'SMALL': [], 'MEDIUM': [], 'LARGE': []}
         
-    print(f"Indexing original masks from {mask_dir}...")
-    categories = {'SMALL': [], 'MEDIUM': [], 'LARGE': []}
+    mask_files = [os.path.join(mask_dir, f) for f in os.listdir(mask_dir) 
+                  if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    mask_files.sort() # Critical for deterministic mapping
     
-    mask_files = [f for f in os.listdir(mask_dir) if f.endswith(('.png', '.jpg', '.jpeg'))]
-    mask_files.sort()
+    # 4k / 4k / 4k split as specified by user
+    # Handle cases where count might not be exactly 12k
+    n = len(mask_files)
+    s1 = min(n, 4000)
+    s2 = min(n, 8000)
     
-    for f in mask_files:
-        mask_path = os.path.join(mask_dir, f)
-        try:
-            with Image.open(mask_path) as mask_img:
-                mask_np = np.array(mask_img.convert('L'))
-                ratio = np.mean(mask_np) / 255.0
-                
-                if 0.01 < ratio <= 0.20:
-                    categories['SMALL'].append(mask_path)
-                elif 0.20 < ratio <= 0.40:
-                    categories['MEDIUM'].append(mask_path)
-                elif 0.40 < ratio <= 0.60:
-                    categories['LARGE'].append(mask_path)
-        except:
-            continue
+    categories = {
+        'SMALL': mask_files[0:s1],
+        'MEDIUM': mask_files[s1:s2],
+        'LARGE': mask_files[s2:]
+    }
                 
     indexed_masks_cache = categories
-    print("Mask indexing complete.")
+    print(f"Indexed {n} masks with 4k split: {len(categories['SMALL'])} SMALL, {len(categories['MEDIUM'])} MEDIUM, {len(categories['LARGE'])} LARGE")
     return categories
 
 init_db()
@@ -129,66 +103,129 @@ def get_grid_files(folder, size):
 
 @app.route('/api/folders')
 def api_folders():
-    folders = [f for f in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, f))]
+    # Exclude mask datasets from model selection
+    excluded = ['testing_mask_dataset', 'masks', 'iregularmask']
+    folders = [f for f in os.listdir(DATA_DIR) 
+               if os.path.isdir(os.path.join(DATA_DIR, f)) and f not in excluded]
     return jsonify(folders)
 
 @app.route('/api/data')
 def api_data():
     size = request.args.get('size', 'SMALL')
-    model1 = request.args.get('model1')
-    model2 = request.args.get('model2')
+    models = [request.args.get(f'model{i}') for i in range(1, 6)]
+    models = [m for m in models if m] # filter out empty ones
     
-    if not model1 or not model2:
+    if not models:
         return jsonify([])
         
-    m1_path = os.path.join(DATA_DIR, model1, f'metrics_{size}.csv')
-    m2_path = os.path.join(DATA_DIR, model2, f'metrics_{size}.csv')
+    try:
+        dfs = []
+        for i, m in enumerate(models):
+            path = os.path.join(DATA_DIR, m, f'metrics_{size}.csv')
+            if os.path.exists(path):
+                try:
+                    df = pd.read_csv(path, on_bad_lines='skip')
+                    if 'Image' in df.columns and 'PSNR' in df.columns:
+                        # Use copy() to avoid SettingWithCopy warnings/errors
+                        new_df = df[['Image', 'PSNR']].rename(columns={'PSNR': f'PSNR_{i+1}'}).copy()
+                        dfs.append(new_df)
+                except Exception as e:
+                    print(f"Error reading metrics for {m}: {e}")
+
+        # Normalize all dataframes to use 'ID' for robust merging
+        normalized_dfs = []
+        for df in dfs:
+            # Create 'ID' column by stripping extension
+            df['ID'] = df['Image'].apply(lambda x: str(x).split('.')[0])
+            df = df.drop_duplicates(subset=['ID'])
+            # The PSNR column was already renamed to PSNR_X in the loading loop
+            # Find which PSNR_X column exists in this dataframe
+            psnr_col = next((c for c in df.columns if c.startswith('PSNR_')), None)
+            if psnr_col:
+                normalized_dfs.append(df[['ID', psnr_col]])
+
+        if not normalized_dfs:
+            # Fallback to directory listing
+            first_model_dir = os.path.join(DATA_DIR, models[0])
+            images = []
+            # Check standard subfolder or root
+            search_paths = [os.path.join(first_model_dir, f'fid_real_{size}'), first_model_dir]
+            for d in search_paths:
+                if os.path.exists(d):
+                    images.extend([f for f in os.listdir(d) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
+            
+            unique_ids = sorted(list(set([f.split('.')[0] for f in images])))
+            merged = pd.DataFrame({'ID': unique_ids})
+            for i in range(len(models)): merged[f'PSNR_{i+1}'] = 0
+        else:
+            # Merge on 'ID'
+            merged = normalized_dfs[0]
+            for df in normalized_dfs[1:]:
+                merged = pd.merge(merged, df, on='ID', how='outer')
+            merged = merged.fillna(0)
+    except Exception as e:
+        print(f"Critical error in api_data processing: {e}")
+        return jsonify({'error': str(e)}), 500
     
-    df1 = pd.read_csv(m1_path, on_bad_lines='skip') if os.path.exists(m1_path) else pd.DataFrame(columns=['Image', 'PSNR'])
-    df2 = pd.read_csv(m2_path, on_bad_lines='skip') if os.path.exists(m2_path) else pd.DataFrame(columns=['Image', 'PSNR'])
-    
-    if 'Image' not in df1.columns: df1['Image'] = []
-    if 'Image' not in df2.columns: df2['Image'] = []
-    if 'PSNR' not in df1.columns: df1['PSNR'] = 0
-    if 'PSNR' not in df2.columns: df2['PSNR'] = 0
-    
-    df1 = df1.rename(columns={'PSNR': 'PSNR_1'})
-    df2 = df2.rename(columns={'PSNR': 'PSNR_2'})
-    
-    merged = pd.merge(df1[['Image', 'PSNR_1']], df2[['Image', 'PSNR_2']], on='Image', how='outer')
-    merged = merged.fillna(0)
-    
-    grid1 = get_grid_files(os.path.join(DATA_DIR, model1), size)
-    grid2 = get_grid_files(os.path.join(DATA_DIR, model2), size)
-    
+    # Load votes (optional now, but kept for compatibility)
     conn = sqlite3.connect('validation_results.db')
     c = conn.cursor()
-    c.execute('SELECT image_id, winner, comment FROM votes WHERE size=? AND model1=? AND model2=?', (size, model1, model2))
+    # Note: Voting logic was 1vs1, so we just use model1 and model2 for voting context if exists
+    c.execute('SELECT image_id, winner, comment FROM votes WHERE size=? AND model1=? AND model2=?', (size, models[0], models[1] if len(models) > 1 else ''))
     votes_rows = c.fetchall()
     conn.close()
     
     votes_dict = {row[0]: {'winner': row[1], 'comment': row[2]} for row in votes_rows}
     
+    # Get mask categories for filtering if using testing_mask_dataset
+    indexed_masks = get_indexed_masks()
+    valid_mask_paths = set(indexed_masks.get(size, []))
+    # Extract just the filenames for easier matching
+    valid_mask_names = {os.path.basename(p).split('.')[0] for p in valid_mask_paths}
+
     results = []
     for _, row in merged.iterrows():
-        image_file = row['Image']
-        img_id = image_file.replace('.jpg', '').replace('.png', '')
-        
+        img_id = str(row['ID'])
         vote_data = votes_dict.get(img_id, {'winner': None, 'comment': ''})
         
-        results.append({
+        # Helper to find image path robustly
+        def get_robust_path(model_name, subfolder_prefix, img_id_base):
+            try:
+                # 1. Try standard subfolder: fid_fake_SMALL/00000.png
+                subfolder = f"{subfolder_prefix}_{size}"
+                model_path = os.path.join(DATA_DIR, model_name)
+                if not os.path.exists(model_path): return None
+                
+                exts = ['.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG']
+                
+                target_sub = os.path.join(model_path, subfolder)
+                if os.path.exists(target_sub):
+                    for ext in exts:
+                        if os.path.exists(os.path.join(target_sub, img_id_base + ext)):
+                            return f'/images/{model_name}/{subfolder}/{img_id_base}{ext}'
+                
+                # 2. Try root folder second (flat structure)
+                for ext in exts:
+                    if os.path.exists(os.path.join(model_path, img_id_base + ext)):
+                        return f'/images/{model_name}/{img_id_base}{ext}'
+            except:
+                pass
+            return None
+
+        gt_path = get_robust_path(models[0], 'fid_real', img_id) or ''
+
+        item = {
             'id': img_id,
-            'filename': image_file,
-            'psnr_1': round(float(row['PSNR_1']), 2),
-            'psnr_2': round(float(row['PSNR_2']), 2),
-            'f1_fake': f'/images/{model1}/fid_fake_{size}/{image_file}',
-            'f2_fake': f'/images/{model2}/fid_fake_{size}/{image_file}',
-            'gt': f'/images/{model1}/fid_real_{size}/{image_file}',
-            'f1_grid': f'/images/{model1}/5_image_grid/{size}/{grid1.get(img_id, "")}' if grid1.get(img_id) else "",
-            'f2_grid': f'/images/{model2}/5_image_grid/{size}/{grid2.get(img_id, "")}' if grid2.get(img_id) else "",
+            'gt': gt_path,
             'winner': vote_data['winner'],
             'comment': vote_data['comment']
-        })
+        }
+        
+        for i, m in enumerate(models):
+            item[f'psnr_{i+1}'] = round(float(row.get(f'PSNR_{i+1}', 0)), 2)
+            item[f'f{i+1}_fake'] = get_robust_path(m, 'fid_fake', img_id) or ''
+            
+        results.append(item)
     
     results.sort(key=lambda x: x['id'])
     return jsonify(results)
@@ -337,47 +374,45 @@ def index():
 
 @app.route('/api/mask_only/<model>/<size>/<image_name>')
 def api_mask_only(model, size, image_name):
-    # 1. Identify the index of the image in the current category
-    # We use the fid_real folder as the reference for alphabetical order
+    # Deterministic Indexing ONLY (No direct ID mapping)
     real_dir = os.path.join(DATA_DIR, model, f'fid_real_{size}')
+    if not os.path.exists(real_dir):
+        real_dir = os.path.join(DATA_DIR, model)
+        
     if not os.path.exists(real_dir):
         return "Category directory not found", 404
         
-    all_images = [f for f in os.listdir(real_dir) if f.endswith(('.png', '.jpg'))]
+    all_images = [f for f in os.listdir(real_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
     all_images.sort()
     
     image_filename = None
     for f in all_images:
-        if f.startswith(image_name): # image_name is the ID
+        if f.startswith(image_name): 
             image_filename = f
             break
             
     if not image_filename:
-        return f"Image {image_name} not found in category {size}", 404
+        return f"Image {image_name} not found in {model}", 404
         
     img_index = all_images.index(image_filename)
     
-    # 2. Get the corresponding mask using the same formula as inference
     indexed_masks = get_indexed_masks()
     cat_masks = indexed_masks.get(size, [])
     
     if not cat_masks:
         return f"No masks found for category {size}", 404
         
-    # Formula: indexed_masks[cat][(index * 2) % len(indexed_masks[cat])]
+    # Formula: (img_index * 2) % len(cat_masks)
     mask_path = cat_masks[(img_index * 2) % len(cat_masks)]
     
     try:
         with Image.open(mask_path) as mask_img:
-            # We must ensure the mask is the same size as the results (usually 256x256 or 512x512)
-            # We'll check the size of the real image to match
+            # Match current reference image size
             with Image.open(os.path.join(real_dir, image_filename)) as ref_img:
                 w, h = ref_img.size
-            
             mask_resized = mask_img.convert('L').resize((w, h), Image.NEAREST)
-            
             buf = io.BytesIO()
-            mask_resized.save(buf, format='PNG', optimize=True)
+            mask_resized.save(buf, format='PNG')
             buf.seek(0)
             return send_file(buf, mimetype='image/png')
     except Exception as e:
