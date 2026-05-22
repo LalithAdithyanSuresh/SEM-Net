@@ -99,9 +99,14 @@ fi
 echo "Activating virtual environment..."
 source venv/bin/activate
 
-# Upgrade base packaging tools
-echo "Upgrading pip, setuptools, and wheel..."
-pip install --upgrade pip setuptools wheel
+# Upgrade base packaging tools (setuptools must be < 82 to include pkg_resources for PyTorch cpp_extension)
+echo "Upgrading pip and wheel, installing setuptools < 82..."
+pip install --upgrade pip wheel
+pip install "setuptools<82"
+
+# Pre-install numpy < 2 to prevent PyTorch from installing NumPy 2.x (which is binary incompatible with PyTorch 2.1.2)
+echo "Pre-installing numpy < 2..."
+pip install "numpy<2"
 
 # 5. Install PyTorch first (crucial for compiling CUDA extensions during pip install)
 echo "Installing PyTorch ($TORCH_VER)..."
