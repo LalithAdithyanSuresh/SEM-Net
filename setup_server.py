@@ -326,6 +326,12 @@ def main():
         except Exception:
             pass
             
+        # Clean build artifacts to ensure a fresh compilation
+        build_dir = os.path.join(ops_dir, "build")
+        if os.path.exists(build_dir):
+            print(f"Cleaning existing build directory: {build_dir}")
+            shutil.rmtree(build_dir, ignore_errors=True)
+            
         execute_step(11, "Compiling ops_dcnv3 CUDA kernels", ["sh", "make.sh"], cwd=ops_dir)
     
     if is_interactive:
