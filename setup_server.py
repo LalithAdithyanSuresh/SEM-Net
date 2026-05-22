@@ -285,6 +285,30 @@ def check_dcnv3_compiled():
         pass
     return False
 
+def patch_pytorch_boxing_header():
+    import glob
+    paths = glob.glob(os.path.join("venv", "lib", "python*", "site-packages", "torch", "include", "ATen", "core", "boxing", "impl", "boxing.h"))
+    if not paths:
+        print("WARNING: Could not find boxing.h to patch. It might not be installed yet, or in a different path.")
+        return
+    for path in paths:
+        try:
+            print(f"Checking if {path} needs template parsing patch...")
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
+            target = "guts::void_t<decltype(std::declval<IValue>().to<T>())>"
+            replacement = "guts::void_t<decltype(std::declval<IValue>().template to<T>())>"
+            if target in content:
+                print(f"Patching boxing.h template parsing bug in: {path}")
+                content = content.replace(target, replacement)
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                print("[OK] Successfully patched boxing.h")
+            else:
+                print(f"[OK] boxing.h is already patched or target signature not found in {path}.")
+        except Exception as e:
+            print(f"WARNING: Failed to patch {path}: {e}")
+
 def main():
     is_interactive = sys.stdout.isatty()
     if is_interactive:
@@ -350,6 +374,9 @@ def main():
             os.chmod(make_sh, 0o755)
         except Exception:
             pass
+            
+        # Patch PyTorch boxing.h to workaround CUDA 12.4 compile issue
+        patch_pytorch_boxing_header()
             
         # Clean build artifacts to ensure a fresh compilation
         build_dir = os.path.join(ops_dir, "build")
