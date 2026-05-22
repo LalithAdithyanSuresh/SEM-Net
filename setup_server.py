@@ -152,15 +152,18 @@ def step_download_ops():
         return
         
     print("Downloading ops_dcnv3 from InternImage repository...")
-    if os.path.exists(target_dir):
-        if os.path.isdir(target_dir):
+    if os.path.lexists(target_dir):
+        if os.path.isdir(target_dir) and not os.path.islink(target_dir):
             shutil.rmtree(target_dir)
         else:
             os.remove(target_dir)
             
     temp_dir = "temp_internimage"
-    if os.path.exists(temp_dir):
-        shutil.rmtree(temp_dir)
+    if os.path.lexists(temp_dir):
+        if os.path.isdir(temp_dir) and not os.path.islink(temp_dir):
+            shutil.rmtree(temp_dir)
+        else:
+            os.remove(temp_dir)
     os.makedirs(temp_dir)
     
     subprocess.check_call(["git", "init", "-q"], cwd=temp_dir)
