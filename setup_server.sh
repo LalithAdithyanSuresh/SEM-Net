@@ -30,7 +30,36 @@ if [ ! -f "main.py" ]; then
     echo "ERROR: Could not find main.py. Make sure you are in the correct repository directory."
     exit 1
 fi
+# Auto-detect and configure the newest CUDA Toolkit in /usr/local
+echo "Locating installed CUDA Toolkits in /usr/local..."
+ls -d /usr/local/cuda* 2>/dev/null || true
 
+BEST_CUDA=$(ls -d /usr/local/cuda-[0-9]* 2>/dev/null | sort -V | tail -n 1)
+if [ -n "$BEST_CUDA" ]; then
+    echo "Configuring environment to use the newest CUDA Toolkit: $BEST_CUDA"
+    export CUDA_HOME="$BEST_CUDA"
+    export PATH="$BEST_CUDA/bin:$PATH"
+    export LD_LIBRARY_PATH="$BEST_CUDA/lib64:$LD_LIBRARY_PATH"
+else
+    if [ -d "/usr/local/cuda" ]; then
+        echo "Configuring environment to use default CUDA Toolkit: /usr/local/cuda"
+        export CUDA_HOME="/usr/local/cuda"
+        export PATH="/usr/local/cuda/bin:$PATH"
+        export LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+        BEST_CUDA="/usr/local/cuda"
+    fi
+fi
+
+# Set PyTorch version based on auto-detected CUDA Toolkit version
+if [[ "$BEST_CUDA" == *"/cuda-12"* ]]; then
+    echo "CUDA 12.x detected. Setting PyTorch to 2.1.2 + CUDA 12.1..."
+    TORCH_VER="torch==2.1.2 torchvision==0.16.2"
+    PYTORCH_INDEX="https://download.pytorch.org/whl/cu121"
+else
+    echo "CUDA 11.x (or default) detected. Setting PyTorch to 2.0.1 + CUDA 11.8..."
+    TORCH_VER="torch==2.0.1 torchvision==0.15.2"
+    PYTORCH_INDEX="https://download.pytorch.org/whl/cu118"
+fi
 
 # 2. Check for CUDA/NVCC compiler (needed for Mamba and DCNv3 CUDA kernels)
 echo "Checking environment requirements..."
@@ -75,10 +104,18 @@ echo "Upgrading pip, setuptools, and wheel..."
 pip install --upgrade pip setuptools wheel
 
 # 5. Install PyTorch first (crucial for compiling CUDA extensions during pip install)
-echo "Installing PyTorch 2.0.1 and Torchvision 0.15.2..."
-# We explicitly install PyTorch with CUDA 11.8 or default depending on system.
-# Adjust index-url if needed, default PyTorch package contains CUDA runtimes.
-pip install torch==2.0.1 torchvision==0.15.2 --extra-index-url https://download.pytorch.org/whl/cu118
+echo "Installing PyTorch ($TORCH_VER)..."
+# We explicitly install PyTorch with matching CUDA binaries based on system CUDA compiler
+pip install $TORCH_VER --extra-index-url $PYTORCH_INDEX
+
+# Install build dependencies for Mamba compiler
+echo "Installing build-time dependencies (packaging, ninja)..."
+pip install packaging ninja
+
+# Install causal-conv1d and mamba-ssm without build isolation to use correct venv PyTorch context
+echo "Installing causal-conv1d and mamba-ssm (using --no-build-isolation)..."
+pip install causal-conv1d>=1.1.0 mamba-ssm==1.1.3.post1 --no-build-isolation
+
 
 # 6. Install other requirements
 if [ -f "requirements.txt" ]; then
