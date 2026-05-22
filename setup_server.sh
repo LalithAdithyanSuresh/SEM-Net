@@ -8,6 +8,7 @@ echo "          SEM-Net Linux Server Setup Script               "
 echo "=========================================================="
 
 REPO_URL="https://github.com/LalithAdithyanSuresh/SEM-Net.git"
+REPO_BRANCH="ForMultiGPU"
 REPO_DIR="SEM-Net"
 
 # 1. Clone the repository if not already inside a git repository
@@ -16,8 +17,8 @@ if [ ! -d ".git" ]; then
         echo "Directory '$REPO_DIR' already exists. Entering it..."
         cd "$REPO_DIR"
     else
-        echo "Cloning repository from $REPO_URL..."
-        git clone "$REPO_URL"
+        echo "Cloning repository branch '$REPO_BRANCH' from $REPO_URL..."
+        git clone -b "$REPO_BRANCH" "$REPO_URL"
         cd "$REPO_DIR"
     fi
 else
