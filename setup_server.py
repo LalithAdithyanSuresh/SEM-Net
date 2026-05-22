@@ -296,16 +296,36 @@ def patch_pytorch_boxing_header():
             print(f"Checking if {path} needs template parsing patch...")
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
-            target = "guts::void_t<decltype(std::declval<IValue>().to<T>())>"
-            replacement = "guts::void_t<decltype(std::declval<IValue>().template to<T>())>"
-            if target in content:
-                print(f"Patching boxing.h template parsing bug in: {path}")
-                content = content.replace(target, replacement)
+            
+            replacement = (
+                "struct ivalue_to_helper {\n"
+                "  using type = decltype(std::declval<IValue>().template to<T>());\n"
+                "};\n\n"
+                "template <class T>\n"
+                "using ivalue_to_helper_t = typename ivalue_to_helper<T>::type;\n\n"
+                "template <class T>\n"
+                "struct has_ivalue_to<T, guts::void_t<ivalue_to_helper_t<T>>>"
+            )
+            
+            target_patched_1 = "struct has_ivalue_to<T, guts::void_t<decltype(std::declval<IValue>().template to<T>())>>"
+            target_original = "struct has_ivalue_to<T, guts::void_t<decltype(std::declval<IValue>().to<T>())>>"
+            
+            if "ivalue_to_helper" in content:
+                print(f"[OK] boxing.h is already patched with ivalue_to_helper.")
+            elif target_patched_1 in content:
+                print(f"Patching boxing.h (replacing inline template with helper struct) in: {path}")
+                content = content.replace(target_patched_1, replacement)
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                print("[OK] Successfully patched boxing.h")
+            elif target_original in content:
+                print(f"Patching boxing.h (replacing original inline template with helper struct) in: {path}")
+                content = content.replace(target_original, replacement)
                 with open(path, "w", encoding="utf-8") as f:
                     f.write(content)
                 print("[OK] Successfully patched boxing.h")
             else:
-                print(f"[OK] boxing.h is already patched or target signature not found in {path}.")
+                print(f"WARNING: Target signatures not found in {path}. It might be already patched or structurally different.")
         except Exception as e:
             print(f"WARNING: Failed to patch {path}: {e}")
 
