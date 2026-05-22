@@ -297,35 +297,33 @@ def patch_pytorch_boxing_header():
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
             
-            replacement = (
-                "struct ivalue_to_helper {\n"
-                "  using type = decltype(std::declval<IValue>().template to<T>());\n"
-                "};\n\n"
-                "template <class T>\n"
-                "using ivalue_to_helper_t = typename ivalue_to_helper<T>::type;\n\n"
-                "template <class T>\n"
-                "struct has_ivalue_to<T, guts::void_t<ivalue_to_helper_t<T>>>"
-            )
+            # Normalize newlines
+            content_norm = content.replace("\r\n", "\n")
             
-            target_patched_1 = "struct has_ivalue_to<T, guts::void_t<decltype(std::declval<IValue>().template to<T>())>>"
-            target_original = "struct has_ivalue_to<T, guts::void_t<decltype(std::declval<IValue>().to<T>())>>"
+            start_marker = "// has_ivalue_to<T> tests the presence/absence of instance method IValue::to<T>()"
+            end_marker = "// boxing predicates"
             
-            if "ivalue_to_helper" in content:
-                print(f"[OK] boxing.h is already patched with ivalue_to_helper.")
-            elif target_patched_1 in content:
-                print(f"Patching boxing.h (replacing inline template with helper struct) in: {path}")
-                content = content.replace(target_patched_1, replacement)
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(content)
-                print("[OK] Successfully patched boxing.h")
-            elif target_original in content:
-                print(f"Patching boxing.h (replacing original inline template with helper struct) in: {path}")
-                content = content.replace(target_original, replacement)
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(content)
-                print("[OK] Successfully patched boxing.h")
+            if start_marker in content_norm and end_marker in content_norm:
+                start_idx = content_norm.find(start_marker)
+                end_idx = content_norm.find(end_marker)
+                
+                # Check if it is already patched with std::true_type fallback
+                if "struct has_ivalue_to : std::true_type {};" in content_norm[start_idx:end_idx]:
+                    print(f"[OK] boxing.h is already patched to use std::true_type fallback.")
+                else:
+                    print(f"Patching boxing.h to use std::true_type fallback in: {path}")
+                    replacement_block = (
+                        "// has_ivalue_to<T> tests the presence/absence of instance method IValue::to<T>()\n"
+                        "//\n"
+                        "template <class T, class Enable = void>\n"
+                        "struct has_ivalue_to : std::true_type {};\n\n"
+                    )
+                    new_content = content_norm[:start_idx] + replacement_block + content_norm[end_idx:]
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write(new_content)
+                    print("[OK] Successfully patched boxing.h with true_type fallback.")
             else:
-                print(f"WARNING: Target signatures not found in {path}. It might be already patched or structurally different.")
+                print(f"WARNING: Markers not found in {path}. Content might be different.")
         except Exception as e:
             print(f"WARNING: Failed to patch {path}: {e}")
 
