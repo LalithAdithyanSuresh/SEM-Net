@@ -119,6 +119,8 @@ def step_setup_cuda():
     os.environ["PATH"] = f"{cuda_dir}/bin:" + os.environ.get("PATH", "")
     os.environ["LD_LIBRARY_PATH"] = f"{cuda_dir}/lib64:" + os.environ.get("LD_LIBRARY_PATH", "")
     os.environ["MAX_JOBS"] = "1"
+    os.environ["PIP_NO_CACHE_DIR"] = "1"
+    os.environ["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
     
     # Prepend virtual environment path to PATH if venv already exists
     venv_bin = os.path.abspath("venv/bin")
@@ -135,6 +137,29 @@ def step_setup_cuda():
         print(f"WARNING: 'nvcc' not found or failed: {e}. Compilation might fail.")
 
 def step_create_venv():
+    if os.path.exists("venv"):
+        # Check if venv is writable by trying to create a test file inside it
+        is_writable = False
+        try:
+            test_file = os.path.join("venv", ".write_test")
+            with open(test_file, "w") as f:
+                f.write("test")
+            os.remove(test_file)
+            is_writable = True
+        except Exception:
+            pass
+            
+        if not is_writable:
+            print("Virtual environment 'venv' exists but is not writable. Recreating it...")
+            try:
+                shutil.rmtree("venv", ignore_errors=True)
+            except Exception as e:
+                print(f"WARNING: Failed to remove 'venv' directory automatically: {e}")
+                
+            if os.path.exists("venv"):
+                raise RuntimeError("Existing 'venv' directory is not writable and could not be deleted. "
+                                   "Please clean it up manually by running: sudo rm -rf venv")
+
     if not os.path.exists("venv"):
         print("Creating virtual environment 'venv'...")
         subprocess.check_call([sys.executable, "-m", "venv", "venv"])
