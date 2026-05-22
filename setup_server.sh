@@ -104,7 +104,7 @@ pip install packaging ninja
 
 # Install causal-conv1d and mamba-ssm without build isolation to use correct venv PyTorch context
 echo "Installing causal-conv1d and mamba-ssm (using --no-build-isolation)..."
-pip install causal-conv1d>=1.1.0 mamba-ssm==1.1.3.post1 --no-build-isolation
+pip install causal-conv1d>=1.1.0 mamba-ssm==1.1.3.post1 --no-build-isolation -v
 
 
 # 6. Install other requirements
