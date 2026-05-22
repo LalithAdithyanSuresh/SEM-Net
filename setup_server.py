@@ -181,6 +181,84 @@ def step_download_ops():
     shutil.rmtree(temp_dir)
     print("ops_dcnv3 downloaded successfully.")
 
+def check_setuptools_numpy_installed():
+    try:
+        venv_python = os.path.abspath(os.path.join("venv", "bin", "python"))
+        if not os.path.exists(venv_python):
+            return False
+        out = subprocess.check_output(
+            [venv_python, "-c", "import setuptools; import numpy; print(setuptools.__version__, numpy.__version__)"],
+            text=True, stderr=subprocess.DEVNULL
+        )
+        parts = out.strip().split()
+        if len(parts) == 2:
+            setuptools_ver, numpy_ver = parts
+            st_major = int(setuptools_ver.split('.')[0])
+            np_major = int(numpy_ver.split('.')[0])
+            return st_major < 82 and np_major < 2
+    except Exception:
+        pass
+    return False
+
+def check_pytorch_installed():
+    try:
+        venv_python = os.path.abspath(os.path.join("venv", "bin", "python"))
+        if not os.path.exists(venv_python):
+            return False
+        out = subprocess.check_output(
+            [venv_python, "-c", "import torch; import torchvision; print(torch.__version__, torchvision.__version__)"],
+            text=True, stderr=subprocess.DEVNULL
+        )
+        parts = out.strip().split()
+        if len(parts) == 2:
+            torch_ver, vision_ver = parts
+            return torch_ver.startswith("2.1.2") and vision_ver.startswith("0.16.2")
+    except Exception:
+        pass
+    return False
+
+def check_ninja_packaging_installed():
+    try:
+        venv_python = os.path.abspath(os.path.join("venv", "bin", "python"))
+        if not os.path.exists(venv_python):
+            return False
+        subprocess.check_call(
+            [venv_python, "-c", "import packaging; import ninja"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        return True
+    except Exception:
+        pass
+    return False
+
+def check_mamba_installed():
+    try:
+        venv_python = os.path.abspath(os.path.join("venv", "bin", "python"))
+        if not os.path.exists(venv_python):
+            return False
+        subprocess.check_call(
+            [venv_python, "-c", "import causal_conv1d; import mamba_ssm"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        return True
+    except Exception:
+        pass
+    return False
+
+def check_dcnv3_compiled():
+    try:
+        venv_python = os.path.abspath(os.path.join("venv", "bin", "python"))
+        if not os.path.exists(venv_python):
+            return False
+        subprocess.check_call(
+            [venv_python, "-c", "import torch; import DCNv3"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        return True
+    except Exception:
+        pass
+    return False
+
 def main():
     is_interactive = sys.stdout.isatty()
     if is_interactive:
@@ -200,22 +278,34 @@ def main():
     execute_step(4, "Upgrading pip and wheel", ["pip", "install", "--upgrade", "pip", "wheel"])
     
     # Step 5: Install compatible setuptools & numpy pins
-    execute_step(5, "Installing setuptools < 82 and numpy < 2", ["pip", "install", "setuptools<82", "numpy<2"])
+    if check_setuptools_numpy_installed():
+        print("[Step 5/11] setuptools < 82 and numpy < 2 already installed. Skipping.")
+    else:
+        execute_step(5, "Installing setuptools < 82 and numpy < 2", ["pip", "install", "setuptools<82", "numpy<2"])
     
     # Step 6: Install PyTorch 2.1.2 (compatible with CUDA 12.4 compiler)
-    execute_step(6, "Installing PyTorch 2.1.2 (CUDA 12.1 whl)", [
-        "pip", "install", "torch==2.1.2", "torchvision==0.16.2", 
-        "--extra-index-url", "https://download.pytorch.org/whl/cu121"
-    ])
+    if check_pytorch_installed():
+        print("[Step 6/11] PyTorch 2.1.2 and torchvision 0.16.2 already installed. Skipping.")
+    else:
+        execute_step(6, "Installing PyTorch 2.1.2 (CUDA 12.1 whl)", [
+            "pip", "install", "torch==2.1.2", "torchvision==0.16.2", 
+            "--extra-index-url", "https://download.pytorch.org/whl/cu121"
+        ])
     
     # Step 7: Install packaging & ninja
-    execute_step(7, "Installing packaging and ninja compiler tool", ["pip", "install", "packaging", "ninja"])
+    if check_ninja_packaging_installed():
+        print("[Step 7/11] packaging and ninja already installed. Skipping.")
+    else:
+        execute_step(7, "Installing packaging and ninja compiler tool", ["pip", "install", "packaging", "ninja"])
     
     # Step 8: Compile causal-conv1d & mamba-ssm
-    execute_step(8, "Compiling causal-conv1d and mamba-ssm (verbose)", [
-        "pip", "install", "causal-conv1d>=1.1.0", "mamba-ssm==1.1.3.post1", 
-        "--no-build-isolation", "-v"
-    ])
+    if check_mamba_installed():
+        print("[Step 8/11] causal-conv1d and mamba-ssm already compiled and installed. Skipping.")
+    else:
+        execute_step(8, "Compiling causal-conv1d and mamba-ssm (verbose)", [
+            "pip", "install", "causal-conv1d>=1.1.0", "mamba-ssm==1.1.3.post1", 
+            "--no-build-isolation", "-v"
+        ])
     
     # Step 9: Install other requirements
     execute_step(9, "Installing remaining requirements.txt dependencies", ["pip", "install", "-r", "requirements.txt"])
@@ -224,15 +314,18 @@ def main():
     execute_step(10, "Downloading InternImage ops_dcnv3 folder", step_download_ops)
     
     # Step 11: Compile ops_dcnv3
-    ops_dir = os.path.abspath(os.path.join("src", "ops_dcnv3"))
-    make_sh = os.path.join(ops_dir, "make.sh")
-    
-    try:
-        os.chmod(make_sh, 0o755)
-    except Exception:
-        pass
+    if check_dcnv3_compiled():
+        print("[Step 11/11] ops_dcnv3 CUDA kernels already compiled and installed. Skipping.")
+    else:
+        ops_dir = os.path.abspath(os.path.join("src", "ops_dcnv3"))
+        make_sh = os.path.join(ops_dir, "make.sh")
         
-    execute_step(11, "Compiling ops_dcnv3 CUDA kernels", ["sh", "make.sh"], cwd=ops_dir)
+        try:
+            os.chmod(make_sh, 0o755)
+        except Exception:
+            pass
+            
+        execute_step(11, "Compiling ops_dcnv3 CUDA kernels", ["sh", "make.sh"], cwd=ops_dir)
     
     if is_interactive:
         sys.stdout.write("\n")
