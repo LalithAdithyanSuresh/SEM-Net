@@ -118,6 +118,7 @@ def step_setup_cuda():
     os.environ["CUDA_HOME"] = cuda_dir
     os.environ["PATH"] = f"{cuda_dir}/bin:" + os.environ.get("PATH", "")
     os.environ["LD_LIBRARY_PATH"] = f"{cuda_dir}/lib64:" + os.environ.get("LD_LIBRARY_PATH", "")
+    os.environ["MAX_JOBS"] = "1"
     
     # Prepend virtual environment path to PATH if venv already exists
     venv_bin = os.path.abspath("venv/bin")
@@ -148,7 +149,7 @@ def step_create_venv():
 def step_download_ops():
     target_dir = os.path.join("src", "ops_dcnv3")
     if os.path.exists(target_dir) and os.path.exists(os.path.join(target_dir, "make.sh")):
-        print("src/ops_dcnv3 already exists and looks valid.")
+        print("src/ops_dcnv3 already exists (tracked in repository). Skipping download.")
         return
         
     print("Downloading ops_dcnv3 from InternImage repository...")
