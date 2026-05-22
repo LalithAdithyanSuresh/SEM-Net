@@ -4,7 +4,7 @@ checkpoints_places/
 *.pth
 *.dat
 *.log
-src/__pycache__/
+**/__pycache__/
 evaluation_results*/
 inference_results/
 *.zip
