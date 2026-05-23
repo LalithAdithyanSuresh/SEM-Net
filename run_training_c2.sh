@@ -2,6 +2,7 @@
 
 # Configuration
 export C2_SERVER_URL="https://lalithadithyan.dev"
+export FILES_SERVER_URL="https://files.lalithadithyan.dev"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export TORCH_HOME="/tmp/cks/torch_cache"
 export MPLCONFIGDIR="/tmp/cks/matplotlib_cache"

@@ -35,6 +35,13 @@ import threading
 C2_SERVER_URL = os.environ.get('C2_SERVER_URL', 'https://lalithadithyan.dev')
 C2_SESSION    = os.environ.get('C2_SESSION', 'default')
 
+# Automatically route file uploads to the optimized files subdomain if C2 is on the main domain
+default_files_url = C2_SERVER_URL
+if 'lalithadithyan.dev' in C2_SERVER_URL and 'files.' not in C2_SERVER_URL:
+    default_files_url = C2_SERVER_URL.replace('lalithadithyan.dev', 'files.lalithadithyan.dev')
+
+FILES_SERVER_URL = os.environ.get('FILES_SERVER_URL', default_files_url)
+
 def upload_file_chunked(file_path, server_url, session_id, chunk_size=10 * 1024 * 1024, target_filename=None):
     if not os.path.exists(file_path):
         print(f"[C2 UPLOAD] File {file_path} not found. Skipping.")
@@ -625,8 +632,8 @@ class sem():
                         
                         def bg_upload():
                             try:
-                                upload_file_chunked(temp_gen, C2_SERVER_URL, C2_SESSION, target_filename=target_gen)
-                                upload_file_chunked(temp_dis, C2_SERVER_URL, C2_SESSION, target_filename=target_dis)
+                                upload_file_chunked(temp_gen, FILES_SERVER_URL, C2_SESSION, target_filename=target_gen)
+                                upload_file_chunked(temp_dis, FILES_SERVER_URL, C2_SESSION, target_filename=target_dis)
                             finally:
                                 if os.path.exists(temp_gen): os.remove(temp_gen)
                                 if os.path.exists(temp_dis): os.remove(temp_dis)
