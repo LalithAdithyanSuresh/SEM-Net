@@ -180,8 +180,8 @@ def upload_image():
     file.save(os.path.join(sess_dir, filename))
     return jsonify({"status": "success"})
 
-@app.route('/api/upload_model_chunk', methods=['POST'])
-def upload_model_chunk():
+@app.route('/api/upload_chunk', methods=['POST'])
+def upload_chunk():
     session_id = request.form.get('session', 'default')
     filename = secure_filename(request.form.get('filename', ''))
     try:
