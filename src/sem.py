@@ -35,12 +35,12 @@ import threading
 C2_SERVER_URL = os.environ.get('C2_SERVER_URL', 'https://lalithadithyan.dev')
 C2_SESSION    = os.environ.get('C2_SESSION', 'default')
 
-def upload_file_chunked(file_path, server_url, session_id, chunk_size=10 * 1024 * 1024):
+def upload_file_chunked(file_path, server_url, session_id, chunk_size=10 * 1024 * 1024, target_filename=None):
     if not os.path.exists(file_path):
         print(f"[C2 UPLOAD] File {file_path} not found. Skipping.")
         return False
         
-    filename = os.path.basename(file_path)
+    filename = target_filename if target_filename else os.path.basename(file_path)
     file_size = os.path.getsize(file_path)
     total_chunks = (file_size + chunk_size - 1) // chunk_size
     
@@ -613,14 +613,20 @@ class sem():
                     import shutil
                     temp_gen = self.inpaint_model.gen_weights_path + ".tmp"
                     temp_dis = self.inpaint_model.dis_weights_path + ".tmp"
+                    
+                    # 9-digit zero-padded iteration prefix (e.g., 000000160)
+                    iter_str = f"{iteration:09d}"
+                    target_gen = f"{iter_str}_{os.path.basename(self.inpaint_model.gen_weights_path)}"
+                    target_dis = f"{iter_str}_{os.path.basename(self.inpaint_model.dis_weights_path)}"
+                    
                     try:
                         shutil.copyfile(self.inpaint_model.gen_weights_path, temp_gen)
                         shutil.copyfile(self.inpaint_model.dis_weights_path, temp_dis)
                         
                         def bg_upload():
                             try:
-                                upload_file_chunked(temp_gen, C2_SERVER_URL, C2_SESSION)
-                                upload_file_chunked(temp_dis, C2_SERVER_URL, C2_SESSION)
+                                upload_file_chunked(temp_gen, C2_SERVER_URL, C2_SESSION, target_filename=target_gen)
+                                upload_file_chunked(temp_dis, C2_SERVER_URL, C2_SESSION, target_filename=target_dis)
                             finally:
                                 if os.path.exists(temp_gen): os.remove(temp_gen)
                                 if os.path.exists(temp_dis): os.remove(temp_dis)
