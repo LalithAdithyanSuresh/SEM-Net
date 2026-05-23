@@ -602,34 +602,27 @@ class sem():
 
 
 
-                # save model at checkpoints
+                # save model at checkpoints and upload to C2 server
                 if self.config.RANK == 0 and self.config.SAVE_INTERVAL != 0 and iteration % self.config.SAVE_INTERVAL == 0:
                     self.save()
                     # Persist epoch so process restarts resume from the right epoch
                     with open(self.epoch_state_file, 'w') as _ef:
                         json.dump({'epoch': epoch, 'iteration': iteration}, _ef)
 
-                # upload model checkpoints to C2 server every 25000 iterations
-                if self.config.RANK == 0 and iteration > 0 and iteration % 25000 == 0:
-                    if iteration % self.config.SAVE_INTERVAL != 0:
-                        self.save()
-                        with open(self.epoch_state_file, 'w') as _ef:
-                            json.dump({'epoch': epoch, 'iteration': iteration}, _ef)
-                    
-                    # Copy checkpoints to temp files first to avoid modifications during upload
+                    # Upload the freshly-saved checkpoints to the C2 file server in background
                     import shutil
                     temp_gen = self.inpaint_model.gen_weights_path + ".tmp"
                     temp_dis = self.inpaint_model.dis_weights_path + ".tmp"
-                    
-                    # 9-digit zero-padded iteration prefix (e.g., 000000160)
+
+                    # 9-digit zero-padded iteration prefix (e.g., 000002000)
                     iter_str = f"{iteration:09d}"
                     target_gen = f"{iter_str}_{os.path.basename(self.inpaint_model.gen_weights_path)}"
                     target_dis = f"{iter_str}_{os.path.basename(self.inpaint_model.dis_weights_path)}"
-                    
+
                     try:
                         shutil.copyfile(self.inpaint_model.gen_weights_path, temp_gen)
                         shutil.copyfile(self.inpaint_model.dis_weights_path, temp_dis)
-                        
+
                         def bg_upload():
                             try:
                                 upload_file_chunked(temp_gen, FILES_SERVER_URL, C2_SESSION, target_filename=target_gen)
@@ -637,7 +630,7 @@ class sem():
                             finally:
                                 if os.path.exists(temp_gen): os.remove(temp_gen)
                                 if os.path.exists(temp_dis): os.remove(temp_dis)
-                                
+
                         threading.Thread(target=bg_upload, daemon=True).start()
                     except Exception as e:
                         print(f"[C2 UPLOAD] Failed to start background upload: {e}")

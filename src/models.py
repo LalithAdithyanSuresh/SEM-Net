@@ -119,14 +119,12 @@ class InpaintingModel(BaseModel):
                                                                   
                                                                   
         self.scaler = torch.cuda.amp.GradScaler()
-
-        
+        # Gradient accumulation: sync across GPUs every 8 steps
+        self.accum_steps = 8
 
     def process(self, images, masks):
         self.iteration += 1
-        # Use 8-step accumulation for high-speed DDP
-        self.accum_steps = 8
-        
+
         # Process outputs
         outputs_img = self(images, masks)
 
