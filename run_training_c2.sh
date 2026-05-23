@@ -20,7 +20,11 @@ if ! pgrep -f "sync_to_gdrive.sh" > /dev/null; then
     echo "Started Google Drive sync worker (log: gdrive_sync.log)"
 fi
 
-# Environment already active (CAMINO_env)
+# Activate virtual environment if it exists
+if [ -d "venv" ]; then
+    source venv/bin/activate
+    echo "Activated local virtual environment (venv)"
+fi
 
 while true; do
     echo "Checking C2 Server status for [$C2_SESSION]..."
