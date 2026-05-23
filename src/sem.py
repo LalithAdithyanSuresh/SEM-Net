@@ -61,7 +61,7 @@ def upload_file_chunked(file_path, server_url, session_id, chunk_size=10 * 1024 
                 success = False
                 for retry in range(3):
                     try:
-                        res = requests.post(f"{server_url}/api/upload_model_chunk", files=files, data=data, timeout=45)
+                        res = requests.post(f"{server_url}/api/upload_chunk", files=files, data=data, timeout=45)
                         if res.status_code == 200:
                             success = True
                             break
