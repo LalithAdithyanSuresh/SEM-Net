@@ -2,6 +2,7 @@ import os
 import json
 import numpy as np
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, DistributedSampler
@@ -43,11 +44,22 @@ class sem():
         self.debug = False
         self.model_name = model_name
 
-        self.inpaint_model = InpaintingModel(config).to(config.DEVICE)
         self.transf = torchvision.transforms.Compose(
             [
                 torchvision.transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])])
-        self.loss_fn_vgg = lpips.LPIPS(net='vgg').to(config.DEVICE)
+
+        # Serialize model initialization to prevent download collisions on multi-GPU setups
+        if dist.is_initialized() and config.WORLD_SIZE > 1:
+            if config.RANK == 0:
+                self.inpaint_model = InpaintingModel(config).to(config.DEVICE)
+                self.loss_fn_vgg = lpips.LPIPS(net='vgg').to(config.DEVICE)
+            dist.barrier()
+            if config.RANK != 0:
+                self.inpaint_model = InpaintingModel(config).to(config.DEVICE)
+                self.loss_fn_vgg = lpips.LPIPS(net='vgg').to(config.DEVICE)
+        else:
+            self.inpaint_model = InpaintingModel(config).to(config.DEVICE)
+            self.loss_fn_vgg = lpips.LPIPS(net='vgg').to(config.DEVICE)
 
         self.psnr = PSNR(255.0).to(config.DEVICE)
         self.cal_mae = nn.L1Loss(reduction='sum')
@@ -92,7 +104,7 @@ class sem():
 
         train_loader = DataLoader(
             dataset=self.train_dataset,
-            batch_size=self.config.BATCH_SIZE // self.config.WORLD_SIZE, # Split batch across processes
+            batch_size=max(1, self.config.BATCH_SIZE // self.config.WORLD_SIZE), # Split batch across processes
             num_workers=6,            # Optimized for 2-GPU DDP
             drop_last=True,
             shuffle=(sampler is None),
