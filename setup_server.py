@@ -4,6 +4,14 @@ import sys
 import subprocess
 import shutil
 import time
+import stat
+
+def remove_readonly(func, path, excinfo):
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except Exception:
+        pass
 
 # Ensure output is line-buffered for immediate terminal updates
 if hasattr(sys.stdout, 'reconfigure'):
@@ -174,20 +182,20 @@ def step_create_venv():
 def step_download_ops():
     target_dir = os.path.join("src", "ops_dcnv3")
     if os.path.exists(target_dir) and os.path.exists(os.path.join(target_dir, "make.sh")):
-        print("src/ops_dcnv3 already exists (tracked in repository). Skipping download.")
+        print("src/ops_dcnv3 already exists. Skipping download.")
         return
         
     print("Downloading ops_dcnv3 from InternImage repository...")
     if os.path.lexists(target_dir):
         if os.path.isdir(target_dir) and not os.path.islink(target_dir):
-            shutil.rmtree(target_dir)
+            shutil.rmtree(target_dir, onerror=remove_readonly)
         else:
             os.remove(target_dir)
             
     temp_dir = "temp_internimage"
     if os.path.lexists(temp_dir):
         if os.path.isdir(temp_dir) and not os.path.islink(temp_dir):
-            shutil.rmtree(temp_dir)
+            shutil.rmtree(temp_dir, onerror=remove_readonly)
         else:
             os.remove(temp_dir)
     os.makedirs(temp_dir)
@@ -204,7 +212,7 @@ def step_download_ops():
     
     # Copy across and clean up
     shutil.copytree(os.path.join(temp_dir, "classification", "ops_dcnv3"), target_dir)
-    shutil.rmtree(temp_dir)
+    shutil.rmtree(temp_dir, onerror=remove_readonly)
     print("ops_dcnv3 downloaded successfully.")
 
 def check_setuptools_numpy_installed():
