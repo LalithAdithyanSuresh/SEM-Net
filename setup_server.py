@@ -270,7 +270,7 @@ def check_mamba_installed():
         if not os.path.exists(venv_python):
             return False
         subprocess.check_call(
-            [venv_python, "-c", "import causal_conv1d; import mamba_ssm"],
+            [venv_python, "-c", "import causal_conv1d.causal_conv1d_interface; import mamba_ssm"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
         return True
@@ -454,7 +454,7 @@ def main():
         print("[Step 8/13] causal-conv1d and mamba-ssm already compiled and installed. Skipping.")
     else:
         execute_step(8, "Compiling causal-conv1d and mamba-ssm (verbose)", [
-            "pip", "install", "causal-conv1d>=1.1.0", "mamba-ssm==1.1.3.post1", 
+            "pip", "install", "causal-conv1d==1.1.3.post1", "mamba-ssm==1.1.3.post1", 
             "--no-build-isolation", "-v"
         ])
     
