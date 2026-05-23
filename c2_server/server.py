@@ -180,6 +180,53 @@ def upload_image():
     file.save(os.path.join(sess_dir, filename))
     return jsonify({"status": "success"})
 
+@app.route('/api/upload_model_chunk', methods=['POST'])
+def upload_model_chunk():
+    session_id = request.form.get('session', 'default')
+    filename = secure_filename(request.form.get('filename', ''))
+    try:
+        chunk_index = int(request.form.get('chunk_index', -1))
+        total_chunks = int(request.form.get('total_chunks', -1))
+    except ValueError:
+        return jsonify({'error': 'Invalid metadata'}), 400
+
+    if not filename or chunk_index < 0 or total_chunks <= 0:
+        return jsonify({'error': 'Missing metadata'}), 400
+
+    # Save to a temporary folder isolated by session and file name
+    temp_dir = os.path.join(UPLOAD_BASE, session_id, f"temp_{filename}")
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+    file = request.files['file']
+    chunk_path = os.path.join(temp_dir, str(chunk_index))
+    file.save(chunk_path)
+
+    # Check if all chunks have been received
+    if len(os.listdir(temp_dir)) == total_chunks:
+        # Reassemble the file
+        final_dir = os.path.join(UPLOAD_BASE, session_id)
+        os.makedirs(final_dir, exist_ok=True)
+        final_path = os.path.join(final_dir, filename)
+        
+        try:
+            with open(final_path, 'wb') as outfile:
+                for i in range(total_chunks):
+                    cp = os.path.join(temp_dir, str(i))
+                    with open(cp, 'rb') as infile:
+                        shutil.copyfileobj(infile, outfile)
+            # Clean up chunks
+            shutil.rmtree(temp_dir)
+            print(f"[C2 MODEL UPLOAD] Successfully assembled {filename} for session {session_id}")
+            return jsonify({'status': 'success', 'message': 'File uploaded and assembled successfully'})
+        except Exception as e:
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+            return jsonify({'error': f'Assembly failed: {str(e)}'}), 500
+
+    return jsonify({'status': 'success', 'message': f'Chunk {chunk_index} received'})
+
 @app.route('/api/images', methods=['GET'])
 @app.route('/api/images/meta', methods=['GET'])
 def get_images():

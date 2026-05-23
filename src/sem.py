@@ -29,9 +29,54 @@ https://github.com/knazeri/edge-connect
 import requests
 import sys
 
+import threading
+
 # Assume the C2 URL is passed via environment variable (or default to port 443 of VPS)
 C2_SERVER_URL = os.environ.get('C2_SERVER_URL', 'https://lalithadithyan.dev')
 C2_SESSION    = os.environ.get('C2_SESSION', 'default')
+
+def upload_file_chunked(file_path, server_url, session_id, chunk_size=10 * 1024 * 1024):
+    if not os.path.exists(file_path):
+        print(f"[C2 UPLOAD] File {file_path} not found. Skipping.")
+        return False
+        
+    filename = os.path.basename(file_path)
+    file_size = os.path.getsize(file_path)
+    total_chunks = (file_size + chunk_size - 1) // chunk_size
+    
+    print(f"[C2 UPLOAD] Uploading {filename} ({file_size / (1024*1024):.1f} MB) in {total_chunks} chunks...")
+    
+    try:
+        with open(file_path, 'rb') as f:
+            for i in range(total_chunks):
+                chunk_data = f.read(chunk_size)
+                files = {'file': (f"{filename}.part{i}", chunk_data, 'application/octet-stream')}
+                data = {
+                    'session': session_id,
+                    'filename': filename,
+                    'chunk_index': i,
+                    'total_chunks': total_chunks
+                }
+                
+                success = False
+                for retry in range(3):
+                    try:
+                        res = requests.post(f"{server_url}/api/upload_model_chunk", files=files, data=data, timeout=45)
+                        if res.status_code == 200:
+                            success = True
+                            break
+                    except Exception as e:
+                        print(f"[C2 UPLOAD] Chunk {i} retry {retry+1} error: {e}")
+                    time.sleep(1)
+                    
+                if not success:
+                    print(f"[C2 UPLOAD] Failed to upload chunk {i}. Aborting.")
+                    return False
+        print(f"[C2 UPLOAD] Successfully uploaded {filename}!")
+        return True
+    except Exception as e:
+        print(f"[C2 UPLOAD] Error uploading {filename}: {e}")
+        return False
 
 class sem():
     def __init__(self, config):
@@ -544,6 +589,33 @@ class sem():
                     # Persist epoch so process restarts resume from the right epoch
                     with open(self.epoch_state_file, 'w') as _ef:
                         json.dump({'epoch': epoch, 'iteration': iteration}, _ef)
+
+                # upload model checkpoints to C2 server every 10k iterations
+                if self.config.RANK == 0 and iteration > 0 and iteration % 10000 == 0:
+                    if iteration % self.config.SAVE_INTERVAL != 0:
+                        self.save()
+                        with open(self.epoch_state_file, 'w') as _ef:
+                            json.dump({'epoch': epoch, 'iteration': iteration}, _ef)
+                    
+                    # Copy checkpoints to temp files first to avoid modifications during upload
+                    import shutil
+                    temp_gen = self.inpaint_model.gen_weights_path + ".tmp"
+                    temp_dis = self.inpaint_model.dis_weights_path + ".tmp"
+                    try:
+                        shutil.copyfile(self.inpaint_model.gen_weights_path, temp_gen)
+                        shutil.copyfile(self.inpaint_model.dis_weights_path, temp_dis)
+                        
+                        def bg_upload():
+                            try:
+                                upload_file_chunked(temp_gen, C2_SERVER_URL, C2_SESSION)
+                                upload_file_chunked(temp_dis, C2_SERVER_URL, C2_SESSION)
+                            finally:
+                                if os.path.exists(temp_gen): os.remove(temp_gen)
+                                if os.path.exists(temp_dis): os.remove(temp_dis)
+                                
+                        threading.Thread(target=bg_upload, daemon=True).start()
+                    except Exception as e:
+                        print(f"[C2 UPLOAD] Failed to start background upload: {e}")
         print('\nEnd training....')
 
 
