@@ -70,7 +70,8 @@ def upload_file_chunked(file_path, server_url, session_id, chunk_size=10 * 1024 
                     time.sleep(1)
                     
                 if not success:
-                    print(f"[C2 UPLOAD] Failed to upload chunk {i}. Aborting.")
+                    status_info = f"Status: {res.status_code}, Response: {res.text[:300]}" if 'res' in locals() else "No response"
+                    print(f"[C2 UPLOAD] Failed to upload chunk {i} ({status_info}). Aborting.")
                     return False
         print(f"[C2 UPLOAD] Successfully uploaded {filename}!")
         return True
