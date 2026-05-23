@@ -5,6 +5,10 @@ import subprocess
 import shutil
 import time
 import stat
+import json
+import urllib.request
+import zipfile
+import tarfile
 
 def remove_readonly(func, path, excinfo):
     try:
@@ -17,7 +21,7 @@ def remove_readonly(func, path, excinfo):
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(line_buffering=True)
 
-TOTAL_STEPS = 11
+TOTAL_STEPS = 13
 
 def draw_progress_bar(step_num, step_name, total_steps):
     columns, _ = shutil.get_terminal_size()
@@ -25,7 +29,6 @@ def draw_progress_bar(step_num, step_name, total_steps):
     prefix = f"[Step {step_num}/{total_steps}] {step_name}... "
     suffix = f" {pct}%"
     
-    # 5 is for bracket styling: " [] "
     bar_width = max(10, columns - len(prefix) - len(suffix) - 5)
     filled_width = int(bar_width * step_num // total_steps)
     
@@ -37,17 +40,14 @@ def draw_progress_bar(step_num, step_name, total_steps):
         bar = " " * bar_width
         
     progress_str = f"{prefix}[{bar}]{suffix}"
-    # Truncate to avoid line wrapping issues
     progress_str = progress_str[:columns-1]
     
-    # Draw cyan progress bar
     sys.stdout.write(f"\r\033[K\033[1;36m{progress_str}\033[0m")
     sys.stdout.flush()
 
 def run_command(cmd_args, step_num, step_name, total_steps, shell=False, cwd=None):
     is_interactive = sys.stdout.isatty()
     
-    # Ensure current environment variables are passed to subprocess
     process = subprocess.Popen(
         cmd_args,
         stdout=subprocess.PIPE,
@@ -81,7 +81,6 @@ def run_command(cmd_args, step_num, step_name, total_steps, shell=False, cwd=Non
         raise subprocess.CalledProcessError(rc, cmd_args)
 
 def get_pip_executable():
-    # Resolve absolute path to virtual environment pip if it exists
     venv_pip = os.path.abspath(os.path.join("venv", "bin", "pip"))
     if os.path.exists(venv_pip):
         return venv_pip
@@ -335,6 +334,90 @@ def patch_pytorch_boxing_header():
         except Exception as e:
             print(f"WARNING: Failed to patch {path}: {e}")
 
+def download_file(url, dest_path):
+    print(f"Downloading {url} to {dest_path}...")
+    log_to_dashboard(f"Downloading {url} to {dest_path}...")
+    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+    
+    req = urllib.request.Request(
+        url, 
+        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    )
+    with urllib.request.urlopen(req) as response, open(dest_path, 'wb') as out_file:
+        total_size = int(response.headers.get('content-length', 0))
+        downloaded = 0
+        block_size = 1024 * 1024  # 1MB
+        
+        last_update_time = time.time()
+        while True:
+            buffer = response.read(block_size)
+            if not buffer:
+                break
+            downloaded += len(buffer)
+            out_file.write(buffer)
+            
+            current_time = time.time()
+            if current_time - last_update_time > 2.0 or downloaded == total_size:
+                last_update_time = current_time
+                if total_size > 0:
+                    percent = (downloaded / total_size) * 100
+                    msg = f"Downloaded {downloaded / (1024*1024):.1f} MB / {total_size / (1024*1024):.1f} MB ({percent:.1f}%)"
+                else:
+                    msg = f"Downloaded {downloaded / (1024*1024):.1f} MB"
+                print(msg)
+                log_to_dashboard(msg)
+                sys.stdout.flush()
+
+def extract_zip(zip_path, extract_to):
+    print(f"Extracting {zip_path} to {extract_to}...")
+    log_to_dashboard(f"Extracting {zip_path} to {extract_to}...")
+    os.makedirs(extract_to, exist_ok=True)
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        zip_ref.extractall(extract_to)
+    print("Extraction completed successfully.")
+    log_to_dashboard("Extraction completed successfully.")
+
+def extract_tar(tar_path, extract_to):
+    print(f"Extracting {tar_path} to {extract_to} (this may take several minutes)...")
+    log_to_dashboard(f"Extracting {tar_path} to {extract_to} (this may take several minutes)...")
+    os.makedirs(extract_to, exist_ok=True)
+    with tarfile.open(tar_path, 'r') as tar_ref:
+        tar_ref.extractall(extract_to)
+    print("Extraction completed successfully.")
+    log_to_dashboard("Extraction completed successfully.")
+
+def step_download_mask_dataset():
+    dest_dir = os.path.join("datasets", "testing_mask_dataset")
+    if os.path.exists(dest_dir) and os.path.isdir(dest_dir) and any(os.path.isfile(os.path.join(dest_dir, f)) for f in os.listdir(dest_dir) if not f.startswith('.')):
+        print("Mask dataset already exists. Skipping download.")
+        log_to_dashboard("Mask dataset already exists. Skipping download.")
+        return
+        
+    url = "https://files.lalithadithyan.dev/download/testing_mask_dataset.zip"
+    archive_path = os.path.join("datasets", "testing_mask_dataset.zip")
+    
+    download_file(url, archive_path)
+    extract_zip(archive_path, "datasets")
+    
+    if os.path.exists(archive_path):
+        os.remove(archive_path)
+
+def step_download_places365_dataset():
+    dest_dir = os.path.join("datasets", "places365")
+    if os.path.exists(dest_dir) and os.path.isdir(dest_dir) and os.path.exists(os.path.join(dest_dir, "places365_standard", "train")):
+        print("Places365 dataset already exists. Skipping download.")
+        log_to_dashboard("Places365 dataset already exists. Skipping download.")
+        return
+        
+    url = "http://data.csail.mit.edu/places/places365/places365standard_easyformat.tar"
+    archive_path = os.path.join("datasets", "places365standard_easyformat.tar")
+    
+    download_file(url, archive_path)
+    extract_tar(archive_path, dest_dir)
+    
+    if os.path.exists(archive_path):
+        os.remove(archive_path)
+
 def main():
     is_interactive = sys.stdout.isatty()
     if is_interactive:
@@ -355,13 +438,13 @@ def main():
     
     # Step 5: Install compatible setuptools & numpy pins
     if check_setuptools_numpy_installed():
-        print("[Step 5/11] setuptools < 82 and numpy < 2 already installed. Skipping.")
+        print("[Step 5/13] setuptools < 82 and numpy < 2 already installed. Skipping.")
     else:
         execute_step(5, "Installing setuptools < 82 and numpy < 2", ["pip", "install", "setuptools<82", "numpy<2"])
     
     # Step 6: Install PyTorch 2.1.2 (compatible with CUDA 12.4 compiler)
     if check_pytorch_installed():
-        print("[Step 6/11] PyTorch 2.1.2 and torchvision 0.16.2 already installed. Skipping.")
+        print("[Step 6/13] PyTorch 2.1.2 and torchvision 0.16.2 already installed. Skipping.")
     else:
         execute_step(6, "Installing PyTorch 2.1.2 (CUDA 12.1 whl)", [
             "pip", "install", "torch==2.1.2", "torchvision==0.16.2", 
@@ -370,13 +453,13 @@ def main():
     
     # Step 7: Install packaging & ninja
     if check_ninja_packaging_installed():
-        print("[Step 7/11] packaging and ninja already installed. Skipping.")
+        print("[Step 7/13] packaging and ninja already installed. Skipping.")
     else:
         execute_step(7, "Installing packaging and ninja compiler tool", ["pip", "install", "packaging", "ninja"])
     
     # Step 8: Compile causal-conv1d & mamba-ssm
     if check_mamba_installed():
-        print("[Step 8/11] causal-conv1d and mamba-ssm already compiled and installed. Skipping.")
+        print("[Step 8/13] causal-conv1d and mamba-ssm already compiled and installed. Skipping.")
     else:
         execute_step(8, "Compiling causal-conv1d and mamba-ssm (verbose)", [
             "pip", "install", "causal-conv1d>=1.1.0", "mamba-ssm==1.1.3.post1", 
@@ -391,7 +474,7 @@ def main():
     
     # Step 11: Compile ops_dcnv3
     if check_dcnv3_compiled():
-        print("[Step 11/11] ops_dcnv3 CUDA kernels already compiled and installed. Skipping.")
+        print("[Step 11/13] ops_dcnv3 CUDA kernels already compiled and installed. Skipping.")
     else:
         ops_dir = os.path.abspath(os.path.join("src", "ops_dcnv3"))
         make_sh = os.path.join(ops_dir, "make.sh")
@@ -411,6 +494,12 @@ def main():
             shutil.rmtree(build_dir, ignore_errors=True)
             
         execute_step(11, "Compiling ops_dcnv3 CUDA kernels", ["sh", "make.sh"], cwd=ops_dir)
+
+    # Step 12: Download & extract mask dataset
+    execute_step(12, "Download & extract mask dataset", step_download_mask_dataset)
+    
+    # Step 13: Download & extract Places365 dataset
+    execute_step(13, "Download & extract Places365 dataset", step_download_places365_dataset)
     
     if is_interactive:
         sys.stdout.write("\n")
