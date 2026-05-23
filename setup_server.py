@@ -336,7 +336,6 @@ def patch_pytorch_boxing_header():
 
 def download_file(url, dest_path):
     print(f"Downloading {url} to {dest_path}...")
-    log_to_dashboard(f"Downloading {url} to {dest_path}...")
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
     
     req = urllib.request.Request(
@@ -365,32 +364,26 @@ def download_file(url, dest_path):
                 else:
                     msg = f"Downloaded {downloaded / (1024*1024):.1f} MB"
                 print(msg)
-                log_to_dashboard(msg)
                 sys.stdout.flush()
 
 def extract_zip(zip_path, extract_to):
     print(f"Extracting {zip_path} to {extract_to}...")
-    log_to_dashboard(f"Extracting {zip_path} to {extract_to}...")
     os.makedirs(extract_to, exist_ok=True)
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
         zip_ref.extractall(extract_to)
     print("Extraction completed successfully.")
-    log_to_dashboard("Extraction completed successfully.")
 
 def extract_tar(tar_path, extract_to):
     print(f"Extracting {tar_path} to {extract_to} (this may take several minutes)...")
-    log_to_dashboard(f"Extracting {tar_path} to {extract_to} (this may take several minutes)...")
     os.makedirs(extract_to, exist_ok=True)
     with tarfile.open(tar_path, 'r') as tar_ref:
         tar_ref.extractall(extract_to)
     print("Extraction completed successfully.")
-    log_to_dashboard("Extraction completed successfully.")
 
 def step_download_mask_dataset():
     dest_dir = os.path.join("datasets", "testing_mask_dataset")
     if os.path.exists(dest_dir) and os.path.isdir(dest_dir) and any(os.path.isfile(os.path.join(dest_dir, f)) for f in os.listdir(dest_dir) if not f.startswith('.')):
         print("Mask dataset already exists. Skipping download.")
-        log_to_dashboard("Mask dataset already exists. Skipping download.")
         return
         
     url = "https://files.lalithadithyan.dev/download/testing_mask_dataset.zip"
@@ -406,7 +399,6 @@ def step_download_places365_dataset():
     dest_dir = os.path.join("datasets", "places365")
     if os.path.exists(dest_dir) and os.path.isdir(dest_dir) and os.path.exists(os.path.join(dest_dir, "places365_standard", "train")):
         print("Places365 dataset already exists. Skipping download.")
-        log_to_dashboard("Places365 dataset already exists. Skipping download.")
         return
         
     url = "http://data.csail.mit.edu/places/places365/places365standard_easyformat.tar"
