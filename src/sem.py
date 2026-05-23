@@ -48,18 +48,19 @@ class sem():
             [
                 torchvision.transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])])
 
-        # Serialize model initialization to prevent download collisions on multi-GPU setups
+        # Pre-download pretrained weights sequentially on Rank 0 to prevent download conflicts
         if dist.is_initialized() and config.WORLD_SIZE > 1:
             if config.RANK == 0:
-                self.inpaint_model = InpaintingModel(config).to(config.DEVICE)
-                self.loss_fn_vgg = lpips.LPIPS(net='vgg').to(config.DEVICE)
-            dist.barrier()
-            if config.RANK != 0:
-                self.inpaint_model = InpaintingModel(config).to(config.DEVICE)
-                self.loss_fn_vgg = lpips.LPIPS(net='vgg').to(config.DEVICE)
-        else:
-            self.inpaint_model = InpaintingModel(config).to(config.DEVICE)
-            self.loss_fn_vgg = lpips.LPIPS(net='vgg').to(config.DEVICE)
+                print("Pre-downloading pretrained model weights on Rank 0 to avoid write conflicts...")
+                import torchvision.models as models
+                # Trigger downloads for VGG19 (used by PerceptualLoss) and VGG16 (used by LPIPS)
+                _ = models.vgg19(pretrained=True)
+                _ = lpips.LPIPS(net='vgg')
+            dist.barrier()  # All other ranks wait for Rank 0 to finish downloading
+
+        # Initialize models collectively across all ranks (DDP requires simultaneous instantiation)
+        self.inpaint_model = InpaintingModel(config).to(config.DEVICE)
+        self.loss_fn_vgg = lpips.LPIPS(net='vgg').to(config.DEVICE)
 
         self.psnr = PSNR(255.0).to(config.DEVICE)
         self.cal_mae = nn.L1Loss(reduction='sum')
