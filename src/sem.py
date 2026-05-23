@@ -208,6 +208,17 @@ class sem():
 
                     self.inpaint_model.backward(gen_loss, dis_loss)
 
+                    # print nvidia-smi output after the first iteration is processed
+                    if self.config.RANK == 0 and self.inpaint_model.iteration == 1:
+                        print("\n=== nvidia-smi (GPU allocation after 1st iteration) ===")
+                        import subprocess
+                        try:
+                            res = subprocess.run(["nvidia-smi"], capture_output=True, text=True)
+                            print(res.stdout)
+                        except Exception as e:
+                            print(f"Could not run nvidia-smi: {e}")
+                        print("=========================================================\n")
+
                     # --- Accumulate every iteration into local buffer ---
                     _metric_buf['gen_loss'].append(float(gen_loss))
                     _metric_buf['dis_loss'].append(float(dis_loss))
