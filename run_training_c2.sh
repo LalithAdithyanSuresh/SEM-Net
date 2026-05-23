@@ -31,10 +31,11 @@ if [ -d "venv" ]; then
     echo "Activated local virtual environment (venv)"
 fi
 
-echo "Checking C2 Server status for [$C2_SESSION]..."
-
-# 1. Check for custom shell commands
-python -c "
+while true; do
+    echo "Checking C2 Server status for [$C2_SESSION]..."
+    
+    # 1. Check for custom shell commands
+    python -c "
 import requests, subprocess, os
 try:
     url = os.environ.get('C2_SERVER_URL')
@@ -51,22 +52,36 @@ try:
 except Exception: pass
 " 2>/dev/null
 
-# 2. Check if we should be running or waiting
-CMD=$(python -c "import requests, os; url=os.environ.get('C2_SERVER_URL'); sess=os.environ.get('C2_SESSION'); print(requests.get(f'{url}/api/command', params={'session': sess}, timeout=5).json().get('command', 'run'))" 2>/dev/null)
+    # 2. Check if we should be running or waiting
+    CMD=$(python -c "import requests, os; url=os.environ.get('C2_SERVER_URL'); sess=os.environ.get('C2_SESSION'); print(requests.get(f'{url}/api/command', params={'session': sess}, timeout=5).json().get('command', 'run'))" 2>/dev/null)
+    
+    if [ "$CMD" == "stop" ]; then
+        echo "C2 status is 'STOP'. Waiting for 'run' command..."
+        sleep 5
+        continue
+    fi
 
-if [ "$CMD" == "stop" ]; then
-    echo "C2 status is 'STOP'. Exiting."
-    exit 0
-fi
-
-echo "====================================="
-echo "Starting SEM-Net Training: [$C2_SESSION]"
-echo "====================================="
-
-RUN_PATH="./PlacesTraining"
-
-# Run Python and pipe stdout+stderr to the local log file and log streamer script
-# Run with torchrun for DDP support (Multi-GPU)
-torchrun --nproc_per_node=2 --master_port=29501 main.py --model 2 --path "$RUN_PATH" 2>&1 | tee training_output.log | python -u push_logs.py
-
-exit ${PIPESTATUS[0]}
+    echo "====================================="
+    echo "Starting SEM-Net Training loop: [$C2_SESSION]"
+    echo "====================================="
+    
+    RUN_PATH="./PlacesTraining"
+    
+    # Run Python and pipe stdout+stderr to the log streamer script
+    # Run with torchrun for DDP support (Multi-GPU)
+    torchrun --nproc_per_node=2 --master_port=29501 main.py --model 2 --path "$RUN_PATH" 2>&1 | python -u push_logs.py
+    
+    EXIT_CODE=${PIPESTATUS[0]}
+    
+    if [ $EXIT_CODE -eq 42 ]; then
+        echo "Received Restart signal."
+        git pull origin main
+        sleep 2
+    elif [ $EXIT_CODE -eq 0 ]; then
+        echo "Training session finished/stopped."
+        sleep 5
+    else
+        echo "Training exited with error code $EXIT_CODE. Restarting in 10s..."
+        sleep 10
+    fi
+done

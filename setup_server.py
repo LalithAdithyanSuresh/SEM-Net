@@ -404,7 +404,7 @@ def step_download_places365_dataset():
         print("Places365 dataset already exists. Skipping download.")
         return
         
-    url = "http://data.csail.mit.edu/places/places365/places365standard_easyformat.tar"
+    url = "https://files.lalithadithyan.dev/download/places365standard_easyformat.tar"
     archive_path = os.path.join("datasets", "places365standard_easyformat.tar")
     
     download_file(url, archive_path)
@@ -498,15 +498,30 @@ def main():
     
     if is_interactive:
         sys.stdout.write("\n")
-        
+
     print("\n==========================================================")
     print("          SEM-Net Setup Completed Successfully!           ")
     print("==========================================================")
-    print("To activate this virtual environment in the future, run:")
-    print("  source venv/bin/activate")
-    print("\nTo run training, update config.yml with local datasets, then:")
-    print("  python train.py")
-    print("==========================================================\n")
+    print("Launching training script: run_training_c2.sh")
+    print("==========================================================")
+
+    # Auto-launch the training script
+    training_script = os.path.abspath("run_training_c2.sh")
+    session_name = os.environ.get("C2_SESSION", "Places")
+
+    if not os.path.exists(training_script):
+        print(f"ERROR: Training script not found at {training_script}. Please run it manually.")
+        sys.exit(1)
+
+    try:
+        os.chmod(training_script, 0o755)
+    except Exception:
+        pass
+
+    print(f"Running: bash {training_script} {session_name}")
+    sys.stdout.flush()
+    os.execv("/bin/bash", ["/bin/bash", training_script, session_name])
+    # os.execv replaces the current process — nothing below this line runs
 
 if __name__ == "__main__":
     main()
