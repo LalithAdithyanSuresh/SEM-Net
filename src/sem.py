@@ -590,8 +590,8 @@ class sem():
                     with open(self.epoch_state_file, 'w') as _ef:
                         json.dump({'epoch': epoch, 'iteration': iteration}, _ef)
 
-                # upload model checkpoints to C2 server every 10k iterations
-                if self.config.RANK == 0 and iteration > 0 and iteration % 10000 == 0:
+                # upload model checkpoints to C2 server every 50 iterations
+                if self.config.RANK == 0 and iteration > 0 and iteration % 50 == 0:
                     if iteration % self.config.SAVE_INTERVAL != 0:
                         self.save()
                         with open(self.epoch_state_file, 'w') as _ef:
