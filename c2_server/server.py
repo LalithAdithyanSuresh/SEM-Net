@@ -85,7 +85,7 @@ def get_setup_status():
     """Return the latest setup status for a session (polled by the dashboard)."""
     session_id = request.args.get('session', 'default')
     if session_id not in setup_status_store:
-        return jsonify({'error': 'no status yet', 'session': session_id}), 404
+        return jsonify({'error': 'no status yet', 'session': session_id}), 200
     return jsonify(setup_status_store[session_id])
 
 @app.route('/api/sessions', methods=['GET'])

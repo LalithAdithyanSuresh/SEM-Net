@@ -483,7 +483,11 @@ async function poll() {
     failCount = 0;
     document.getElementById('conn-dot').className   = 'dot live';
     document.getElementById('conn-label').textContent = 'Live';
-    render(data);
+    if (data.error) {
+      render(buildPending());
+    } else {
+      render(data);
+    }
   } catch(e) {
     failCount++;
     document.getElementById('conn-dot').className   = 'dot err';
