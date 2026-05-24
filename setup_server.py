@@ -6,6 +6,8 @@ import shutil
 import time
 import stat
 import json
+import socket
+import threading
 import urllib.request
 import zipfile
 import tarfile
@@ -22,6 +24,133 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(line_buffering=True)
 
 TOTAL_STEPS = 14
+
+# ── Live Status Reporter ───────────────────────────────────────────────────
+# Posts live step progress to the C2 server for the dashboard.
+# Uses only stdlib (no pip deps), fires-and-forgets in background threads.
+
+_reporter = None  # initialized in main()
+
+class StatusReporter:
+    def __init__(self, c2_url, session):
+        self.c2_url     = c2_url.rstrip('/')
+        self.session    = session
+        self.started_at = time.time()
+        self.host       = socket.gethostname()
+        self._lock      = threading.Lock()
+        self.steps      = {
+            i: {'num': i, 'name': STEP_NAMES_DEFAULT[i-1], 'status': 'pending',
+                'started_at': None, 'finished_at': None, 'duration': None, 'logs': []}
+            for i in range(1, TOTAL_STEPS + 1)
+        }
+        self._post(self._payload())  # register immediately
+
+    # ── Default step names (populated before setup_server knows them) ─
+    STEP_NAMES_DEFAULT = [
+        'Verifying workspace directory',
+        'Configuring CUDA 12.4 environment',
+        'Creating Python virtual environment',
+        'Upgrading pip and wheel',
+        'Installing setuptools < 82 and numpy < 2',
+        'Installing PyTorch 2.1.2',
+        'Installing packaging and ninja',
+        'Compiling causal-conv1d and mamba-ssm',
+        'Installing remaining requirements.txt',
+        'Downloading InternImage ops_dcnv3',
+        'Compiling ops_dcnv3 CUDA kernels',
+        'Download & extract mask dataset',
+        'Download & extract Places365 dataset',
+        'Restoring latest model checkpoint',
+    ]
+
+    def _payload(self):
+        with self._lock:
+            return {
+                'session':    self.session,
+                'host':       self.host,
+                'started_at': self.started_at,
+                'phase':      'setup',
+                'total_steps': TOTAL_STEPS,
+                'steps':      list(self.steps.values()),
+            }
+
+    def _post(self, payload):
+        """Fire-and-forget POST. Never blocks or raises."""
+        def _do():
+            try:
+                body = json.dumps(payload).encode()
+                req  = urllib.request.Request(
+                    f"{self.c2_url}/api/setup_status", data=body,
+                    headers={'Content-Type': 'application/json'}, method='POST')
+                urllib.request.urlopen(req, timeout=5)
+            except Exception:
+                pass
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _flush(self):
+        self._post(self._payload())
+
+    def start_step(self, num, name):
+        with self._lock:
+            s = self.steps[num]
+            s['name'] = name;  s['status'] = 'running'
+            s['started_at'] = time.time();  s['logs'] = []
+        self._flush()
+
+    def add_log(self, num, line):
+        with self._lock:
+            logs = self.steps[num]['logs']
+            logs.append(line)
+            if len(logs) > 500:
+                self.steps[num]['logs'] = logs[-500:]
+            count = len(self.steps[num]['logs'])
+        if count % 8 == 0:   # post every 8 lines to avoid flooding
+            self._flush()
+
+    def complete_step(self, num):
+        t = time.time()
+        with self._lock:
+            s = self.steps[num]
+            s['status'] = 'done';  s['finished_at'] = t
+            s['duration'] = t - (s['started_at'] or t)
+        self._flush()
+
+    def skip_step(self, num, name):
+        t = time.time()
+        with self._lock:
+            s = self.steps[num]
+            s['name'] = name;  s['status'] = 'skipped'
+            s['started_at'] = t;  s['finished_at'] = t
+            s['duration'] = 0
+            s['logs'] = ['Already installed / exists. Skipped.']
+        self._flush()
+
+    def fail_step(self, num, error):
+        t = time.time()
+        with self._lock:
+            s = self.steps[num]
+            s['status'] = 'error';  s['finished_at'] = t
+            s['duration'] = t - (s['started_at'] or t)
+            s['logs'].append(f'ERROR: {error}')
+        self._flush()
+
+STEP_NAMES_DEFAULT = StatusReporter.STEP_NAMES_DEFAULT if False else [
+    'Verifying workspace directory',
+    'Configuring CUDA 12.4 environment',
+    'Creating Python virtual environment',
+    'Upgrading pip and wheel',
+    'Installing setuptools < 82 and numpy < 2',
+    'Installing PyTorch 2.1.2',
+    'Installing packaging and ninja',
+    'Compiling causal-conv1d and mamba-ssm',
+    'Installing remaining requirements.txt',
+    'Downloading InternImage ops_dcnv3',
+    'Compiling ops_dcnv3 CUDA kernels',
+    'Download & extract mask dataset',
+    'Download & extract Places365 dataset',
+    'Restoring latest model checkpoint',
+]
+
 
 def draw_progress_bar(step_num, step_name, total_steps):
     columns, _ = shutil.get_terminal_size()
@@ -46,8 +175,9 @@ def draw_progress_bar(step_num, step_name, total_steps):
     sys.stdout.flush()
 
 def run_command(cmd_args, step_num, step_name, total_steps, shell=False, cwd=None):
+    global _reporter
     is_interactive = sys.stdout.isatty()
-    
+
     process = subprocess.Popen(
         cmd_args,
         stdout=subprocess.PIPE,
@@ -58,27 +188,29 @@ def run_command(cmd_args, step_num, step_name, total_steps, shell=False, cwd=Non
         cwd=cwd,
         env=os.environ
     )
-    
+
     while True:
         line = process.stdout.readline()
         if not line and process.poll() is not None:
             break
         if line:
             line_str = line.rstrip('\r\n')
+            if _reporter:
+                _reporter.add_log(step_num, line_str)
             if is_interactive:
-                # Clear progress line, print log line, redraw progress bar at the bottom
                 sys.stdout.write("\r\033[K")
                 sys.stdout.write(line_str + "\n")
                 draw_progress_bar(step_num, step_name, total_steps)
             else:
                 sys.stdout.write(line_str + "\n")
                 sys.stdout.flush()
-                
+
     rc = process.poll()
     if rc != 0:
         if is_interactive:
             sys.stdout.write("\n")
         raise subprocess.CalledProcessError(rc, cmd_args)
+
 
 def get_pip_executable():
     venv_pip = os.path.abspath(os.path.join("venv", "bin", "pip"))
@@ -87,29 +219,54 @@ def get_pip_executable():
     return "pip"
 
 def execute_step(step_num, step_name, func_or_cmd, shell=False, cwd=None):
+    global _reporter
     is_interactive = sys.stdout.isatty()
+
+    if _reporter:
+        _reporter.start_step(step_num, step_name)
+
     if is_interactive:
         draw_progress_bar(step_num, step_name, TOTAL_STEPS)
     else:
         print(f"\n=== [Step {step_num}/{TOTAL_STEPS}] {step_name} ===")
         sys.stdout.flush()
-        
+
     try:
         if callable(func_or_cmd):
-            func_or_cmd()
+            # Intercept print output so callable steps also get logged to dashboard
+            if _reporter:
+                _orig_write = sys.stdout.write
+                def _cap_write(text):
+                    _orig_write(text)
+                    for ln in text.splitlines():
+                        if ln.strip():
+                            _reporter.add_log(step_num, ln)
+                sys.stdout.write = _cap_write
+                try:
+                    func_or_cmd()
+                finally:
+                    sys.stdout.write = _orig_write
+            else:
+                func_or_cmd()
             if is_interactive:
                 draw_progress_bar(step_num, step_name, TOTAL_STEPS)
         else:
-            # If command starts with "pip", use the resolved venv path if available
             cmd = list(func_or_cmd)
             if cmd and cmd[0] == "pip":
                 cmd[0] = get_pip_executable()
             run_command(cmd, step_num, step_name, TOTAL_STEPS, shell=shell, cwd=cwd)
+
+        if _reporter:
+            _reporter.complete_step(step_num)
+
     except Exception as e:
+        if _reporter:
+            _reporter.fail_step(step_num, str(e))
         if is_interactive:
             sys.stdout.write("\n")
         print(f"\nERROR in Step {step_num} ({step_name}): {e}", file=sys.stderr)
         sys.exit(1)
+
 
 # Step definitions
 def step_verify_workspace():
@@ -498,6 +655,18 @@ def step_download_latest_model():
 
 
 def main():
+    global _reporter
+
+    # Init live status reporter (posts to C2 server in background)
+    c2_url  = os.environ.get('C2_SERVER_URL', 'https://lalithadithyan.dev')
+    session = os.environ.get('C2_SESSION', 'Places')
+    try:
+        _reporter = StatusReporter(c2_url, session)
+        print(f"[Dashboard] Live status: {c2_url}/dashboard/status?session={session}")
+    except Exception as e:
+        print(f"[Dashboard] Reporter init failed (non-fatal): {e}")
+        _reporter = None
+
     is_interactive = sys.stdout.isatty()
     if is_interactive:
         sys.stdout.write("\n")
@@ -516,63 +685,67 @@ def main():
     execute_step(4, "Upgrading pip and wheel", ["pip", "install", "--upgrade", "pip", "wheel"])
     
     # Step 5: Install compatible setuptools & numpy pins
+    _STEP5 = "Installing setuptools < 82 and numpy < 2"
     if check_setuptools_numpy_installed():
-        print("[Step 5/13] setuptools < 82 and numpy < 2 already installed. Skipping.")
+        print(f"[Step 5/{TOTAL_STEPS}] setuptools < 82 and numpy < 2 already installed. Skipping.")
+        if _reporter: _reporter.skip_step(5, _STEP5)
     else:
-        execute_step(5, "Installing setuptools < 82 and numpy < 2", ["pip", "install", "setuptools<82", "numpy<2"])
+        execute_step(5, _STEP5, ["pip", "install", "setuptools<82", "numpy<2"])
     
     # Step 6: Install PyTorch 2.1.2 (compatible with CUDA 12.4 compiler)
+    _STEP6 = "Installing PyTorch 2.1.2 (CUDA 12.1 whl)"
     if check_pytorch_installed():
-        print("[Step 6/13] PyTorch 2.1.2 and torchvision 0.16.2 already installed. Skipping.")
+        print(f"[Step 6/{TOTAL_STEPS}] PyTorch 2.1.2 and torchvision 0.16.2 already installed. Skipping.")
+        if _reporter: _reporter.skip_step(6, _STEP6)
     else:
-        execute_step(6, "Installing PyTorch 2.1.2 (CUDA 12.1 whl)", [
-            "pip", "install", "torch==2.1.2", "torchvision==0.16.2", 
+        execute_step(6, _STEP6, [
+            "pip", "install", "torch==2.1.2", "torchvision==0.16.2",
             "--extra-index-url", "https://download.pytorch.org/whl/cu121"
         ])
-    
+
     # Step 7: Install packaging & ninja
+    _STEP7 = "Installing packaging and ninja compiler tool"
     if check_ninja_packaging_installed():
-        print("[Step 7/13] packaging and ninja already installed. Skipping.")
+        print(f"[Step 7/{TOTAL_STEPS}] packaging and ninja already installed. Skipping.")
+        if _reporter: _reporter.skip_step(7, _STEP7)
     else:
-        execute_step(7, "Installing packaging and ninja compiler tool", ["pip", "install", "packaging", "ninja"])
-    
+        execute_step(7, _STEP7, ["pip", "install", "packaging", "ninja"])
+
     # Step 8: Compile causal-conv1d & mamba-ssm
+    _STEP8 = "Compiling causal-conv1d and mamba-ssm (verbose)"
     if check_mamba_installed():
-        print("[Step 8/13] causal-conv1d and mamba-ssm already compiled and installed. Skipping.")
+        print(f"[Step 8/{TOTAL_STEPS}] causal-conv1d and mamba-ssm already compiled and installed. Skipping.")
+        if _reporter: _reporter.skip_step(8, _STEP8)
     else:
-        execute_step(8, "Compiling causal-conv1d and mamba-ssm (verbose)", [
-            "pip", "install", "causal-conv1d==1.1.3.post1", "mamba-ssm==1.1.3.post1", 
+        execute_step(8, _STEP8, [
+            "pip", "install", "causal-conv1d==1.1.3.post1", "mamba-ssm==1.1.3.post1",
             "--no-build-isolation", "-v"
         ])
-    
+
     # Step 9: Install other requirements
     execute_step(9, "Installing remaining requirements.txt dependencies", ["pip", "install", "-r", "requirements.txt"])
-    
+
     # Step 10: Download InternImage ops_dcnv3
     execute_step(10, "Downloading InternImage ops_dcnv3 folder", step_download_ops)
-    
+
     # Step 11: Compile ops_dcnv3
+    _STEP11 = "Compiling ops_dcnv3 CUDA kernels"
     if check_dcnv3_compiled():
-        print("[Step 11/13] ops_dcnv3 CUDA kernels already compiled and installed. Skipping.")
+        print(f"[Step 11/{TOTAL_STEPS}] ops_dcnv3 CUDA kernels already compiled and installed. Skipping.")
+        if _reporter: _reporter.skip_step(11, _STEP11)
     else:
         ops_dir = os.path.abspath(os.path.join("src", "ops_dcnv3"))
         make_sh = os.path.join(ops_dir, "make.sh")
-        
         try:
             os.chmod(make_sh, 0o755)
         except Exception:
             pass
-            
-        # Patch PyTorch boxing.h to workaround CUDA 12.4 compile issue
         patch_pytorch_boxing_header()
-            
-        # Clean build artifacts to ensure a fresh compilation
         build_dir = os.path.join(ops_dir, "build")
         if os.path.exists(build_dir):
             print(f"Cleaning existing build directory: {build_dir}")
             shutil.rmtree(build_dir, ignore_errors=True)
-            
-        execute_step(11, "Compiling ops_dcnv3 CUDA kernels", ["sh", "make.sh"], cwd=ops_dir)
+        execute_step(11, _STEP11, ["sh", "make.sh"], cwd=ops_dir)
 
     # Step 12: Download & extract mask dataset
     execute_step(12, "Download & extract mask dataset", step_download_mask_dataset)

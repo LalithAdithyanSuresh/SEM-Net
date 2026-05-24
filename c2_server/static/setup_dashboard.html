@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SEM-Net Setup Status · lalithadithyan.dev</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:        #0d1117;
+      --bg2:       #161b22;
+      --bg3:       #21262d;
+      --border:    #30363d;
+      --border2:   #21262d;
+      --text:      #e6edf3;
+      --text2:     #8b949e;
+      --text3:     #6e7681;
+      --green:     #3fb950;
+      --green-bg:  rgba(63,185,80,.12);
+      --blue:      #58a6ff;
+      --blue-bg:   rgba(88,166,255,.10);
+      --red:       #f85149;
+      --red-bg:    rgba(248,81,73,.12);
+      --yellow:    #d29922;
+      --yellow-bg: rgba(210,153,34,.12);
+      --purple:    #bc8cff;
+      --accent:    #1f6feb;
+    }
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{
+      background:var(--bg);color:var(--text);
+      font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
+      font-size:14px;line-height:1.5;
+      height:100vh;overflow:hidden;display:flex;flex-direction:column;
+    }
+
+    /* ── Top loading bar ─────────────────────────── */
+    #top-bar{position:fixed;top:0;left:0;right:0;height:3px;z-index:200}
+    #top-progress{
+      height:100%;width:0%;
+      background:linear-gradient(90deg,var(--blue),var(--purple));
+      transition:width .6s ease;
+      box-shadow:0 0 12px var(--blue);
+    }
+
+    /* ── Header ──────────────────────────────────── */
+    header{
+      background:var(--bg2);border-bottom:1px solid var(--border);
+      padding:0 24px;display:flex;align-items:center;gap:16px;
+      height:56px;flex-shrink:0;margin-top:3px;
+    }
+    .logo{font-size:16px;font-weight:700;letter-spacing:-.3px;white-space:nowrap}
+    .logo em{color:var(--blue);font-style:normal}
+    .hdivider{width:1px;height:22px;background:var(--border);flex-shrink:0}
+    .badge{
+      display:inline-flex;align-items:center;gap:5px;
+      padding:3px 10px;border-radius:20px;font-size:12px;font-weight:500;
+      border:1px solid transparent;
+    }
+    .badge-session{background:var(--blue-bg);color:var(--blue);border-color:rgba(88,166,255,.25)}
+    .badge-host{background:var(--bg3);color:var(--text2);border-color:var(--border)}
+    .badge-phase{background:var(--green-bg);color:var(--green);border-color:rgba(63,185,80,.25)}
+    .hright{margin-left:auto;display:flex;align-items:center;gap:24px}
+    .hstat{text-align:right}
+    .hstat-label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px}
+    .hstat-val{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:500}
+    .elapsed-val{color:var(--blue)}
+    .elapsed-val.done{color:var(--green)}
+    .conn{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)}
+    .dot{width:8px;height:8px;border-radius:50%;background:var(--text3);flex-shrink:0}
+    .dot.live{background:var(--green);box-shadow:0 0 8px var(--green)}
+    .dot.err{background:var(--red)}
+
+    /* ── Layout ──────────────────────────────────── */
+    .layout{display:flex;flex:1;overflow:hidden}
+
+    /* ── Sidebar ─────────────────────────────────── */
+    aside{
+      width:310px;background:var(--bg2);border-right:1px solid var(--border);
+      display:flex;flex-direction:column;flex-shrink:0;overflow:hidden;
+    }
+    .aside-head{
+      padding:10px 16px;font-size:11px;font-weight:600;
+      text-transform:uppercase;letter-spacing:.7px;color:var(--text3);
+      border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;
+    }
+    .aside-head span:last-child{font-size:12px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text2)}
+    #step-list{overflow-y:auto;flex:1}
+
+    .step-row{
+      display:flex;align-items:flex-start;gap:10px;
+      padding:10px 14px;cursor:pointer;
+      border-bottom:1px solid var(--border2);border-left:3px solid transparent;
+      transition:background .12s,border-color .12s;
+    }
+    .step-row:hover{background:var(--bg3)}
+    .step-row.sel{background:var(--blue-bg);border-left-color:var(--blue)}
+    .step-row.running{border-left-color:var(--blue)}
+    .step-row.error-row{border-left-color:var(--red)}
+
+    .si{width:18px;height:18px;flex-shrink:0;display:flex;align-items:center;justify-content:center;margin-top:2px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .spin{animation:spin 1s linear infinite}
+
+    .sinfo{flex:1;min-width:0}
+    .snum{font-size:10px;color:var(--text3);font-family:'JetBrains Mono',monospace;margin-bottom:1px}
+    .sname{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .sname.pending{color:var(--text3);font-weight:400}
+    .sdur{font-size:11px;font-family:'JetBrains Mono',monospace;margin-top:2px}
+    .sdur.done{color:var(--green)}
+    .sdur.running{color:var(--blue)}
+    .sdur.error{color:var(--red)}
+    .sdur.skipped{color:var(--yellow)}
+    .sdur.pending{color:var(--text3)}
+
+    /* ── Main panel ───────────────────────────────── */
+    main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+    .phead{
+      padding:12px 20px;border-bottom:1px solid var(--border);
+      background:var(--bg2);display:flex;align-items:center;gap:12px;flex-shrink:0;
+    }
+    .phead-info{flex:1;min-width:0}
+    .phead-name{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .phead-sub{font-size:12px;color:var(--text2);margin-top:1px}
+    .status-pill{
+      padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;
+      letter-spacing:.3px;text-transform:uppercase;border:1px solid transparent;
+      flex-shrink:0;
+    }
+
+    /* ── Log area ────────────────────────────────── */
+    .log-wrap{flex:1;overflow-y:auto;background:#010409;padding:14px 20px;font-family:'JetBrains Mono','Fira Code',monospace;font-size:12.5px;line-height:1.65}
+    .ll{display:block;white-space:pre-wrap;word-break:break-all;color:#c9d1d9;padding:0}
+    .ll:hover{background:rgba(255,255,255,.025);border-radius:2px}
+    .ll-ok{color:#3fb950}
+    .ll-warn{color:#e3b341}
+    .ll-err{color:#f85149}
+    .ll-info{color:#58a6ff}
+    .ll-dim{color:#484f58}
+    .ll-num{display:inline-block;color:#484f58;user-select:none;margin-right:14px;min-width:28px;text-align:right;font-size:11px}
+
+    .empty-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:10px;color:var(--text3)}
+    .empty-wrap h3{color:var(--text2);font-size:15px}
+    .empty-wrap p{font-size:13px}
+
+    @keyframes blink{50%{opacity:0}}
+    .cursor{display:inline-block;width:7px;height:13px;background:var(--blue);vertical-align:middle;margin-left:2px;animation:blink 1s step-end infinite}
+
+    /* ── Status bar ──────────────────────────────── */
+    .sbar{
+      background:var(--bg2);border-top:1px solid var(--border);
+      padding:5px 20px;display:flex;align-items:center;gap:10px;
+      font-size:12px;color:var(--text3);flex-shrink:0;
+    }
+    .minidots{display:flex;gap:3px;align-items:center}
+    .md{width:7px;height:7px;border-radius:50%}
+    #sbar-text{color:var(--text2)}
+    #refresh-spin{margin-left:auto;opacity:.5;font-size:13px;transition:opacity .3s}
+
+    /* Scrollbar */
+    ::-webkit-scrollbar{width:5px;height:5px}
+    ::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+    ::-webkit-scrollbar-thumb:hover{background:var(--text3)}
+  </style>
+</head>
+<body>
+
+<div id="top-bar"><div id="top-progress"></div></div>
+
+<header>
+  <div class="logo">SEM-<em>Net</em> <span style="font-weight:400;color:var(--text3);font-size:13px">/ Setup Status</span></div>
+  <div class="hdivider"></div>
+  <span class="badge badge-session">
+    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+    <span id="h-session">—</span>
+  </span>
+  <span class="badge badge-host" id="h-host-badge">
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+    <span id="h-host">—</span>
+  </span>
+  <span class="badge badge-phase" id="h-phase-badge">
+    <span id="h-phase">Initializing</span>
+  </span>
+  <div class="hright">
+    <div class="hstat">
+      <div class="hstat-label">Started</div>
+      <div class="hstat-val" id="h-started">—</div>
+    </div>
+    <div class="hstat">
+      <div class="hstat-label">Elapsed</div>
+      <div class="hstat-val elapsed-val" id="h-elapsed">—</div>
+    </div>
+    <div class="conn">
+      <div class="dot" id="conn-dot"></div>
+      <span id="conn-label">Connecting</span>
+    </div>
+  </div>
+</header>
+
+<div class="layout">
+  <aside>
+    <div class="aside-head">
+      <span>Steps</span>
+      <span id="aside-counter">0 / 14</span>
+    </div>
+    <div id="step-list"></div>
+  </aside>
+
+  <main>
+    <div class="phead">
+      <div class="phead-info">
+        <div class="phead-name" id="panel-name">Select a step to view logs</div>
+        <div class="phead-sub" id="panel-sub"></div>
+      </div>
+      <div id="panel-pill"></div>
+    </div>
+    <div class="log-wrap" id="log-wrap">
+      <div class="empty-wrap" id="empty-state">
+        <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <path d="M7 8h10M7 12h6M7 16h4"/>
+        </svg>
+        <h3>No step selected</h3>
+        <p>Click a step on the left to view its output</p>
+      </div>
+      <div id="log-lines" style="display:none"></div>
+    </div>
+  </main>
+</div>
+
+<div class="sbar">
+  <div class="minidots" id="minidots"></div>
+  <span id="sbar-text">Waiting for setup to begin…</span>
+  <span id="refresh-spin">⟳</span>
+</div>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────────
+const SESSION     = new URLSearchParams(location.search).get('session') || 'Places';
+const POLL_MS     = 2000;
+const STEP_NAMES  = [
+  'Verifying workspace directory',
+  'Configuring CUDA 12.4 environment',
+  'Creating Python virtual environment',
+  'Upgrading pip and wheel',
+  'Installing setuptools < 82 and numpy < 2',
+  'Installing PyTorch 2.1.2',
+  'Installing packaging and ninja',
+  'Compiling causal-conv1d and mamba-ssm',
+  'Installing remaining requirements.txt',
+  'Downloading InternImage ops_dcnv3',
+  'Compiling ops_dcnv3 CUDA kernels',
+  'Download & extract mask dataset',
+  'Download & extract Places365 dataset',
+  'Restoring latest model checkpoint',
+];
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let selStep   = null;   // currently displayed step number
+let autoSel   = true;   // follow the running step automatically
+let startedAt = null;   // server-reported unix timestamp
+let lastData  = null;
+let failCount = 0;
+let elapsedTick = null;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const fmtDur = s => {
+  if (s == null) return '';
+  if (s < 60)   return `${s.toFixed(1)}s`;
+  const m = Math.floor(s/60), sec = Math.floor(s%60);
+  return `${m}m ${String(sec).padStart(2,'0')}s`;
+};
+const fmtElapsed = ts => {
+  const s = (Date.now()/1000) - ts;
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), ss = Math.floor(s%60);
+  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+  return `${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+};
+const fmtAbs = ts => {
+  const d = new Date(ts*1000);
+  return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}) +
+         ' · ' + d.toLocaleDateString([],{month:'short',day:'numeric'});
+};
+const statusColor = st => ({
+  done:'var(--green)', running:'var(--blue)', error:'var(--red)',
+  skipped:'var(--yellow)', pending:'var(--text3)'
+}[st] || 'var(--text3)');
+
+const statusPillStyle = st => {
+  const map = {
+    done:    ['var(--green-bg)','var(--green)','rgba(63,185,80,.3)'],
+    running: ['var(--blue-bg)', 'var(--blue)', 'rgba(88,166,255,.3)'],
+    error:   ['var(--red-bg)',  'var(--red)',  'rgba(248,81,73,.3)'],
+    skipped: ['var(--yellow-bg)','var(--yellow)','rgba(210,153,34,.3)'],
+    pending: ['var(--bg3)',     'var(--text3)','var(--border)'],
+  }[st] || ['var(--bg3)','var(--text3)','var(--border)'];
+  return `background:${map[0]};color:${map[1]};border-color:${map[2]}`;
+};
+
+// Step status icons (inline SVG)
+const icon = st => {
+  if (st === 'done')
+    return `<svg width="16" height="16" viewBox="0 0 16 16" fill="var(--green)"><path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"/></svg>`;
+  if (st === 'running')
+    return `<svg class="spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2.5"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" stroke-linecap="round"/></svg>`;
+  if (st === 'error')
+    return `<svg width="16" height="16" viewBox="0 0 16 16" fill="var(--red)"><path d="M4.47.22A.75.75 0 015 0h6a.75.75 0 01.53.22l4.25 4.25c.141.14.22.332.22.53v6a.75.75 0 01-.22.53l-4.25 4.25A.75.75 0 0111 16H5a.75.75 0 01-.53-.22L.22 11.53A.75.75 0 010 11V5a.75.75 0 01.22-.53zm.84 1.28L1.5 5.31v5.38l3.81 3.81h5.38l3.81-3.81V5.31L10.69 1.5zM8 4a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 018 4zm0 8a1 1 0 110-2 1 1 0 010 2z"/></svg>`;
+  if (st === 'skipped')
+    return `<svg width="16" height="16" viewBox="0 0 16 16" fill="var(--yellow)"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zm.149 8.814l2.656-2.158a.5.5 0 10-.638-.768L7.5 8.13V3.75a.5.5 0 00-1 0V9a.5.5 0 00.313.464.5.5 0 00.336-.65z"/></svg>`;
+  // pending
+  return `<svg width="16" height="16" viewBox="0 0 16 16" fill="var(--text3)"><path d="M8 0a8 8 0 110 16A8 8 0 018 0zM1.5 8a6.5 6.5 0 1013 0 6.5 6.5 0 00-13 0z"/></svg>`;
+};
+
+// Colorize a log line
+const colorizeLine = raw => {
+  // Strip ANSI codes
+  const line = raw.replace(/\x1b\[[0-9;]*[mGKHF]/g, '');
+  let cls = 'll';
+  if (/\[ok\]|success|done|complete|assembled|installed|created|activated/i.test(line)) cls += ' ll-ok';
+  else if (/warning|warn/i.test(line)) cls += ' ll-warn';
+  else if (/error|fail|exception|traceback|critical/i.test(line)) cls += ' ll-err';
+  else if (/downloading|fetching|cloning|installing|compiling|building|extracting/i.test(line)) cls += ' ll-info';
+  else if (/^[-=]{3,}/.test(line.trim()) || /^#/.test(line.trim())) cls += ' ll-dim';
+  return `<span class="${cls}">${esc(line)}</span>`;
+};
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function render(data) {
+  lastData = data;
+  const steps      = data.steps || [];
+  const total      = data.total_steps || 14;
+  const doneCount  = steps.filter(s => s.status === 'done' || s.status === 'skipped').length;
+  const running    = steps.find(s => s.status === 'running');
+  const errStep    = steps.find(s => s.status === 'error');
+
+  // Auto-follow running step
+  if (autoSel) {
+    if (running)           selStep = running.num;
+    else if (!selStep) {
+      const last = [...steps].reverse().find(s => s.status !== 'pending');
+      if (last) selStep = last.num;
+    }
+  }
+
+  // ── Header ─────────────────────────────────────
+  document.getElementById('h-session').textContent = data.session || SESSION;
+  document.getElementById('h-host').textContent    = data.host    || '—';
+  document.getElementById('h-phase').textContent   =
+    data.phase === 'setup' ? 'Setup' : data.phase === 'training' ? 'Training' : 'Idle';
+
+  if (data.started_at && !startedAt) {
+    startedAt = data.started_at;
+    document.getElementById('h-started').textContent = fmtAbs(startedAt);
+    clearInterval(elapsedTick);
+    elapsedTick = setInterval(() => {
+      const el = document.getElementById('h-elapsed');
+      if (!el) return;
+      el.textContent = fmtElapsed(startedAt);
+      el.className   = 'hstat-val elapsed-val' + (running ? '' : ' done');
+    }, 1000);
+  }
+
+  // ── Top progress bar ────────────────────────────
+  document.getElementById('top-progress').style.width = `${(doneCount/total)*100}%`;
+
+  // ── Aside counter ───────────────────────────────
+  document.getElementById('aside-counter').textContent = `${doneCount} / ${total}`;
+
+  // ── Status bar ──────────────────────────────────
+  let sbText = 'Waiting for setup to begin…';
+  if (errStep)              sbText = `❌  Error in: ${errStep.name}`;
+  else if (running)         sbText = `Running:  ${running.name}`;
+  else if (doneCount===total) sbText = '✅  Setup completed successfully!';
+  else if (doneCount > 0)   sbText = `${doneCount} of ${total} steps completed`;
+  document.getElementById('sbar-text').textContent = sbText;
+
+  // Mini dots
+  document.getElementById('minidots').innerHTML =
+    steps.map(s => `<div class="md" style="background:${statusColor(s.status)}" title="Step ${s.num}: ${s.name||''}"></div>`).join('');
+
+  // ── Step list ───────────────────────────────────
+  document.getElementById('step-list').innerHTML = steps.map(s => {
+    const isSel = s.num === selStep;
+    const cls   = ['step-row',
+      isSel          ? 'sel'       : '',
+      s.status==='running' && !isSel ? 'running'  : '',
+      s.status==='error'             ? 'error-row' : ''
+    ].join(' ').trim();
+
+    let durHtml = '';
+    if (s.status==='running')   durHtml = `<div class="sdur running">in progress…</div>`;
+    else if (s.duration!=null)  durHtml = `<div class="sdur ${s.status}">${fmtDur(s.duration)}</div>`;
+    else                        durHtml = `<div class="sdur pending">queued</div>`;
+
+    return `<div class="${cls}" onclick="selectStep(${s.num})">
+      <div class="si">${icon(s.status)}</div>
+      <div class="sinfo">
+        <div class="snum">Step ${s.num} of ${total}</div>
+        <div class="sname${s.status==='pending'?' pending':''}" title="${esc(s.name||'')}">${esc(s.name || STEP_NAMES[s.num-1] || `Step ${s.num}`)}</div>
+        ${durHtml}
+      </div>
+    </div>`;
+  }).join('');
+
+  // ── Log panel ───────────────────────────────────
+  const step = steps.find(s => s.num === selStep);
+  if (step) renderLogs(step);
+}
+
+function renderLogs(step) {
+  document.getElementById('panel-name').textContent =
+    step.name || STEP_NAMES[step.num-1] || `Step ${step.num}`;
+
+  const subParts = [];
+  if (step.started_at) subParts.push(`Started ${fmtAbs(step.started_at)}`);
+  if (step.duration != null) subParts.push(`· took ${fmtDur(step.duration)}`);
+  else if (step.status === 'running') subParts.push('· running…');
+  document.getElementById('panel-sub').textContent = subParts.join(' ');
+
+  document.getElementById('panel-pill').innerHTML =
+    `<span class="status-pill" style="${statusPillStyle(step.status)}">${step.status.toUpperCase()}</span>`;
+
+  const logs  = step.logs || [];
+  const logEl = document.getElementById('log-lines');
+  const empEl = document.getElementById('empty-state');
+  const wrap  = document.getElementById('log-wrap');
+
+  if (!logs.length) {
+    logEl.style.display = 'none';
+    empEl.style.display = 'flex';
+    empEl.innerHTML = step.status === 'pending'
+      ? `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg><h3>Not started yet</h3><p>This step is queued</p>`
+      : `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h10M7 12h6"/></svg><h3>No output</h3><p>This step produced no log output</p>`;
+    return;
+  }
+
+  empEl.style.display = 'none';
+  logEl.style.display = 'block';
+
+  const atBottom = wrap.scrollTop + wrap.clientHeight >= wrap.scrollHeight - 30;
+
+  logEl.innerHTML = logs.map((l, i) =>
+    `<span class="ll-num">${i+1}</span>${colorizeLine(l)}\n`
+  ).join('');
+
+  if (step.status === 'running') {
+    logEl.innerHTML += '<span class="cursor"></span>';
+  }
+
+  if (atBottom || step.status === 'running') {
+    wrap.scrollTop = wrap.scrollHeight;
+  }
+}
+
+function selectStep(num) {
+  selStep  = num;
+  autoSel  = false;
+  if (lastData) render(lastData);
+}
+
+// ── Polling ───────────────────────────────────────────────────────────────────
+function buildPending() {
+  return {
+    session: SESSION, host: '—', started_at: null,
+    phase: 'idle', total_steps: 14, current_step: 0,
+    steps: STEP_NAMES.map((n, i) => ({
+      num: i+1, name: n, status: 'pending',
+      started_at: null, finished_at: null, duration: null, logs: []
+    }))
+  };
+}
+
+async function poll() {
+  const spin = document.getElementById('refresh-spin');
+  spin.style.opacity = '.2';
+  try {
+    const r = await fetch(`/api/setup_status?session=${encodeURIComponent(SESSION)}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    failCount = 0;
+    document.getElementById('conn-dot').className   = 'dot live';
+    document.getElementById('conn-label').textContent = 'Live';
+    render(data);
+  } catch(e) {
+    failCount++;
+    document.getElementById('conn-dot').className   = 'dot err';
+    document.getElementById('conn-label').textContent = failCount > 3 ? 'Offline' : 'Reconnecting…';
+    if (!lastData) render(buildPending());
+  }
+  spin.style.opacity = '.5';
+}
+
+// Initial pending render + start polling
+render(buildPending());
+poll();
+setInterval(poll, POLL_MS);
+</script>
+</body>
+</html>

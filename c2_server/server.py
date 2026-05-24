@@ -13,6 +13,10 @@ app = Flask(__name__, static_folder='static', static_url_path='')
 # live_sessions[session_id] = { logs, metrics, state, last_seen }
 live_sessions = {}
 
+# ── Setup Status Store ────────────────────────────────────────────────
+# Stores live setup progress posted by setup_server.py on the lab box
+setup_status_store = {}  # session_id -> full status payload
+
 def get_session(session_id):
     # Sanitize session_id: remove whitespace, None, or empty
     if not session_id or str(session_id).lower() in ["none", "undefined", "null", ""]:
@@ -58,6 +62,31 @@ def save_runs(runs):
 @app.route('/')
 def serve_index():
     return send_from_directory('static', 'index.html')
+
+@app.route('/dashboard/status')
+def setup_dashboard():
+    """Serve the setup status dashboard page."""
+    return send_from_directory('static', 'setup_dashboard.html')
+
+# ── Setup Status API ──────────────────────────────────────────────────
+
+@app.route('/api/setup_status', methods=['POST'])
+def post_setup_status():
+    """Receive live step updates from setup_server.py running on the lab box."""
+    data = request.json
+    if not data:
+        return jsonify({'error': 'no data'}), 400
+    session_id = data.get('session', 'default')
+    setup_status_store[session_id] = data
+    return jsonify({'status': 'ok'})
+
+@app.route('/api/setup_status', methods=['GET'])
+def get_setup_status():
+    """Return the latest setup status for a session (polled by the dashboard)."""
+    session_id = request.args.get('session', 'default')
+    if session_id not in setup_status_store:
+        return jsonify({'error': 'no status yet', 'session': session_id}), 404
+    return jsonify(setup_status_store[session_id])
 
 @app.route('/api/sessions', methods=['GET'])
 def list_sessions():
