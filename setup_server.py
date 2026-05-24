@@ -21,7 +21,7 @@ def remove_readonly(func, path, excinfo):
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(line_buffering=True)
 
-TOTAL_STEPS = 13
+TOTAL_STEPS = 14
 
 def draw_progress_bar(step_num, step_name, total_steps):
     columns, _ = shutil.get_terminal_size()
@@ -413,6 +413,90 @@ def step_download_places365_dataset():
     if os.path.exists(archive_path):
         os.remove(archive_path)
 
+def step_download_latest_model():
+    """Query the C2 files server, find the highest-iteration checkpoint pair
+    (gen + dis) for the active session, and download them to PlacesTraining/."""
+    files_url = os.environ.get("FILES_SERVER_URL", "https://files.lalithadithyan.dev")
+    session   = os.environ.get("C2_SESSION", "Places")
+    run_path  = "./PlacesTraining"
+
+    gen_dest = os.path.join(run_path, "InpaintingModel_gen.pth")
+    dis_dest = os.path.join(run_path, "InpaintingModel_dis.pth")
+
+    # ── 1. Fetch the directory listing from the files server ──────────────
+    list_url = f"{files_url}/api/models?session={session}"
+    print(f"Fetching model listing from: {list_url}")
+    try:
+        req = urllib.request.Request(
+            list_url,
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode())
+    except Exception as e:
+        print(f"WARNING: Could not reach files server ({e}). Skipping model download.")
+        return
+
+    # ── 2. Parse the file list – accept both {"files": [...]} and plain list ─
+    if isinstance(data, dict):
+        file_list = data.get("files", [])
+    elif isinstance(data, list):
+        file_list = data
+    else:
+        print("WARNING: Unexpected response format from files server. Skipping.")
+        return
+
+    if not file_list:
+        print(f"No checkpoint files found on server for session '{session}'. Starting fresh.")
+        return
+
+    # ── 3. Find the highest-iteration gen and dis checkpoints ────────────────
+    # Filename pattern:  000002000_InpaintingModel_gen.pth
+    import re
+    gen_files = [(int(m.group(1)), f) for f in file_list
+                 for m in [re.match(r'^(\d{9})_InpaintingModel_gen\.pth$', f)] if m]
+    dis_files = [(int(m.group(1)), f) for f in file_list
+                 for m in [re.match(r'^(\d{9})_InpaintingModel_dis\.pth$', f)] if m]
+
+    if not gen_files or not dis_files:
+        print("No padded checkpoint files found on server. Starting fresh.")
+        return
+
+    best_iter_gen, best_gen_name = max(gen_files, key=lambda x: x[0])
+    best_iter_dis, best_dis_name = max(dis_files, key=lambda x: x[0])
+
+    if best_iter_gen != best_iter_dis:
+        # Prefer the lower of the two so both gen+dis come from the same save
+        common_iter = min(best_iter_gen, best_iter_dis)
+        candidates_gen = [x for x in gen_files if x[0] == common_iter]
+        candidates_dis = [x for x in dis_files if x[0] == common_iter]
+        if not candidates_gen or not candidates_dis:
+            print(f"WARNING: Could not find matching gen+dis pair at iteration {common_iter}. Skipping.")
+            return
+        best_gen_name = candidates_gen[0][1]
+        best_dis_name = candidates_dis[0][1]
+        best_iter_gen = common_iter
+
+    print(f"Latest checkpoint pair found at iteration {best_iter_gen:,}:")
+    print(f"  gen -> {best_gen_name}")
+    print(f"  dis -> {best_dis_name}")
+
+    os.makedirs(run_path, exist_ok=True)
+
+    # ── 4. Download gen ──────────────────────────────────────────────────────
+    # Files server stores everything flat: /download/<filename>
+    gen_url = f"{files_url}/download/{best_gen_name}"
+    print(f"Downloading generator checkpoint...")
+    download_file(gen_url, gen_dest)
+
+    # ── 5. Download dis ──────────────────────────────────────────────────────
+    dis_url = f"{files_url}/download/{best_dis_name}"
+    print(f"Downloading discriminator checkpoint...")
+    download_file(dis_url, dis_dest)
+
+    print(f"[OK] Model checkpoints restored to {run_path}/ (iteration {best_iter_gen:,})")
+
+
 def main():
     is_interactive = sys.stdout.isatty()
     if is_interactive:
@@ -495,7 +579,10 @@ def main():
     
     # Step 13: Download & extract Places365 dataset
     execute_step(13, "Download & extract Places365 dataset", step_download_places365_dataset)
-    
+
+    # Step 14: Download latest model checkpoint from C2 files server
+    execute_step(14, "Restoring latest model checkpoint from files server", step_download_latest_model)
+
     if is_interactive:
         sys.stdout.write("\n")
 

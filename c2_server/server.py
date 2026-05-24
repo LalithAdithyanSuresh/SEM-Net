@@ -245,6 +245,17 @@ def get_images():
         return jsonify({"count": len(files), "latest": files[-1] if files else None})
     return jsonify(files)
 
+@app.route('/api/models', methods=['GET'])
+def list_models():
+    """List all .pth checkpoint files for a given session, sorted by filename (iter prefix)."""
+    session_id = request.args.get('session', 'default')
+    target = os.path.join(UPLOAD_BASE, session_id)
+    if not os.path.exists(target):
+        return jsonify({"files": []})
+    files = sorted(f for f in os.listdir(target) if f.endswith('.pth'))
+    return jsonify({"files": files})
+
+
 @app.route('/api/save_run', methods=['POST'])
 def save_run():
     data = request.json
