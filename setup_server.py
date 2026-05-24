@@ -12,6 +12,7 @@ import urllib.request
 import zipfile
 import tarfile
 import ssl
+import queue
 
 _printed_warning = False
 
@@ -30,7 +31,7 @@ TOTAL_STEPS = 14
 
 # ── Live Status Reporter ───────────────────────────────────────────────────
 # Posts live step progress to the C2 server for the dashboard.
-# Uses only stdlib (no pip deps), fires-and-forgets in background threads.
+# Uses only stdlib (no pip deps), fires-and-forgets via a queued worker.
 
 _reporter = None  # initialized in main()
 
@@ -46,6 +47,9 @@ class StatusReporter:
                 'started_at': None, 'finished_at': None, 'duration': None, 'logs': []}
             for i in range(1, TOTAL_STEPS + 1)
         }
+        self._queue     = queue.Queue()
+        # Start a single worker thread to serialize updates and enforce delays
+        threading.Thread(target=self._worker, daemon=True).start()
         self._post(self._payload())  # register immediately
 
     # ── Default step names (populated before setup_server knows them) ─
@@ -78,11 +82,16 @@ class StatusReporter:
             }
 
     def _post(self, payload):
-        """Fire-and-forget POST. Never blocks or raises."""
-        def _do():
-            global _printed_warning
+        """Enqueue payload to be processed by background worker."""
+        self._queue.put(payload)
+
+    def _worker(self):
+        """Processes enqueued payloads sequentially, enforcing a 2s delay after sending."""
+        global _printed_warning
+        context = ssl._create_unverified_context()
+        while True:
+            payload = self._queue.get()
             try:
-                context = ssl._create_unverified_context()
                 body = json.dumps(payload).encode()
                 req  = urllib.request.Request(
                     f"{self.c2_url}/api/setup_status", data=body,
@@ -96,7 +105,9 @@ class StatusReporter:
                     sys.stderr.write(f"\n[Dashboard Warning] Failed to post status to {self.c2_url}: {e}\n")
                     sys.stderr.flush()
                     _printed_warning = True
-        threading.Thread(target=_do, daemon=True).start()
+            finally:
+                self._queue.task_done()
+            time.sleep(2)  # Enforce 2 second delay after every status sent
 
     def _flush(self):
         self._post(self._payload())
