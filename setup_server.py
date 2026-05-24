@@ -11,6 +11,9 @@ import threading
 import urllib.request
 import zipfile
 import tarfile
+import ssl
+
+_printed_warning = False
 
 def remove_readonly(func, path, excinfo):
     try:
@@ -77,14 +80,19 @@ class StatusReporter:
     def _post(self, payload):
         """Fire-and-forget POST. Never blocks or raises."""
         def _do():
+            global _printed_warning
             try:
+                context = ssl._create_unverified_context()
                 body = json.dumps(payload).encode()
                 req  = urllib.request.Request(
                     f"{self.c2_url}/api/setup_status", data=body,
                     headers={'Content-Type': 'application/json'}, method='POST')
-                urllib.request.urlopen(req, timeout=5)
-            except Exception:
-                pass
+                urllib.request.urlopen(req, timeout=5, context=context)
+            except Exception as e:
+                if not _printed_warning:
+                    sys.stderr.write(f"\n[Dashboard Warning] Failed to post status to {self.c2_url}: {e}\n")
+                    sys.stderr.flush()
+                    _printed_warning = True
         threading.Thread(target=_do, daemon=True).start()
 
     def _flush(self):
