@@ -37,18 +37,25 @@ set -e
 echo "=== Running inside screen session: $STY ==="
 echo ""
 
-# 1. Clone the repository if not already inside a git repository
+# 1. Clone or update the repository
 if [ ! -d ".git" ]; then
     if [ -d "$REPO_DIR" ]; then
         echo "Directory '$REPO_DIR' already exists. Entering it..."
         cd "$REPO_DIR"
+        echo "Pulling latest changes from branch '$REPO_BRANCH'..."
+        git fetch origin
+        git checkout "$REPO_BRANCH"
+        git pull origin "$REPO_BRANCH"
     else
         echo "Cloning repository branch '$REPO_BRANCH' from $REPO_URL..."
         git clone -b "$REPO_BRANCH" "$REPO_URL"
         cd "$REPO_DIR"
     fi
 else
-    echo "Already inside a git repository. Continuing in current directory..."
+    echo "Already inside a git repository. Pulling latest changes from branch '$REPO_BRANCH'..."
+    git fetch origin
+    git checkout "$REPO_BRANCH"
+    git pull origin "$REPO_BRANCH"
 fi
 
 # 2. Verify setup_server.py exists in the current directory
