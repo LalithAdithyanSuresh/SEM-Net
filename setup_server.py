@@ -107,7 +107,6 @@ class StatusReporter:
                     _printed_warning = True
             finally:
                 self._queue.task_done()
-            time.sleep(2)  # Enforce 2 second delay after every status sent
 
     def _flush(self):
         self._post(self._payload())
