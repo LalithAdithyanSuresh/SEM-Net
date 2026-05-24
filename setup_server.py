@@ -119,6 +119,10 @@ class StatusReporter:
             finally:
                 self._queue.task_done()
 
+    def join(self):
+        """Block until all queued status posts have been sent."""
+        self._queue.join()
+
     def _flush(self):
         self._post(self._payload())
 
@@ -713,7 +717,7 @@ def log_setup_run(start_time, status, error_msg=None):
     if _reporter:
         try:
             _reporter._flush()
-            time.sleep(0.5)
+            _reporter.join()
         except Exception:
             pass
 
