@@ -42,20 +42,20 @@ if [ ! -d ".git" ]; then
     if [ -d "$REPO_DIR" ]; then
         echo "Directory '$REPO_DIR' already exists. Entering it..."
         cd "$REPO_DIR"
-        echo "Pulling latest changes from branch '$REPO_BRANCH'..."
-        git fetch origin
-        git checkout "$REPO_BRANCH"
-        git pull origin "$REPO_BRANCH"
+        echo "Attempting to pull latest changes from branch '$REPO_BRANCH'..."
+        git fetch origin || echo "WARNING: git fetch failed."
+        git checkout "$REPO_BRANCH" || echo "WARNING: git checkout failed."
+        git pull origin "$REPO_BRANCH" || echo "WARNING: git pull failed (possibly due to local changes). Continuing with local files."
     else
         echo "Cloning repository branch '$REPO_BRANCH' from $REPO_URL..."
         git clone -b "$REPO_BRANCH" "$REPO_URL"
         cd "$REPO_DIR"
     fi
 else
-    echo "Already inside a git repository. Pulling latest changes from branch '$REPO_BRANCH'..."
-    git fetch origin
-    git checkout "$REPO_BRANCH"
-    git pull origin "$REPO_BRANCH"
+    echo "Already inside a git repository. Attempting to pull latest changes from branch '$REPO_BRANCH'..."
+    git fetch origin || echo "WARNING: git fetch failed."
+    git checkout "$REPO_BRANCH" || echo "WARNING: git checkout failed."
+    git pull origin "$REPO_BRANCH" || echo "WARNING: git pull failed (possibly due to local changes). Continuing with local files."
 fi
 
 # 2. Verify setup_server.py exists in the current directory
