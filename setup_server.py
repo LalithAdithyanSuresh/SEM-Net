@@ -286,7 +286,7 @@ def execute_step(step_num, step_name, func_or_cmd, shell=False, cwd=None):
         if is_interactive:
             sys.stdout.write("\n")
         print(f"\nERROR in Step {step_num} ({step_name}): {e}", file=sys.stderr)
-        sys.exit(1)
+        raise
 
 
 # Step definitions
@@ -675,8 +675,42 @@ def step_download_latest_model():
     print(f"[OK] Model checkpoints restored to {run_path}/ (iteration {best_iter_gen:,})")
 
 
+def log_setup_run(start_time, status, error_msg=None):
+    duration = time.time() - start_time
+    m, s = divmod(int(duration), 60)
+    h, m = divmod(m, 60)
+    dur_str = f"{h}h {m}m {s}s" if h > 0 else f"{m}m {s}s" if m > 0 else f"{s}s"
+    
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    session = os.environ.get('C2_SESSION', 'Places')
+    
+    log_line = f"[{timestamp}] Session: {session} | Status: {status} | Duration: {dur_str}"
+    if error_msg:
+        clean_err = str(error_msg).replace('\n', ' ').strip()
+        if len(clean_err) > 80:
+            clean_err = clean_err[:77] + "..."
+        log_line += f" | Error: {clean_err}"
+    log_line += "\n"
+    
+    try:
+        with open("setup_history.txt", "a") as f:
+            f.write(log_line)
+    except Exception as e:
+        sys.stderr.write(f"Failed to write to setup_history.txt: {e}\n")
+
+
 def main():
     global _reporter
+    start_time = time.time()
+
+    # Log start to history file
+    try:
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        session = os.environ.get('C2_SESSION', 'Places')
+        with open("setup_history.txt", "a") as f:
+            f.write(f"[{timestamp}] Session: {session} | Status: STARTED\n")
+    except Exception:
+        pass
 
     # Init live status reporter (posts to C2 server in background)
     c2_url  = os.environ.get('C2_SERVER_URL', 'https://lalithadithyan.dev')
@@ -692,90 +726,96 @@ def main():
     if is_interactive:
         sys.stdout.write("\n")
         sys.stdout.flush()
+
+    try:
+        # Step 1: Verify Workspace
+        execute_step(1, "Verifying workspace directory", step_verify_workspace)
         
-    # Step 1: Verify Workspace
-    execute_step(1, "Verifying workspace directory", step_verify_workspace)
-    
-    # Step 2: Set up CUDA 12.4 Environment
-    execute_step(2, "Configuring CUDA 12.4 environment", step_setup_cuda)
-    
-    # Step 3: Create Venv
-    execute_step(3, "Creating Python virtual environment", step_create_venv)
-    
-    # Step 4: Upgrade pip & wheel
-    execute_step(4, "Upgrading pip and wheel", ["pip", "install", "--upgrade", "pip", "wheel"])
-    
-    # Step 5: Install compatible setuptools & numpy pins
-    _STEP5 = "Installing setuptools < 82 and numpy < 2"
-    if check_setuptools_numpy_installed():
-        print(f"[Step 5/{TOTAL_STEPS}] setuptools < 82 and numpy < 2 already installed. Skipping.")
-        if _reporter: _reporter.skip_step(5, _STEP5)
-    else:
-        execute_step(5, _STEP5, ["pip", "install", "setuptools<82", "numpy<2"])
-    
-    # Step 6: Install PyTorch 2.1.2 (compatible with CUDA 12.4 compiler)
-    _STEP6 = "Installing PyTorch 2.1.2 (CUDA 12.1 whl)"
-    if check_pytorch_installed():
-        print(f"[Step 6/{TOTAL_STEPS}] PyTorch 2.1.2 and torchvision 0.16.2 already installed. Skipping.")
-        if _reporter: _reporter.skip_step(6, _STEP6)
-    else:
-        execute_step(6, _STEP6, [
-            "pip", "install", "torch==2.1.2", "torchvision==0.16.2",
-            "--extra-index-url", "https://download.pytorch.org/whl/cu121"
-        ])
+        # Step 2: Set up CUDA 12.4 Environment
+        execute_step(2, "Configuring CUDA 12.4 environment", step_setup_cuda)
+        
+        # Step 3: Create Venv
+        execute_step(3, "Creating Python virtual environment", step_create_venv)
+        
+        # Step 4: Upgrade pip & wheel
+        execute_step(4, "Upgrading pip and wheel", ["pip", "install", "--upgrade", "pip", "wheel"])
+        
+        # Step 5: Install compatible setuptools & numpy pins
+        _STEP5 = "Installing setuptools < 82 and numpy < 2"
+        if check_setuptools_numpy_installed():
+            print(f"[Step 5/{TOTAL_STEPS}] setuptools < 82 and numpy < 2 already installed. Skipping.")
+            if _reporter: _reporter.skip_step(5, _STEP5)
+        else:
+            execute_step(5, _STEP5, ["pip", "install", "setuptools<82", "numpy<2"])
+        
+        # Step 6: Install PyTorch 2.1.2 (compatible with CUDA 12.4 compiler)
+        _STEP6 = "Installing PyTorch 2.1.2 (CUDA 12.1 whl)"
+        if check_pytorch_installed():
+            print(f"[Step 6/{TOTAL_STEPS}] PyTorch 2.1.2 and torchvision 0.16.2 already installed. Skipping.")
+            if _reporter: _reporter.skip_step(6, _STEP6)
+        else:
+            execute_step(6, _STEP6, [
+                "pip", "install", "torch==2.1.2", "torchvision==0.16.2",
+                "--extra-index-url", "https://download.pytorch.org/whl/cu121"
+            ])
 
-    # Step 7: Install packaging & ninja
-    _STEP7 = "Installing packaging and ninja compiler tool"
-    if check_ninja_packaging_installed():
-        print(f"[Step 7/{TOTAL_STEPS}] packaging and ninja already installed. Skipping.")
-        if _reporter: _reporter.skip_step(7, _STEP7)
-    else:
-        execute_step(7, _STEP7, ["pip", "install", "packaging", "ninja"])
+        # Step 7: Install packaging & ninja
+        _STEP7 = "Installing packaging and ninja compiler tool"
+        if check_ninja_packaging_installed():
+            print(f"[Step 7/{TOTAL_STEPS}] packaging and ninja already installed. Skipping.")
+            if _reporter: _reporter.skip_step(7, _STEP7)
+        else:
+            execute_step(7, _STEP7, ["pip", "install", "packaging", "ninja"])
 
-    # Step 8: Compile causal-conv1d & mamba-ssm
-    _STEP8 = "Compiling causal-conv1d and mamba-ssm (verbose)"
-    if check_mamba_installed():
-        print(f"[Step 8/{TOTAL_STEPS}] causal-conv1d and mamba-ssm already compiled and installed. Skipping.")
-        if _reporter: _reporter.skip_step(8, _STEP8)
-    else:
-        execute_step(8, _STEP8, [
-            "pip", "install", "causal-conv1d==1.1.3.post1", "mamba-ssm==1.1.3.post1",
-            "--no-build-isolation", "-v"
-        ])
+        # Step 8: Compile causal-conv1d & mamba-ssm
+        _STEP8 = "Compiling causal-conv1d and mamba-ssm (verbose)"
+        if check_mamba_installed():
+            print(f"[Step 8/{TOTAL_STEPS}] causal-conv1d and mamba-ssm already compiled and installed. Skipping.")
+            if _reporter: _reporter.skip_step(8, _STEP8)
+        else:
+            execute_step(8, _STEP8, [
+                "pip", "install", "causal-conv1d==1.1.3.post1", "mamba-ssm==1.1.3.post1",
+                "--no-build-isolation", "-v"
+            ])
 
-    # Step 9: Install other requirements
-    execute_step(9, "Installing remaining requirements.txt dependencies", ["pip", "install", "-r", "requirements.txt"])
+        # Step 9: Install other requirements
+        execute_step(9, "Installing remaining requirements.txt dependencies", ["pip", "install", "-r", "requirements.txt"])
 
-    # Step 10: Download InternImage ops_dcnv3
-    execute_step(10, "Downloading InternImage ops_dcnv3 folder", step_download_ops)
+        # Step 10: Download InternImage ops_dcnv3
+        execute_step(10, "Downloading InternImage ops_dcnv3 folder", step_download_ops)
 
-    # Step 11: Compile ops_dcnv3
-    _STEP11 = "Compiling ops_dcnv3 CUDA kernels"
-    if check_dcnv3_compiled():
-        print(f"[Step 11/{TOTAL_STEPS}] ops_dcnv3 CUDA kernels already compiled and installed. Skipping.")
-        if _reporter: _reporter.skip_step(11, _STEP11)
-    else:
-        ops_dir = os.path.abspath(os.path.join("src", "ops_dcnv3"))
-        make_sh = os.path.join(ops_dir, "make.sh")
-        try:
-            os.chmod(make_sh, 0o755)
-        except Exception:
-            pass
-        patch_pytorch_boxing_header()
-        build_dir = os.path.join(ops_dir, "build")
-        if os.path.exists(build_dir):
-            print(f"Cleaning existing build directory: {build_dir}")
-            shutil.rmtree(build_dir, ignore_errors=True)
-        execute_step(11, _STEP11, ["sh", "make.sh"], cwd=ops_dir)
+        # Step 11: Compile ops_dcnv3
+        _STEP11 = "Compiling ops_dcnv3 CUDA kernels"
+        if check_dcnv3_compiled():
+            print(f"[Step 11/{TOTAL_STEPS}] ops_dcnv3 CUDA kernels already compiled and installed. Skipping.")
+            if _reporter: _reporter.skip_step(11, _STEP11)
+        else:
+            ops_dir = os.path.abspath(os.path.join("src", "ops_dcnv3"))
+            make_sh = os.path.join(ops_dir, "make.sh")
+            try:
+                os.chmod(make_sh, 0o755)
+            except Exception:
+                pass
+            patch_pytorch_boxing_header()
+            build_dir = os.path.join(ops_dir, "build")
+            if os.path.exists(build_dir):
+                print(f"Cleaning existing build directory: {build_dir}")
+                shutil.rmtree(build_dir, ignore_errors=True)
+            execute_step(11, _STEP11, ["sh", "make.sh"], cwd=ops_dir)
 
-    # Step 12: Download & extract mask dataset
-    execute_step(12, "Download & extract mask dataset", step_download_mask_dataset)
-    
-    # Step 13: Download & extract Places365 dataset
-    execute_step(13, "Download & extract Places365 dataset", step_download_places365_dataset)
+        # Step 12: Download & extract mask dataset
+        execute_step(12, "Download & extract mask dataset", step_download_mask_dataset)
+        
+        # Step 13: Download & extract Places365 dataset
+        execute_step(13, "Download & extract Places365 dataset", step_download_places365_dataset)
 
-    # Step 14: Download latest model checkpoint from C2 files server
-    execute_step(14, "Restoring latest model checkpoint from files server", step_download_latest_model)
+        # Step 14: Download latest model checkpoint from C2 files server
+        execute_step(14, "Restoring latest model checkpoint from files server", step_download_latest_model)
+
+    except BaseException as e:
+        err_msg = str(e) or type(e).__name__
+        log_setup_run(start_time, "FAILED", err_msg)
+        sys.exit(1)
 
     if is_interactive:
         sys.stdout.write("\n")
@@ -785,6 +825,8 @@ def main():
     print("==========================================================")
     print("Launching training script: run_training_c2.sh")
     print("==========================================================")
+
+    log_setup_run(start_time, "SUCCESS")
 
     # Auto-launch the training script
     training_script = os.path.abspath("run_training_c2.sh")
@@ -802,7 +844,6 @@ def main():
     print(f"Running: bash {training_script} {session_name}")
     sys.stdout.flush()
     os.execv("/bin/bash", ["/bin/bash", training_script, session_name])
-    # os.execv replaces the current process — nothing below this line runs
 
 if __name__ == "__main__":
     main()

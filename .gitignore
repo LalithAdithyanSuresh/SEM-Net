@@ -18,3 +18,4 @@ src/ops_dcnv3/
 datasets/
 
 training_output.log
+setup_history.txt
