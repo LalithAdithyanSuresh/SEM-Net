@@ -163,6 +163,27 @@
     ::-webkit-scrollbar-track{background:transparent}
     ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
     ::-webkit-scrollbar-thumb:hover{background:var(--text3)}
+
+    /* ── Run History styling ──────────────────────── */
+    #history-list{
+      overflow-y:auto;height:240px;background:var(--bg2);flex-shrink:0;
+    }
+    .history-row{
+      padding:8px 14px;border-bottom:1px solid var(--border2);
+      font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.45;
+      display:flex;flex-direction:column;gap:3px;
+    }
+    .history-row:last-child{border-bottom:none}
+    .hrow-top{display:flex;justify-content:space-between;align-items:center}
+    .hrow-time{color:var(--text2);font-size:10.5px}
+    .hrow-status{
+      font-weight:600;font-size:9px;text-transform:uppercase;
+      padding:1px 5px;border-radius:3px;letter-spacing:.2px;
+    }
+    .hrow-status.success{background:rgba(63,185,80,.15);color:var(--green)}
+    .hrow-status.failed{background:rgba(248,81,73,.15);color:var(--red)}
+    .hrow-status.started{background:rgba(88,166,255,.15);color:var(--blue)}
+    .hrow-detail{font-size:9.5px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   </style>
 </head>
 <body>
@@ -206,6 +227,10 @@
       <span id="aside-counter">0 / 14</span>
     </div>
     <div id="step-list"></div>
+    <div class="aside-head" style="border-top:1px solid var(--border)">
+      <span>Run History</span>
+    </div>
+    <div id="history-list"></div>
   </aside>
 
   <main>
@@ -408,6 +433,56 @@ function render(data) {
   // ── Log panel ───────────────────────────────────
   const step = steps.find(s => s.num === selStep);
   if (step) renderLogs(step);
+
+  // ── History list ────────────────────────────────
+  const historyList = data.history || [];
+  const histEl = document.getElementById('history-list');
+  if (histEl) {
+    if (!historyList.length) {
+      histEl.innerHTML = `<div style="padding:15px;color:var(--text3);text-align:center;font-size:11px">No history logged yet</div>`;
+    } else {
+      histEl.innerHTML = [...historyList].reverse().map(line => {
+        const p = parseHistoryLine(line);
+        if (!p) {
+          return `<div class="history-row"><div class="hrow-detail">${esc(line)}</div></div>`;
+        }
+        const statusClass = p.status.toLowerCase();
+        let detailHtml = '';
+        if (p.duration) detailHtml += `Duration: ${p.duration}`;
+        if (p.error) {
+          if (detailHtml) detailHtml += ' · ';
+          detailHtml += `Error: ${p.error}`;
+        }
+        return `<div class="history-row">
+          <div class="hrow-top">
+            <span class="hrow-time">${esc(p.timestamp)}</span>
+            <span class="hrow-status ${statusClass}">${esc(p.status)}</span>
+          </div>
+          <div class="hrow-detail" title="${esc(detailHtml)}">${esc(detailHtml || 'Attempt started')}</div>
+        </div>`;
+      }).join('');
+    }
+  }
+}
+
+function parseHistoryLine(line) {
+  const match = line.match(/^\[(.*?)\]\s*Session:\s*(.*?)\s*\|\s*Status:\s*([A-Z]+)(.*?)$/);
+  if (!match) return null;
+  const timestamp = match[1];
+  const session = match[2];
+  const status = match[3];
+  const rest = match[4];
+  
+  let duration = '';
+  let error = '';
+  
+  const durMatch = rest.match(/\|\s*Duration:\s*(.*?)(?=\s*\||$)/);
+  if (durMatch) duration = durMatch[1];
+  
+  const errMatch = rest.match(/\|\s*Error:\s*(.*?)$/);
+  if (errMatch) error = errMatch[1];
+  
+  return { timestamp, session, status, duration, error };
 }
 
 function renderLogs(step) {

@@ -70,6 +70,16 @@ class StatusReporter:
         'Restoring latest model checkpoint',
     ]
 
+    def _read_history(self):
+        try:
+            if not os.path.exists("setup_history.txt"):
+                return []
+            with open("setup_history.txt", "r") as f:
+                lines = [ln.strip() for ln in f if ln.strip()]
+                return lines[-50:]
+        except Exception:
+            return []
+
     def _payload(self):
         with self._lock:
             return {
@@ -79,6 +89,7 @@ class StatusReporter:
                 'phase':      'setup',
                 'total_steps': TOTAL_STEPS,
                 'steps':      list(self.steps.values()),
+                'history':    self._read_history(),
             }
 
     def _post(self, payload):
@@ -697,6 +708,14 @@ def log_setup_run(start_time, status, error_msg=None):
             f.write(log_line)
     except Exception as e:
         sys.stderr.write(f"Failed to write to setup_history.txt: {e}\n")
+    
+    # Flush status reporter so final run state is recorded on C2
+    if _reporter:
+        try:
+            _reporter._flush()
+            time.sleep(0.5)
+        except Exception:
+            pass
 
 
 def main():
