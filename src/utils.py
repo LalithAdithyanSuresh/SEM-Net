@@ -305,13 +305,23 @@ def prepare_tmp_dir(config, tmp_dir, is_training=False, selected_images=None, ou
         else:
             files_to_copy = all_files
             
-        print(f"Copying {len(files_to_copy)} files from {src_dir} to {dst_dir}...")
+        # Pre-filter to only copy missing or size-mismatched files
+        needed_files = []
+        for src_file in files_to_copy:
+            rel_path = os.path.relpath(src_file, src_dir)
+            dst_file = os.path.join(dst_dir, rel_path)
+            if not os.path.exists(dst_file) or os.path.getsize(src_file) != os.path.getsize(dst_file):
+                needed_files.append((src_file, dst_file))
+                
+        if not needed_files:
+            print(f"All files for {dst_dir} are already present. Skipping copy.")
+            return
+            
+        print(f"Copying {len(needed_files)} missing/modified files from {src_dir} to {dst_dir}...")
         
         with ThreadPoolExecutor(max_workers=16) as copypool:
             futures = []
-            for src_file in files_to_copy:
-                rel_path = os.path.relpath(src_file, src_dir)
-                dst_file = os.path.join(dst_dir, rel_path)
+            for src_file, dst_file in needed_files:
                 futures.append(copypool.submit(copy_file_if_missing, src_file, dst_file))
             for fut in futures:
                 fut.result()

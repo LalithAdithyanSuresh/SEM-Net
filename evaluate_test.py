@@ -97,14 +97,14 @@ def index_custom_masks(mask_dir):
     return categories
 
 # ---------------- MASK LOADING (BATCHED SEQUENTIAL) ---------------- #
-def get_custom_mask(indexed_masks, cat, index, h, w, batch_size):
+def get_custom_mask(indexed_masks, cat, index, h, w, batch_size, stride=1):
     if not indexed_masks[cat]:
         return torch.zeros((batch_size, 1, h, w))
         
     mask_tensors = []
     for i in range(batch_size):
-        # Sequential selection with wrap-around
-        mask_idx = (index * batch_size + i) % len(indexed_masks[cat])
+        # Selection with stride
+        mask_idx = ((index * batch_size + i) * stride) % len(indexed_masks[cat])
         mask_path = indexed_masks[cat][mask_idx]
         mask_img = Image.open(mask_path).convert('L').resize((w, h), Image.NEAREST)
         mask_tensor = torchvision.transforms.functional.to_tensor(mask_img).float()
@@ -327,7 +327,8 @@ def main():
 
             images = images.to(config.DEVICE)
             h, w = images.shape[2], images.shape[3]
-            masks = get_custom_mask(indexed_masks, cat, index, h, w, curr_batch_size).to(config.DEVICE)
+            stride = 2 if len(test_dataset) == 2000 else 1
+            masks = get_custom_mask(indexed_masks, cat, index, h, w, curr_batch_size, stride=stride).to(config.DEVICE)
 
             with torch.no_grad():
                 outputs_img = model(images, masks)
