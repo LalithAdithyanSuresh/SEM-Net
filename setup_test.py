@@ -377,13 +377,24 @@ def step_download_places365_test_dataset():
     dest_dir = os.path.join("datasets", "places365")
     test_dir = os.path.join(dest_dir, "test_256")
     if os.path.exists(test_dir) and os.path.isdir(test_dir) and len(os.listdir(test_dir)) > 0:
-        print("Places365 test dataset already exists. Skipping download.")
+        print("Places365 test dataset already exists. Skipping download/extraction.")
         return
         
-    url = "http://data.csail.mit.edu/places/places365/test_256.tar"
+    local_tar_root = "test_256.tar"
     archive_path = os.path.join("datasets", "test_256.tar")
     
-    download_file(url, archive_path)
+    if os.path.exists(local_tar_root):
+        print(f"Found local test_256.tar in repository root. Moving it to {archive_path}...")
+        os.makedirs("datasets", exist_ok=True)
+        try:
+            shutil.move(local_tar_root, archive_path)
+        except Exception as e:
+            print(f"WARNING: Failed to move local test_256.tar: {e}. Attempting download fallback...")
+    
+    if not os.path.exists(archive_path):
+        url = "http://data.csail.mit.edu/places/places365/test_256.tar"
+        download_file(url, archive_path)
+        
     extract_tar(archive_path, dest_dir)
     
     if os.path.exists(archive_path):
@@ -395,9 +406,46 @@ def step_download_latest_model():
     files_url = os.environ.get("FILES_SERVER_URL", "https://files.lalithadithyan.dev")
     session   = os.environ.get("C2_SESSION", "Places")
     run_path  = "./PlacesTraining"
+    os.makedirs(run_path, exist_ok=True)
 
     gen_dest = os.path.join(run_path, "InpaintingModel_gen.pth")
     dis_dest = os.path.join(run_path, "InpaintingModel_dis.pth")
+
+    # ── Check if there are local checkpoint files in the root directory ──────
+    import glob
+    import re
+    
+    local_gens = glob.glob("*_InpaintingModel_gen.pth")
+    local_dics = glob.glob("*_InpaintingModel_dis.pth")
+    
+    if local_gens:
+        gen_files_parsed = []
+        for f in local_gens:
+            m = re.match(r'^(\d+)_InpaintingModel_gen\.pth$', f)
+            if m:
+                gen_files_parsed.append((int(m.group(1)), f))
+        if gen_files_parsed:
+            best_iter, best_gen_name = max(gen_files_parsed, key=lambda x: x[0])
+            print(f"Found local generator checkpoint in root: {best_gen_name}")
+            shutil.copy(best_gen_name, gen_dest)
+            
+            dis_name = f"{best_iter:09d}_InpaintingModel_dis.pth"
+            if os.path.exists(dis_name):
+                print(f"Found matching local discriminator checkpoint in root: {dis_name}")
+                shutil.copy(dis_name, dis_dest)
+            elif local_dics:
+                dis_files_parsed = []
+                for f in local_dics:
+                    m = re.match(r'^(\d+)_InpaintingModel_dis\.pth$', f)
+                    if m:
+                        dis_files_parsed.append((int(m.group(1)), f))
+                if dis_files_parsed:
+                    _, best_dis_name = max(dis_files_parsed, key=lambda x: x[0])
+                    print(f"Found local discriminator checkpoint in root: {best_dis_name}")
+                    shutil.copy(best_dis_name, dis_dest)
+            
+            print(f"[OK] Local model checkpoints restored to {run_path}/ (iteration {best_iter:,})")
+            return
 
     list_url = f"{files_url}/api/models?session={session}"
     print(f"Fetching model listing from: {list_url}")
@@ -424,7 +472,6 @@ def step_download_latest_model():
         print(f"No checkpoint files found on server for session '{session}'. Starting fresh.")
         return
 
-    import re
     gen_files = [(int(m.group(1)), f) for f in file_list
                  for m in [re.match(r'^(\d{9})_InpaintingModel_gen\.pth$', f)] if m]
     dis_files = [(int(m.group(1)), f) for f in file_list
@@ -451,8 +498,6 @@ def step_download_latest_model():
     print(f"Latest checkpoint pair found at iteration {best_iter_gen:,}:")
     print(f"  gen -> {best_gen_name}")
     print(f"  dis -> {best_dis_name}")
-
-    os.makedirs(run_path, exist_ok=True)
 
     gen_url = f"{files_url}/download/{best_gen_name}"
     print(f"Downloading generator checkpoint...")
