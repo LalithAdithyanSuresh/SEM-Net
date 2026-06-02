@@ -182,7 +182,14 @@ def main():
 
     test_dataset = Dataset(config, config.TEST_INPAINT_IMAGE_FLIST, config.TEST_MASK_FLIST,
                            augment=False, training=False)
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
+    # Speedup: Use parallel dataloading with multiple worker threads and pinned memory
+    test_loader = DataLoader(
+        test_dataset, 
+        batch_size=args.batch_size, 
+        shuffle=False,
+        num_workers=4,
+        pin_memory=True
+    )
 
     # Index Custom Masks
     mask_dir = "datasets/testing_mask_dataset"
@@ -247,35 +254,62 @@ def main():
 
                 # --- IMAGE SAVING ---
                 gt_img_pil = Image.fromarray(postprocess(images[i:i+1])[0].cpu().numpy().astype(np.uint8))
-                
-                # 1. GT + Mask
-                masked_input = (images[i:i+1] * (1 - masks[i:i+1])) + masks[i:i+1]
-                gt_mask_pil = Image.fromarray(postprocess(masked_input)[0].cpu().numpy().astype(np.uint8))
-                
-                # 2. Mamba Path
-                path_pil = get_mamba_path_image(model, gt_img_pil)
-                
-                # 3. Predicted (Raw)
-                pred_raw_pil = Image.fromarray(postprocess(outputs_img[i:i+1])[0].cpu().numpy().astype(np.uint8))
-                
-                # 4. Merged (Composite)
                 pred_merged_pil = Image.fromarray(postprocess(outputs_merged[i:i+1])[0].cpu().numpy().astype(np.uint8))
                 
-                # Concatenate
-                grid = Image.new('RGB', (w * 5, h))
-                grid.paste(gt_img_pil, (0, 0))
-                grid.paste(gt_mask_pil, (w, 0))
-                grid.paste(path_pil, (w * 2, 0))
-                grid.paste(pred_raw_pil, (w * 3, 0))
-                grid.paste(pred_merged_pil, (w * 4, 0))
-                
-                # save_name uses Full Image PSNR
-                save_name = f"{cat}_{file_name.split('.')[0]}_{psnr:.2f}.png"
-                grid.save(os.path.join(visuals_dir, cat, save_name))
+                # Save essential FID images (use compress_level=1 for 4x faster PNG saving)
+                gt_img_pil.save(os.path.join(fid_real_dirs[cat], file_name), compress_level=1)
+                pred_merged_pil.save(os.path.join(fid_fake_dirs[cat], file_name), compress_level=1)
 
-                # save for FID
-                gt_img_pil.save(os.path.join(fid_real_dirs[cat], file_name))
-                pred_merged_pil.save(os.path.join(fid_fake_dirs[cat], file_name))
+                # Save 5-image grid visuals.
+                # For first 100 images, save a high-quality full resolution grid with Matplotlib path visualization.
+                if global_idx < 100:
+                    # 1. GT + Mask
+                    masked_input = (images[i:i+1] * (1 - masks[i:i+1])) + masks[i:i+1]
+                    gt_mask_pil = Image.fromarray(postprocess(masked_input)[0].cpu().numpy().astype(np.uint8))
+                    
+                    # 2. Mamba Path
+                    path_pil = get_mamba_path_image(model, gt_img_pil)
+                    
+                    # 3. Predicted (Raw)
+                    pred_raw_pil = Image.fromarray(postprocess(outputs_img[i:i+1])[0].cpu().numpy().astype(np.uint8))
+                    
+                    # Concatenate
+                    grid = Image.new('RGB', (w * 5, h))
+                    grid.paste(gt_img_pil, (0, 0))
+                    grid.paste(gt_mask_pil, (w, 0))
+                    grid.paste(path_pil, (w * 2, 0))
+                    grid.paste(pred_raw_pil, (w * 3, 0))
+                    grid.paste(pred_merged_pil, (w * 4, 0))
+                    
+                    save_name = f"{cat}_{file_name.split('.')[0]}_{psnr:.2f}.png"
+                    grid.save(os.path.join(visuals_dir, cat, save_name), compress_level=1)
+                else:
+                    # For index >= 100, save a tiny 320x64 grid to keep the web monitor script counting, but run at lightning speed.
+                    # Bypasses slow matplotlib and CPU-heavy full-res PNG writes.
+                    masked_input = (images[i:i+1] * (1 - masks[i:i+1])) + masks[i:i+1]
+                    gt_mask_pil = Image.fromarray(postprocess(masked_input)[0].cpu().numpy().astype(np.uint8))
+                    pred_raw_pil = Image.fromarray(postprocess(outputs_img[i:i+1])[0].cpu().numpy().astype(np.uint8))
+                    
+                    # Bypass matplotlib by using the original image as a path placeholder
+                    path_pil = gt_img_pil
+                    
+                    # Resize to 64x64
+                    w_small, h_small = 64, 64
+                    gt_small = gt_img_pil.resize((w_small, h_small), Image.NEAREST)
+                    mask_small = gt_mask_pil.resize((w_small, h_small), Image.NEAREST)
+                    path_small = path_pil.resize((w_small, h_small), Image.NEAREST)
+                    raw_small = pred_raw_pil.resize((w_small, h_small), Image.NEAREST)
+                    merged_small = pred_merged_pil.resize((w_small, h_small), Image.NEAREST)
+                    
+                    grid = Image.new('RGB', (w_small * 5, h_small))
+                    grid.paste(gt_small, (0, 0))
+                    grid.paste(mask_small, (w_small, 0))
+                    grid.paste(path_small, (w_small * 2, 0))
+                    grid.paste(raw_small, (w_small * 3, 0))
+                    grid.paste(merged_small, (w_small * 4, 0))
+                    
+                    save_name = f"{cat}_{file_name.split('.')[0]}_{psnr:.2f}.png"
+                    grid.save(os.path.join(visuals_dir, cat, save_name), compress_level=1)
 
         # Save CSV for this category immediately after its loop finishes
         csv_path = os.path.join(args.output, f'metrics_{cat}.csv')
