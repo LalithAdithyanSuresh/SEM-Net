@@ -2,6 +2,7 @@ import os
 import argparse
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from src.config import Config
@@ -25,11 +26,14 @@ import io
 def get_mamba_path_image(model, gt_pil):
     """Extracts scan order from model and draws it over the GT image."""
     try:
-        # Hijack the last scan orders from encoder 1
-        if hasattr(model.generator, 'module'):
-            layer = model.generator.module.encoder_level1[0].attn
+        # Resolve DataParallel wrapper if present
+        curr_model = model.module if hasattr(model, 'module') else model
+        generator = curr_model.generator
+        
+        if hasattr(generator, 'module'):
+            layer = generator.module.encoder_level1[0].attn
         else:
-            layer = model.generator.encoder_level1[0].attn
+            layer = generator.encoder_level1[0].attn
             
         scan_tensor = getattr(layer, 'last_scan_orders', None)
         if scan_tensor is None:
@@ -90,16 +94,21 @@ def index_custom_masks(mask_dir):
     print(f"Index complete: SMALL({len(categories['SMALL'])}), MEDIUM({len(categories['MEDIUM'])}), LARGE({len(categories['LARGE'])})")
     return categories
 
-# ---------------- MASK LOADING (SEQUENTIAL) ---------------- #
-def get_custom_mask(indexed_masks, cat, index, h, w):
+# ---------------- MASK LOADING (BATCHED SEQUENTIAL) ---------------- #
+def get_custom_mask(indexed_masks, cat, index, h, w, batch_size):
     if not indexed_masks[cat]:
-        return torch.zeros((1, 1, h, w))
+        return torch.zeros((batch_size, 1, h, w))
         
-    # Sequential selection: loop back if the mask index exceeds the number of available masks
-    mask_path = indexed_masks[cat][index % len(indexed_masks[cat])]
-    mask_img = Image.open(mask_path).convert('L').resize((w, h), Image.NEAREST)
-    mask_tensor = torchvision.transforms.functional.to_tensor(mask_img).float()
-    return mask_tensor.unsqueeze(0)
+    mask_tensors = []
+    for i in range(batch_size):
+        # Sequential selection with wrap-around
+        mask_idx = (index * batch_size + i) % len(indexed_masks[cat])
+        mask_path = indexed_masks[cat][mask_idx]
+        mask_img = Image.open(mask_path).convert('L').resize((w, h), Image.NEAREST)
+        mask_tensor = torchvision.transforms.functional.to_tensor(mask_img).float()
+        mask_tensors.append(mask_tensor)
+        
+    return torch.stack(mask_tensors)
 
 
 # ---------------- POSTPROCESS ---------------- #
@@ -134,6 +143,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--path', type=str, default='./PlacesTraining')
     parser.add_argument('--output', type=str, default='./evaluation_results_test')
+    parser.add_argument('--batch-size', type=int, default=1, help='batch size for evaluation')
+    parser.add_argument('--input-size', type=int, default=None, help='override input image size')
     args = parser.parse_args()
 
     config = Config(os.path.join(args.path, 'config.yml'))
@@ -141,6 +152,15 @@ def main():
     config.MODE = 2
     config.MODEL = 2
     config.DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    config.WORLD_SIZE = 1
+    
+    if args.input_size is not None:
+        config.INPUT_SIZE = args.input_size
+        
+    print(f"Evaluation Configurations:")
+    print(f"  - Image size: {config.INPUT_SIZE}x{config.INPUT_SIZE}")
+    print(f"  - Batch size: {args.batch_size}")
+    print(f"  - GPUs: {config.GPU if hasattr(config, 'GPU') else 'CPU'}")
     
     # Set relative dataset paths for Places365 testing
     config.TEST_INPAINT_IMAGE_FLIST = "datasets/places365/test_256"
@@ -153,11 +173,16 @@ def main():
     # Model
     model = InpaintingModel(config).to(config.DEVICE)
     model.load()
+    
+    if hasattr(config, 'GPU') and len(config.GPU) > 1:
+        print(f"Wrapping model with DataParallel on GPUs: {config.GPU}")
+        model = nn.DataParallel(model, device_ids=config.GPU)
+        
     model.eval()
 
     test_dataset = Dataset(config, config.TEST_INPAINT_IMAGE_FLIST, config.TEST_MASK_FLIST,
                            augment=False, training=False)
-    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
 
     # Index Custom Masks
     mask_dir = "datasets/testing_mask_dataset"
@@ -191,65 +216,66 @@ def main():
         for index, items in enumerate(test_loader):
             images, _ = items
             images = images.to(config.DEVICE)
+            curr_batch_size = images.shape[0]
 
             h, w = images.shape[2], images.shape[3]
-            masks = get_custom_mask(indexed_masks, cat, index, h, w).to(config.DEVICE)
+            masks = get_custom_mask(indexed_masks, cat, index, h, w, curr_batch_size).to(config.DEVICE)
 
             with torch.no_grad():
                 outputs_img = model(images, masks)
 
             outputs_merged = (outputs_img * masks) + (images * (1 - masks))
 
-            # -------- METRICS (Full Image Focus) -------- #
-            psnr, ssim = calc_psnr_ssim(images, outputs_merged)
-            
-            # Adopted from MISF: standard L1 loss on merged result
-            l1_val = torch.nn.functional.l1_loss(outputs_merged, images, reduction='mean').item()
+            # -------- METRICS & IMAGE SAVING -------- #
+            for i in range(curr_batch_size):
+                global_idx = index * args.batch_size + i
+                file_name = test_dataset.load_name(global_idx)
 
-            lpips_val = loss_fn_vgg(
-                normalize_lpips(outputs_merged),
-                normalize_lpips(images)
-            ).item()
+                psnr, ssim = calc_psnr_ssim(images[i:i+1], outputs_merged[i:i+1])
+                l1_val = torch.nn.functional.l1_loss(outputs_merged[i:i+1], images[i:i+1], reduction='mean').item()
 
-            file_name = test_dataset.load_name(index)
+                lpips_val = loss_fn_vgg(
+                    normalize_lpips(outputs_merged[i:i+1]),
+                    normalize_lpips(images[i:i+1])
+                ).item()
 
-            stats[cat]['name'].append(file_name)
-            stats[cat]['psnr'].append(psnr)
-            stats[cat]['ssim'].append(ssim)
-            stats[cat]['l1'].append(l1_val)
-            stats[cat]['lpips'].append(lpips_val)
+                stats[cat]['name'].append(file_name)
+                stats[cat]['psnr'].append(psnr)
+                stats[cat]['ssim'].append(ssim)
+                stats[cat]['l1'].append(l1_val)
+                stats[cat]['lpips'].append(lpips_val)
 
-            # --- IMAGE SAVING ---
-            gt_img_pil = Image.fromarray(postprocess(images)[0].cpu().numpy().astype(np.uint8))
-            
-            # 1. GT + Mask
-            masked_input = (images * (1 - masks)) + masks
-            gt_mask_pil = Image.fromarray(postprocess(masked_input)[0].cpu().numpy().astype(np.uint8))
-            
-            # 2. Mamba Path
-            path_pil = get_mamba_path_image(model, gt_img_pil)
-            
-            # 3. Predicted (Raw)
-            pred_raw_pil = Image.fromarray(postprocess(outputs_img)[0].cpu().numpy().astype(np.uint8))
-            
-            # 4. Merged (Composite)
-            pred_merged_pil = Image.fromarray(postprocess(outputs_merged)[0].cpu().numpy().astype(np.uint8))
-            
-            # Concatenate
-            grid = Image.new('RGB', (w * 5, h))
-            grid.paste(gt_img_pil, (0, 0))
-            grid.paste(gt_mask_pil, (w, 0))
-            grid.paste(path_pil, (w * 2, 0))
-            grid.paste(pred_raw_pil, (w * 3, 0))
-            grid.paste(pred_merged_pil, (w * 4, 0))
-            
-            # save_name uses Full Image PSNR
-            save_name = f"{cat}_{file_name.split('.')[0]}_{psnr:.2f}.png"
-            grid.save(os.path.join(visuals_dir, cat, save_name))
+                # --- IMAGE SAVING ---
+                gt_img_pil = Image.fromarray(postprocess(images[i:i+1])[0].cpu().numpy().astype(np.uint8))
+                
+                # 1. GT + Mask
+                masked_input = (images[i:i+1] * (1 - masks[i:i+1])) + masks[i:i+1]
+                gt_mask_pil = Image.fromarray(postprocess(masked_input)[0].cpu().numpy().astype(np.uint8))
+                
+                # 2. Mamba Path
+                path_pil = get_mamba_path_image(model, gt_img_pil)
+                
+                # 3. Predicted (Raw)
+                pred_raw_pil = Image.fromarray(postprocess(outputs_img[i:i+1])[0].cpu().numpy().astype(np.uint8))
+                
+                # 4. Merged (Composite)
+                pred_merged_pil = Image.fromarray(postprocess(outputs_merged[i:i+1])[0].cpu().numpy().astype(np.uint8))
+                
+                # Concatenate
+                grid = Image.new('RGB', (w * 5, h))
+                grid.paste(gt_img_pil, (0, 0))
+                grid.paste(gt_mask_pil, (w, 0))
+                grid.paste(path_pil, (w * 2, 0))
+                grid.paste(pred_raw_pil, (w * 3, 0))
+                grid.paste(pred_merged_pil, (w * 4, 0))
+                
+                # save_name uses Full Image PSNR
+                save_name = f"{cat}_{file_name.split('.')[0]}_{psnr:.2f}.png"
+                grid.save(os.path.join(visuals_dir, cat, save_name))
 
-            # save for FID
-            gt_img_pil.save(os.path.join(fid_real_dirs[cat], file_name))
-            pred_merged_pil.save(os.path.join(fid_fake_dirs[cat], file_name))
+                # save for FID
+                gt_img_pil.save(os.path.join(fid_real_dirs[cat], file_name))
+                pred_merged_pil.save(os.path.join(fid_fake_dirs[cat], file_name))
 
         # Save CSV for this category immediately after its loop finishes
         csv_path = os.path.join(args.output, f'metrics_{cat}.csv')
