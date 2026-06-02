@@ -53,19 +53,32 @@ def get_stats():
             all_data.append(entry)
             psnr_series.append(psnr)
 
-    # Calculate average time per image (based on last 30 files for accuracy)
-    time_deltas = []
-    sorted_by_time = sorted(all_data, key=lambda x: x['time'])
-    if len(sorted_by_time) > 1:
-        # Look at last 30 intervals
-        recent_data = sorted_by_time[-31:]
-        for i in range(1, len(recent_data)):
-            delta = recent_data[i]['time'] - recent_data[i-1]['time']
-            # Filter out deltas larger than 2 minutes (assuming gaps in evaluation)
+    # Calculate average time per image by grouping file writes into batches
+    avg_time = 0.0
+    sorted_times = sorted([x['time'] for x in all_data])
+    if len(sorted_times) > 1:
+        batch_completions = []
+        last_t = sorted_times[0]
+        curr_count = 1
+        
+        for t in sorted_times[1:]:
+            if t - last_t > 5.0: # New batch detected (gap larger than 5s)
+                batch_completions.append((last_t, curr_count))
+                curr_count = 1
+            else:
+                curr_count += 1
+            last_t = t
+        batch_completions.append((last_t, curr_count))
+        
+        batch_deltas = []
+        # Calculate time delta between consecutive batches divided by batch size
+        for i in range(1, len(batch_completions)):
+            delta = batch_completions[i][0] - batch_completions[i-1][0]
+            # Ignore gaps where delta is too large (paused or restarted)
             if delta < 120:
-                time_deltas.append(delta)
-    
-    avg_time = round(sum(time_deltas) / len(time_deltas), 2) if time_deltas else 0
+                batch_deltas.append(delta / batch_completions[i][1])
+                
+        avg_time = round(sum(batch_deltas) / len(batch_deltas), 3) if batch_deltas else 0.0
 
     # Calculate averages
     for cat in ['SMALL', 'MEDIUM', 'LARGE', 'OTHER']:

@@ -155,6 +155,7 @@ def main():
     parser.add_argument('--output', type=str, default='./evaluation_results_test')
     parser.add_argument('--batch-size', type=int, default=1, help='batch size for evaluation')
     parser.add_argument('--input-size', type=int, default=None, help='override input image size')
+    parser.add_argument('--num-images', type=int, default=None, help='limit evaluation to first N images')
     args = parser.parse_args()
 
     config = Config(os.path.join(args.path, 'config.yml'))
@@ -170,6 +171,7 @@ def main():
     print(f"Evaluation Configurations:")
     print(f"  - Image size: {config.INPUT_SIZE}x{config.INPUT_SIZE}")
     print(f"  - Batch size: {args.batch_size}")
+    print(f"  - Limit images: {args.num_images if args.num_images is not None else 'All'}")
     print(f"  - GPUs: {config.GPU if hasattr(config, 'GPU') else 'CPU'}")
     
     # Set relative dataset paths for Places365 testing
@@ -192,6 +194,14 @@ def main():
 
     test_dataset = Dataset(config, config.TEST_INPAINT_IMAGE_FLIST, config.TEST_MASK_FLIST,
                            augment=False, training=False)
+    if args.num_images is not None:
+        num_total = len(test_dataset.data)
+        if num_total > args.num_images:
+            indices = np.linspace(0, num_total - 1, args.num_images, dtype=int).tolist()
+            test_dataset.data = [test_dataset.data[idx] for idx in indices]
+            print(f"Dataset limited to {len(test_dataset)} evenly spaced images sampled from the total {num_total}.")
+        else:
+            print(f"Dataset has {num_total} images (fewer than requested limit of {args.num_images}). Using all images.")
     # Speedup: Use parallel dataloading with multiple worker threads and pinned memory
     test_loader = DataLoader(
         test_dataset, 
