@@ -17,6 +17,7 @@ from PIL import Image
 from cleanfid import fid
 from scipy import linalg
 import csv
+import time
 import requests
 
 def send_notification(message):
@@ -308,8 +309,33 @@ def main():
     # Initialize ThreadPoolExecutor for asynchronous file writes
     executor = ThreadPoolExecutor(max_workers=8)
 
+    # Calculate remaining images across all categories to compute ETA
+    remaining_images = {}
+    for cat in categories:
+        csv_path = os.path.join(args.output, f'metrics_{cat}.csv')
+        completed_count = 0
+        if os.path.exists(csv_path):
+            try:
+                with open(csv_path, 'r') as f:
+                    reader = csv.reader(f)
+                    rows = list(reader)
+                has_average = any(r and r[0] == 'AVERAGE' for r in rows)
+                if has_average:
+                    completed_count = len(test_dataset)
+                else:
+                    for r in rows[1:]:
+                        if r and len(r) >= 5 and r[0].strip() and r[0] != 'Image' and r[0] != 'AVERAGE':
+                            completed_count += 1
+            except Exception:
+                pass
+        remaining_images[cat] = max(0, len(test_dataset) - completed_count)
+    
+    total_initial_remaining = sum(remaining_images.values())
+    run_start_time = time.time()
+    run_processed_count = 0
+
     # Send evaluation starting notification
-    send_notification("🚀 Evaluation started for SEM-Net!")
+    send_notification(f"SEM-Net: Eval started. Remaining: {total_initial_remaining}")
 
     # ---------------- LOOP ---------------- #
     for cat in categories:
@@ -473,6 +499,8 @@ def main():
                         save_name = f"{cat}_{file_name.split('.')[0]}_{psnr:.2f}.png"
                         futures.append(executor.submit(save_task, os.path.join(visuals_dir, cat, save_name), grid))
 
+            run_processed_count += len(indices_to_evaluate)
+
             # Milestone Notification Check
             current_count = len(stats[cat]['psnr'])
             current_milestone = current_count // 2000
@@ -487,7 +515,15 @@ def main():
                 
             if should_notify:
                 avg_psnr = np.mean(stats[cat]['psnr'])
-                send_notification(f"📊 [{cat}] Processed {current_count} images. Current Avg PSNR: {avg_psnr:.4f}")
+                elapsed = time.time() - run_start_time
+                if run_processed_count > 0:
+                    img_per_sec = run_processed_count / elapsed
+                    remaining_images_run = max(0, total_initial_remaining - run_processed_count)
+                    remaining_time_sec = remaining_images_run / img_per_sec
+                    eta_str = time.strftime("%H:%M:%S", time.gmtime(remaining_time_sec))
+                else:
+                    eta_str = "Calculating..."
+                send_notification(f"[{cat}] {current_count}/{len(test_dataset)} | PSNR: {avg_psnr:.2f} | ETA: {eta_str}")
 
             # Periodic Incremental Save: Write the current state of metrics to the CSV after every batch
             if len(stats[cat]['name']) > 0:
@@ -553,10 +589,8 @@ def main():
         avg_ssim = np.mean(stats[cat]['ssim'])
         avg_lpips = np.mean(stats[cat]['lpips'])
         cat_message = (
-            f"✅ [{cat}] Done!\n"
-            f"Total Images: {len(stats[cat]['name'])}\n"
-            f"PSNR: {avg_psnr:.4f} | SSIM: {avg_ssim:.4f} | LPIPS: {avg_lpips:.4f}\n"
-            f"{fid_str}"
+            f"[{cat}] Done.\n"
+            f"PSNR: {avg_psnr:.2f} | SSIM: {avg_ssim:.3f} | LPIPS: {avg_lpips:.3f} | {fid_str}"
         )
         send_notification(cat_message)
 
@@ -564,15 +598,14 @@ def main():
     executor.shutdown(wait=True)
     print("Evaluation complete!")
     
-    # Final summary notification
-    final_summary = "🎉 All evaluation categories complete!\n\n"
+    final_summary = "SEM-Net: All categories complete.\n"
     for c in categories:
         if stats[c]['psnr']:
             avg_psnr = np.mean(stats[c]['psnr'])
             avg_ssim = np.mean(stats[c]['ssim'])
-            final_summary += f"📍 {c}: PSNR = {avg_psnr:.4f} | SSIM = {avg_ssim:.4f}\n"
+            final_summary += f"{c}: PSNR {avg_psnr:.2f}, SSIM {avg_ssim:.3f}\n"
         else:
-            final_summary += f"📍 {c}: (No data)\n"
+            final_summary += f"{c}: No data\n"
     send_notification(final_summary)
 
 if __name__ == '__main__':
