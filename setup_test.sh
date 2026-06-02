@@ -22,8 +22,11 @@ if [ -z "$STY" ]; then
     echo "  To reattach later: screen -r $SCREEN_NAME"
     echo ""
 
+    # Resolve absolute path of this script so screen can find it regardless of directory
+    SCRIPT_PATH=$(realpath "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")
+
     # Re-exec this script inside a new detached screen, then immediately attach
-    screen -dmS "$SCREEN_NAME" bash "$0" "$@"
+    screen -dmS "$SCREEN_NAME" bash "$SCRIPT_PATH" "$@"
     sleep 0.5
     exec screen -r "$SCREEN_NAME"
     # exec replaces the current shell — nothing below this runs outside the screen

@@ -73,7 +73,20 @@ def step_verify_workspace():
 def step_setup_cuda():
     cuda_dir = "/usr/local/cuda-12.4"
     if not os.path.exists(cuda_dir):
-        raise RuntimeError(f"CUDA 12.4 Toolkit directory not found at {cuda_dir}.")
+        if os.path.exists("/usr/local/cuda"):
+            cuda_dir = "/usr/local/cuda"
+        else:
+            nvcc_path = shutil.which("nvcc")
+            if nvcc_path:
+                cuda_dir = os.path.dirname(os.path.dirname(nvcc_path))
+            else:
+                import glob
+                cuda_paths = glob.glob("/usr/local/cuda-*")
+                if cuda_paths:
+                    cuda_paths.sort()
+                    cuda_dir = cuda_paths[-1]
+                else:
+                    raise RuntimeError("CUDA Toolkit directory not found. Please set CUDA_HOME environment variable manually.")
         
     print(f"Configuring environment to use CUDA Toolkit: {cuda_dir}")
     os.environ["CUDA_HOME"] = cuda_dir
@@ -82,9 +95,16 @@ def step_setup_cuda():
     os.environ["MAX_JOBS"] = "1"
     os.environ["PIP_NO_CACHE_DIR"] = "1"
     os.environ["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
-    os.environ["PIP_CACHE_DIR"] = "/tmp/cks/pip_cache"
-    os.environ["TORCH_HOME"] = "/tmp/cks/torch_cache"
-    os.environ["MPLCONFIGDIR"] = "/tmp/cks/matplotlib_cache"
+    
+    try:
+        import getpass
+        username = getpass.getuser()
+    except Exception:
+        username = "semnet_user"
+        
+    os.environ["PIP_CACHE_DIR"] = f"/tmp/{username}/pip_cache"
+    os.environ["TORCH_HOME"] = f"/tmp/{username}/torch_cache"
+    os.environ["MPLCONFIGDIR"] = f"/tmp/{username}/matplotlib_cache"
     
     # Prepend virtual environment path to PATH if venv already exists
     venv_bin = os.path.abspath("venv/bin")
@@ -99,6 +119,7 @@ def step_setup_cuda():
                 break
     except Exception as e:
         print(f"WARNING: 'nvcc' not found or failed: {e}. Compilation might fail.")
+
 
 def step_create_venv():
     if os.path.exists("venv"):
