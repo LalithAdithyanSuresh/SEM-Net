@@ -308,6 +308,9 @@ def main():
     # Initialize ThreadPoolExecutor for asynchronous file writes
     executor = ThreadPoolExecutor(max_workers=8)
 
+    # Send evaluation starting notification
+    send_notification("🚀 Evaluation started for SEM-Net!")
+
     # ---------------- LOOP ---------------- #
     for cat in categories:
         csv_path = os.path.join(args.output, f'metrics_{cat}.csv')
