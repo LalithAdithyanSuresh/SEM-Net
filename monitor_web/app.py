@@ -75,7 +75,7 @@ def get_stats():
             stats[cat]['avg_psnr'] = 0
 
     # Calculate ETA
-    TOTAL_TARGET = 6000
+    TOTAL_TARGET = 316000
     remaining = max(0, TOTAL_TARGET - len(all_data))
     eta_seconds = remaining * avg_time
     
