@@ -15,7 +15,45 @@ import lpips
 import torchvision
 from PIL import Image
 from cleanfid import fid
+from scipy import linalg
 import csv
+import requests
+
+def send_notification(message):
+    try:
+        topic = "camino-places-eval-2006"
+        requests.post(f"https://ntfy.sh/{topic}", data=message.encode(encoding='utf-8'), timeout=5)
+        print(f"Sent push notification: {message}")
+    except Exception as e:
+        print(f"Failed to send push notification: {e}")
+
+# --- PATCH CLEANFID FRECHET DISTANCE ---
+# cleanfid throws ValueError on small imaginary components due to numerical instability.
+def robust_frechet_distance(mu1, sigma1, mu2, sigma2, eps=1e-6):
+    mu1 = np.atleast_1d(mu1)
+    mu2 = np.atleast_1d(mu2)
+    sigma1 = np.atleast_2d(sigma1)
+    sigma2 = np.atleast_2d(sigma2)
+    
+    diff = mu1 - mu2
+    covmean, _ = linalg.sqrtm(sigma1.dot(sigma2), disp=False)
+    
+    if not np.isfinite(covmean).all():
+        offset = np.eye(sigma1.shape[0]) * eps
+        covmean = linalg.sqrtm((sigma1 + offset).dot(sigma2 + offset))
+        
+    if np.iscomplexobj(covmean):
+        m = np.max(np.abs(covmean.imag))
+        if m > 1e-3:
+            print(f"Warning: Imaginary component {m} found in FID calculation. Taking real part.")
+        covmean = covmean.real
+        
+    tr_covmean = np.trace(covmean)
+    return (diff.dot(diff) + np.trace(sigma1) + np.trace(sigma2) - 2 * tr_covmean)
+
+fid.frechet_distance = robust_frechet_distance
+# ---------------------------------------
+
 import random
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -157,6 +195,7 @@ def main():
     parser.add_argument('--input-size', type=int, default=None, help='override input image size')
     parser.add_argument('--num-images', type=int, default=None, help='limit evaluation to first N images')
     parser.add_argument('--tmp-dir', type=str, default=None, help='use fast local storage directory for inputs, masks, and outputs')
+    parser.add_argument('--fast-metrics-only', action='store_true', help='Skip image saving and FID calculation for max speed')
     args = parser.parse_args()
 
     config = Config(os.path.join(args.path, 'config.yml'))
@@ -256,14 +295,15 @@ def main():
 
     create_dir(args.output)
 
-    fid_real_dirs = {cat: os.path.join(args.output, f'fid_real_{cat}') for cat in categories}
-    fid_fake_dirs = {cat: os.path.join(args.output, f'fid_fake_{cat}') for cat in categories}
-    visuals_dir = os.path.join(args.output, '5_image_grid')
+    if not args.fast_metrics_only:
+        fid_real_dirs = {cat: os.path.join(args.output, f'fid_real_{cat}') for cat in categories}
+        fid_fake_dirs = {cat: os.path.join(args.output, f'fid_fake_{cat}') for cat in categories}
+        visuals_dir = os.path.join(args.output, '5_image_grid')
 
-    for cat in categories:
-        create_dir(fid_real_dirs[cat])
-        create_dir(fid_fake_dirs[cat])
-        create_dir(os.path.join(visuals_dir, cat))
+        for cat in categories:
+            create_dir(fid_real_dirs[cat])
+            create_dir(fid_fake_dirs[cat])
+            create_dir(os.path.join(visuals_dir, cat))
 
     # Initialize ThreadPoolExecutor for asynchronous file writes
     executor = ThreadPoolExecutor(max_workers=8)
@@ -289,6 +329,15 @@ def main():
                         
                 if has_average:
                     print(f"\nCategory {cat} is already fully completed. Skipping.")
+                    for r in rows:
+                        if r and r[0] == 'AVERAGE':
+                            try:
+                                stats[cat]['psnr'] = [float(r[1])]
+                                stats[cat]['ssim'] = [float(r[2])]
+                                stats[cat]['l1'] = [float(r[3])]
+                                stats[cat]['lpips'] = [float(r[4])]
+                            except Exception:
+                                pass
                     continue
                 else:
                     # Parse partially completed rows
@@ -310,6 +359,8 @@ def main():
 
         print(f"\nEvaluating {cat}")
         futures = []
+        last_notified_milestone = len(stats[cat]['psnr']) // 2000
+
 
         for index, items in enumerate(test_loader):
             images, _ = items
@@ -360,63 +411,80 @@ def main():
                 completed_images.add(file_name)
 
                 # --- IMAGE SAVING ---
-                gt_img_pil = Image.fromarray(postprocess(images[i:i+1])[0].cpu().numpy().astype(np.uint8))
-                pred_merged_pil = Image.fromarray(postprocess(outputs_merged[i:i+1])[0].cpu().numpy().astype(np.uint8))
-                
-                # Asynchronously save essential FID images
-                futures.append(executor.submit(save_task, os.path.join(fid_real_dirs[cat], file_name), gt_img_pil))
-                futures.append(executor.submit(save_task, os.path.join(fid_fake_dirs[cat], file_name), pred_merged_pil))
+                if not args.fast_metrics_only:
+                    gt_img_pil = Image.fromarray(postprocess(images[i:i+1])[0].cpu().numpy().astype(np.uint8))
+                    pred_merged_pil = Image.fromarray(postprocess(outputs_merged[i:i+1])[0].cpu().numpy().astype(np.uint8))
+                    
+                    # Asynchronously save essential FID images
+                    futures.append(executor.submit(save_task, os.path.join(fid_real_dirs[cat], file_name), gt_img_pil))
+                    futures.append(executor.submit(save_task, os.path.join(fid_fake_dirs[cat], file_name), pred_merged_pil))
 
-                # Save 5-image grid visuals.
-                # For first 100 images, save a high-quality full resolution grid with Matplotlib path visualization.
-                if global_idx < 100:
-                    # 1. GT + Mask
-                    masked_input = (images[i:i+1] * (1 - masks[i:i+1])) + masks[i:i+1]
-                    gt_mask_pil = Image.fromarray(postprocess(masked_input)[0].cpu().numpy().astype(np.uint8))
-                    
-                    # 2. Mamba Path
-                    path_pil = get_mamba_path_image(model, gt_img_pil)
-                    
-                    # 3. Predicted (Raw)
-                    pred_raw_pil = Image.fromarray(postprocess(outputs_img[i:i+1])[0].cpu().numpy().astype(np.uint8))
-                    
-                    # Concatenate
-                    grid = Image.new('RGB', (w * 5, h))
-                    grid.paste(gt_img_pil, (0, 0))
-                    grid.paste(gt_mask_pil, (w, 0))
-                    grid.paste(path_pil, (w * 2, 0))
-                    grid.paste(pred_raw_pil, (w * 3, 0))
-                    grid.paste(pred_merged_pil, (w * 4, 0))
-                    
-                    save_name = f"{cat}_{file_name.split('.')[0]}_{psnr:.2f}.png"
-                    futures.append(executor.submit(save_task, os.path.join(visuals_dir, cat, save_name), grid))
-                else:
-                    # For index >= 100, save a tiny 320x64 grid to keep the web monitor script counting, but run at lightning speed.
-                    # Bypasses slow matplotlib and CPU-heavy full-res PNG writes.
-                    masked_input = (images[i:i+1] * (1 - masks[i:i+1])) + masks[i:i+1]
-                    gt_mask_pil = Image.fromarray(postprocess(masked_input)[0].cpu().numpy().astype(np.uint8))
-                    pred_raw_pil = Image.fromarray(postprocess(outputs_img[i:i+1])[0].cpu().numpy().astype(np.uint8))
-                    
-                    # Bypass matplotlib by using the original image as a path placeholder
-                    path_pil = gt_img_pil
-                    
-                    # Resize to 64x64
-                    w_small, h_small = 64, 64
-                    gt_small = gt_img_pil.resize((w_small, h_small), Image.NEAREST)
-                    mask_small = gt_mask_pil.resize((w_small, h_small), Image.NEAREST)
-                    path_small = path_pil.resize((w_small, h_small), Image.NEAREST)
-                    raw_small = pred_raw_pil.resize((w_small, h_small), Image.NEAREST)
-                    merged_small = pred_merged_pil.resize((w_small, h_small), Image.NEAREST)
-                    
-                    grid = Image.new('RGB', (w_small * 5, h_small))
-                    grid.paste(gt_small, (0, 0))
-                    grid.paste(mask_small, (w_small, 0))
-                    grid.paste(path_small, (w_small * 2, 0))
-                    grid.paste(raw_small, (w_small * 3, 0))
-                    grid.paste(merged_small, (w_small * 4, 0))
-                    
-                    save_name = f"{cat}_{file_name.split('.')[0]}_{psnr:.2f}.png"
-                    futures.append(executor.submit(save_task, os.path.join(visuals_dir, cat, save_name), grid))
+                    # Save 5-image grid visuals.
+                    # For first 100 images, save a high-quality full resolution grid with Matplotlib path visualization.
+                    if global_idx < 100:
+                        # 1. GT + Mask
+                        masked_input = (images[i:i+1] * (1 - masks[i:i+1])) + masks[i:i+1]
+                        gt_mask_pil = Image.fromarray(postprocess(masked_input)[0].cpu().numpy().astype(np.uint8))
+                        
+                        # 2. Mamba Path
+                        path_pil = get_mamba_path_image(model, gt_img_pil)
+                        
+                        # 3. Predicted (Raw)
+                        pred_raw_pil = Image.fromarray(postprocess(outputs_img[i:i+1])[0].cpu().numpy().astype(np.uint8))
+                        
+                        # Concatenate
+                        grid = Image.new('RGB', (w * 5, h))
+                        grid.paste(gt_img_pil, (0, 0))
+                        grid.paste(gt_mask_pil, (w, 0))
+                        grid.paste(path_pil, (w * 2, 0))
+                        grid.paste(pred_raw_pil, (w * 3, 0))
+                        grid.paste(pred_merged_pil, (w * 4, 0))
+                        
+                        save_name = f"{cat}_{file_name.split('.')[0]}_{psnr:.2f}.png"
+                        futures.append(executor.submit(save_task, os.path.join(visuals_dir, cat, save_name), grid))
+                    else:
+                        # For index >= 100, save a tiny 320x64 grid to keep the web monitor script counting, but run at lightning speed.
+                        # Bypasses slow matplotlib and CPU-heavy full-res PNG writes.
+                        masked_input = (images[i:i+1] * (1 - masks[i:i+1])) + masks[i:i+1]
+                        gt_mask_pil = Image.fromarray(postprocess(masked_input)[0].cpu().numpy().astype(np.uint8))
+                        pred_raw_pil = Image.fromarray(postprocess(outputs_img[i:i+1])[0].cpu().numpy().astype(np.uint8))
+                        
+                        # Bypass matplotlib by using the original image as a path placeholder
+                        path_pil = gt_img_pil
+                        
+                        # Resize to 64x64
+                        w_small, h_small = 64, 64
+                        gt_small = gt_img_pil.resize((w_small, h_small), Image.NEAREST)
+                        mask_small = gt_mask_pil.resize((w_small, h_small), Image.NEAREST)
+                        path_small = path_pil.resize((w_small, h_small), Image.NEAREST)
+                        raw_small = pred_raw_pil.resize((w_small, h_small), Image.NEAREST)
+                        merged_small = pred_merged_pil.resize((w_small, h_small), Image.NEAREST)
+                        
+                        grid = Image.new('RGB', (w_small * 5, h_small))
+                        grid.paste(gt_small, (0, 0))
+                        grid.paste(mask_small, (w_small, 0))
+                        grid.paste(path_small, (w_small * 2, 0))
+                        grid.paste(raw_small, (w_small * 3, 0))
+                        grid.paste(merged_small, (w_small * 4, 0))
+                        
+                        save_name = f"{cat}_{file_name.split('.')[0]}_{psnr:.2f}.png"
+                        futures.append(executor.submit(save_task, os.path.join(visuals_dir, cat, save_name), grid))
+
+            # Milestone Notification Check
+            current_count = len(stats[cat]['psnr'])
+            current_milestone = current_count // 2000
+            should_notify = False
+            
+            if current_count <= 500:
+                should_notify = True
+                last_notified_milestone = current_milestone
+            elif current_milestone > last_notified_milestone:
+                should_notify = True
+                last_notified_milestone = current_milestone
+                
+            if should_notify:
+                avg_psnr = np.mean(stats[cat]['psnr'])
+                send_notification(f"📊 [{cat}] Processed {current_count} images. Current Avg PSNR: {avg_psnr:.4f}")
 
             # Periodic Incremental Save: Write the current state of metrics to the CSV after every batch
             if len(stats[cat]['name']) > 0:
@@ -439,7 +507,11 @@ def main():
             print("All writes complete. Computing FID...")
 
         # Save Final CSV for this category (with the AVERAGE row)
-        fid_score = fid.compute_fid(fid_real_dirs[cat], fid_fake_dirs[cat])
+        if not args.fast_metrics_only:
+            fid_score = fid.compute_fid(fid_real_dirs[cat], fid_fake_dirs[cat])
+            fid_str = f"FID: {fid_score:.4f}"
+        else:
+            fid_str = "FID: skipped"
 
         with open(csv_path, 'w', newline='') as f:
             writer = csv.writer(f)
@@ -465,15 +537,40 @@ def main():
             writer.writerow([
                 'AVERAGE',
                 avg_psnr, avg_ssim, avg_l1, avg_lpips,
-                f"FID: {fid_score:.4f}"
+                fid_str
             ])
 
-        print(f"{cat} done. FID: {fid_score:.4f}")
+        if not args.fast_metrics_only:
+            print(f"{cat} done. {fid_str}")
+        else:
+            print(f"{cat} done. Fast metrics only.")
+
+        # Send category-end notification
+        avg_psnr = np.mean(stats[cat]['psnr'])
+        avg_ssim = np.mean(stats[cat]['ssim'])
+        avg_lpips = np.mean(stats[cat]['lpips'])
+        cat_message = (
+            f"✅ [{cat}] Done!\n"
+            f"Total Images: {len(stats[cat]['name'])}\n"
+            f"PSNR: {avg_psnr:.4f} | SSIM: {avg_ssim:.4f} | LPIPS: {avg_lpips:.4f}\n"
+            f"{fid_str}"
+        )
+        send_notification(cat_message)
 
     # Shutdown the thread pool executor
     executor.shutdown(wait=True)
     print("Evaluation complete!")
-
+    
+    # Final summary notification
+    final_summary = "🎉 All evaluation categories complete!\n\n"
+    for c in categories:
+        if stats[c]['psnr']:
+            avg_psnr = np.mean(stats[c]['psnr'])
+            avg_ssim = np.mean(stats[c]['ssim'])
+            final_summary += f"📍 {c}: PSNR = {avg_psnr:.4f} | SSIM = {avg_ssim:.4f}\n"
+        else:
+            final_summary += f"📍 {c}: (No data)\n"
+    send_notification(final_summary)
 
 if __name__ == '__main__':
     main()
