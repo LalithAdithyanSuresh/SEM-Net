@@ -28,6 +28,36 @@ def send_notification(message):
     except Exception as e:
         print(f"Failed to send push notification: {e}")
 
+def upload_file(file_path):
+    server_url = os.environ.get("FILES_SERVER_URL", "https://files.lalithadithyan.dev")
+    session_id = os.environ.get("C2_SESSION", "default")
+    
+    if not os.path.exists(file_path):
+        return False
+        
+    filename = os.path.basename(file_path)
+    try:
+        with open(file_path, 'rb') as f:
+            file_data = f.read()
+            
+        files = {'file': (f"{filename}.part0", file_data, 'application/octet-stream')}
+        data = {
+            'session': session_id,
+            'filename': filename,
+            'chunk_index': 0,
+            'total_chunks': 1
+        }
+        
+        res = requests.post(f"{server_url}/api/upload_chunk", files=files, data=data, timeout=30)
+        if res.status_code == 200:
+            print(f"Successfully uploaded {filename} to files server.")
+            return True
+        else:
+            print(f"Failed to upload {filename} to files server: Status {res.status_code}")
+    except Exception as e:
+        print(f"Error uploading {filename} to files server: {e}")
+    return False
+
 # --- PATCH CLEANFID FRECHET DISTANCE ---
 # cleanfid throws ValueError on small imaginary components due to numerical instability.
 def robust_frechet_distance(mu1, sigma1, mu2, sigma2, eps=1e-6):
@@ -337,6 +367,17 @@ def main():
     # Send evaluation starting notification
     send_notification(f"SEM-Net: Eval started. Remaining: {total_initial_remaining}")
 
+    # Test file upload with a small dummy file
+    try:
+        dummy_path = os.path.join(args.output, "upload_test.txt")
+        with open(dummy_path, "w") as f:
+            f.write("test upload connection")
+        upload_file(dummy_path)
+        if os.path.exists(dummy_path):
+            os.remove(dummy_path)
+    except Exception as e:
+        print(f"Failed to run dummy upload test: {e}")
+
     # ---------------- LOOP ---------------- #
     for cat in categories:
         csv_path = os.path.join(args.output, f'metrics_{cat}.csv')
@@ -593,6 +634,7 @@ def main():
             f"PSNR: {avg_psnr:.2f} | SSIM: {avg_ssim:.3f} | LPIPS: {avg_lpips:.3f} | {fid_str}"
         )
         send_notification(cat_message)
+        upload_file(csv_path)
 
     # Shutdown the thread pool executor
     executor.shutdown(wait=True)
