@@ -21,6 +21,8 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 import io
+from concurrent.futures import ThreadPoolExecutor
+import concurrent.futures
 
 # ---------------- VISUALIZATION HELPERS ---------------- #
 def get_mamba_path_image(model, gt_pil):
@@ -138,6 +140,14 @@ def normalize_lpips(x):
     return (x * 2) - 1
 
 
+# ---------------- ASYNC FILE WRITER TASK ---------------- #
+def save_task(path, img, compress_level=1):
+    try:
+        img.save(path, compress_level=compress_level)
+    except Exception as e:
+        print(f"Error saving image {path}: {e}")
+
+
 # ---------------- MAIN ---------------- #
 def main():
     parser = argparse.ArgumentParser()
@@ -216,15 +226,67 @@ def main():
         create_dir(fid_fake_dirs[cat])
         create_dir(os.path.join(visuals_dir, cat))
 
+    # Initialize ThreadPoolExecutor for asynchronous file writes
+    executor = ThreadPoolExecutor(max_workers=8)
+
     # ---------------- LOOP ---------------- #
     for cat in categories:
+        csv_path = os.path.join(args.output, f'metrics_{cat}.csv')
+        completed_images = set()
+
+        # Check if we can resume from existing CSV
+        if os.path.exists(csv_path):
+            try:
+                with open(csv_path, 'r') as f:
+                    reader = csv.reader(f)
+                    rows = list(reader)
+                
+                # Check if the last row is the AVERAGE summary
+                has_average = False
+                for r in rows:
+                    if r and r[0] == 'AVERAGE':
+                        has_average = True
+                        break
+                        
+                if has_average:
+                    print(f"\nCategory {cat} is already fully completed. Skipping.")
+                    continue
+                else:
+                    # Parse partially completed rows
+                    print(f"\nFound partially completed CSV for {cat}. Loading existing progress...")
+                    for r in rows[1:]:
+                        if r and len(r) >= 5 and r[0].strip() and r[0] != 'Image' and r[0] != 'AVERAGE':
+                            img_name = r[0]
+                            stats[cat]['name'].append(img_name)
+                            stats[cat]['psnr'].append(float(r[1]))
+                            stats[cat]['ssim'].append(float(r[2]))
+                            stats[cat]['l1'].append(float(r[3]))
+                            stats[cat]['lpips'].append(float(r[4]))
+                            completed_images.add(img_name)
+                    print(f"Loaded {len(completed_images)} completed images for {cat} from CSV.")
+            except Exception as e:
+                print(f"WARNING: Failed to parse existing CSV for {cat}: {e}. Starting fresh.")
+                stats[cat] = {'name': [], 'psnr': [], 'ssim': [], 'l1': [], 'lpips': []}
+                completed_images = set()
+
         print(f"\nEvaluating {cat}")
+        futures = []
 
         for index, items in enumerate(test_loader):
             images, _ = items
-            images = images.to(config.DEVICE)
             curr_batch_size = images.shape[0]
 
+            # Determine filenames in current batch
+            batch_filenames = [test_dataset.load_name(index * args.batch_size + i) for i in range(curr_batch_size)]
+            
+            # Identify indices in this batch that have not been evaluated yet
+            indices_to_evaluate = [i for i, name in enumerate(batch_filenames) if name not in completed_images]
+            
+            if not indices_to_evaluate:
+                # Entire batch is already completed! Skip inference
+                continue
+
+            images = images.to(config.DEVICE)
             h, w = images.shape[2], images.shape[3]
             masks = get_custom_mask(indexed_masks, cat, index, h, w, curr_batch_size).to(config.DEVICE)
 
@@ -233,32 +295,37 @@ def main():
 
             outputs_merged = (outputs_img * masks) + (images * (1 - masks))
 
+            # -------- BATCH LPIPS (Huge GPU parallel speedup) -------- #
+            with torch.no_grad():
+                lpips_batch = loss_fn_vgg(
+                    normalize_lpips(outputs_merged),
+                    normalize_lpips(images)
+                )
+                lpips_vals = lpips_batch.flatten().cpu().tolist()
+
             # -------- METRICS & IMAGE SAVING -------- #
-            for i in range(curr_batch_size):
+            for i in indices_to_evaluate:
+                file_name = batch_filenames[i]
                 global_idx = index * args.batch_size + i
-                file_name = test_dataset.load_name(global_idx)
 
                 psnr, ssim = calc_psnr_ssim(images[i:i+1], outputs_merged[i:i+1])
                 l1_val = torch.nn.functional.l1_loss(outputs_merged[i:i+1], images[i:i+1], reduction='mean').item()
-
-                lpips_val = loss_fn_vgg(
-                    normalize_lpips(outputs_merged[i:i+1]),
-                    normalize_lpips(images[i:i+1])
-                ).item()
+                lpips_val = lpips_vals[i]
 
                 stats[cat]['name'].append(file_name)
                 stats[cat]['psnr'].append(psnr)
                 stats[cat]['ssim'].append(ssim)
                 stats[cat]['l1'].append(l1_val)
                 stats[cat]['lpips'].append(lpips_val)
+                completed_images.add(file_name)
 
                 # --- IMAGE SAVING ---
                 gt_img_pil = Image.fromarray(postprocess(images[i:i+1])[0].cpu().numpy().astype(np.uint8))
                 pred_merged_pil = Image.fromarray(postprocess(outputs_merged[i:i+1])[0].cpu().numpy().astype(np.uint8))
                 
-                # Save essential FID images (use compress_level=1 for 4x faster PNG saving)
-                gt_img_pil.save(os.path.join(fid_real_dirs[cat], file_name), compress_level=1)
-                pred_merged_pil.save(os.path.join(fid_fake_dirs[cat], file_name), compress_level=1)
+                # Asynchronously save essential FID images
+                futures.append(executor.submit(save_task, os.path.join(fid_real_dirs[cat], file_name), gt_img_pil))
+                futures.append(executor.submit(save_task, os.path.join(fid_fake_dirs[cat], file_name), pred_merged_pil))
 
                 # Save 5-image grid visuals.
                 # For first 100 images, save a high-quality full resolution grid with Matplotlib path visualization.
@@ -282,7 +349,7 @@ def main():
                     grid.paste(pred_merged_pil, (w * 4, 0))
                     
                     save_name = f"{cat}_{file_name.split('.')[0]}_{psnr:.2f}.png"
-                    grid.save(os.path.join(visuals_dir, cat, save_name), compress_level=1)
+                    futures.append(executor.submit(save_task, os.path.join(visuals_dir, cat, save_name), grid))
                 else:
                     # For index >= 100, save a tiny 320x64 grid to keep the web monitor script counting, but run at lightning speed.
                     # Bypasses slow matplotlib and CPU-heavy full-res PNG writes.
@@ -309,27 +376,42 @@ def main():
                     grid.paste(merged_small, (w_small * 4, 0))
                     
                     save_name = f"{cat}_{file_name.split('.')[0]}_{psnr:.2f}.png"
-                    grid.save(os.path.join(visuals_dir, cat, save_name), compress_level=1)
+                    futures.append(executor.submit(save_task, os.path.join(visuals_dir, cat, save_name), grid))
 
-        # Save CSV for this category immediately after its loop finishes
-        csv_path = os.path.join(args.output, f'metrics_{cat}.csv')
-        print(f"Computing FID and saving CSV for {cat} to {csv_path}...")
+            # Periodic Incremental Save: Write the current state of metrics to the CSV after every batch
+            if len(stats[cat]['name']) > 0:
+                with open(csv_path, 'w', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(['Image', 'PSNR', 'SSIM', 'L1', 'LPIPS'])
+                    for idx in range(len(stats[cat]['name'])):
+                        writer.writerow([
+                            stats[cat]['name'][idx],
+                            stats[cat]['psnr'][idx],
+                            stats[cat]['ssim'][idx],
+                            stats[cat]['l1'][idx],
+                            stats[cat]['lpips'][idx]
+                        ])
+
+        # Wait for all background image saves to finish before computing FID
+        if futures:
+            print(f"Waiting for {len(futures)} image writes to complete for {cat}...")
+            concurrent.futures.wait(futures)
+            print("All writes complete. Computing FID...")
+
+        # Save Final CSV for this category (with the AVERAGE row)
         fid_score = fid.compute_fid(fid_real_dirs[cat], fid_fake_dirs[cat])
 
         with open(csv_path, 'w', newline='') as f:
             writer = csv.writer(f)
+            writer.writerow(['Image', 'PSNR', 'SSIM', 'L1', 'LPIPS'])
 
-            writer.writerow([
-                'Image', 'PSNR', 'SSIM', 'L1', 'LPIPS'
-            ])
-
-            for i in range(len(stats[cat]['name'])):
+            for idx in range(len(stats[cat]['name'])):
                 writer.writerow([
-                    stats[cat]['name'][i],
-                    stats[cat]['psnr'][i],
-                    stats[cat]['ssim'][i],
-                    stats[cat]['l1'][i],
-                    stats[cat]['lpips'][i]
+                    stats[cat]['name'][idx],
+                    stats[cat]['psnr'][idx],
+                    stats[cat]['ssim'][idx],
+                    stats[cat]['l1'][idx],
+                    stats[cat]['lpips'][idx]
                 ])
 
             writer.writerow([])
@@ -348,6 +430,8 @@ def main():
 
         print(f"{cat} done. FID: {fid_score:.4f}")
 
+    # Shutdown the thread pool executor
+    executor.shutdown(wait=True)
     print("Evaluation complete!")
 
 
