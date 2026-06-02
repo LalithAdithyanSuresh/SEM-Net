@@ -156,6 +156,7 @@ def main():
     parser.add_argument('--batch-size', type=int, default=1, help='batch size for evaluation')
     parser.add_argument('--input-size', type=int, default=None, help='override input image size')
     parser.add_argument('--num-images', type=int, default=None, help='limit evaluation to first N images')
+    parser.add_argument('--tmp-dir', type=str, default=None, help='use fast local storage directory for inputs, masks, and outputs')
     args = parser.parse_args()
 
     config = Config(os.path.join(args.path, 'config.yml'))
@@ -178,6 +179,44 @@ def main():
     config.TEST_INPAINT_IMAGE_FLIST = "datasets/places365/test_256"
     config.TEST_MASK_FLIST = "datasets/testing_mask_dataset"
 
+    test_dataset = Dataset(config, config.TEST_INPAINT_IMAGE_FLIST, config.TEST_MASK_FLIST,
+                           augment=False, training=False)
+    if args.num_images is not None:
+        num_total = len(test_dataset.data)
+        if num_total > args.num_images:
+            indices = np.linspace(0, num_total - 1, args.num_images, dtype=int).tolist()
+            test_dataset.data = [test_dataset.data[idx] for idx in indices]
+            print(f"Dataset limited to {len(test_dataset)} evenly spaced images sampled from the total {num_total}.")
+        else:
+            print(f"Dataset has {num_total} images (fewer than requested limit of {args.num_images}). Using all images.")
+
+    if args.tmp_dir is not None:
+        from src.utils import prepare_tmp_dir
+        # Copy checkpoints, copy selected dataset files, map config.PATH and output_dir
+        config, mapped_output = prepare_tmp_dir(
+            config, 
+            args.tmp_dir, 
+            is_training=False, 
+            selected_images=test_dataset.data,
+            output_dir=args.output
+        )
+        if mapped_output is not None:
+            args.output = mapped_output
+            
+        # Update test_dataset data paths to use the copied versions in tmp_dir
+        new_data_paths = []
+        for orig_path in test_dataset.data:
+            rel_path = os.path.relpath(orig_path, "datasets/places365/test_256")
+            new_data_paths.append(os.path.join(config.TEST_INPAINT_IMAGE_FLIST, rel_path))
+        test_dataset.data = new_data_paths
+        
+        # Also update the mask file list paths inside test_dataset
+        new_mask_paths = []
+        for orig_path in test_dataset.mask_data:
+            rel_path = os.path.relpath(orig_path, "datasets/testing_mask_dataset")
+            new_mask_paths.append(os.path.join(config.TEST_MASK_FLIST, rel_path))
+        test_dataset.mask_data = new_mask_paths
+
     # LPIPS
     loss_fn_vgg = lpips.LPIPS(net='vgg').to(config.DEVICE)
     loss_fn_vgg.eval()
@@ -192,16 +231,6 @@ def main():
         
     model.eval()
 
-    test_dataset = Dataset(config, config.TEST_INPAINT_IMAGE_FLIST, config.TEST_MASK_FLIST,
-                           augment=False, training=False)
-    if args.num_images is not None:
-        num_total = len(test_dataset.data)
-        if num_total > args.num_images:
-            indices = np.linspace(0, num_total - 1, args.num_images, dtype=int).tolist()
-            test_dataset.data = [test_dataset.data[idx] for idx in indices]
-            print(f"Dataset limited to {len(test_dataset)} evenly spaced images sampled from the total {num_total}.")
-        else:
-            print(f"Dataset has {num_total} images (fewer than requested limit of {args.num_images}). Using all images.")
     # Speedup: Use parallel dataloading with multiple worker threads and pinned memory
     test_loader = DataLoader(
         test_dataset, 
@@ -212,7 +241,7 @@ def main():
     )
 
     # Index Custom Masks
-    mask_dir = "datasets/testing_mask_dataset"
+    mask_dir = config.TEST_MASK_FLIST
     indexed_masks = index_custom_masks(mask_dir)
 
     categories = ['SMALL', 'MEDIUM', 'LARGE']

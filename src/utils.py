@@ -234,3 +234,160 @@ def PositionalEncoding(d_model, max_len=5000):
     pe[:, 1::2] = torch.cos(position * div_term)
 
     return pe
+
+
+def prepare_tmp_dir(config, tmp_dir, is_training=False, selected_images=None, output_dir=None):
+    import shutil
+    import glob
+    from concurrent.futures import ThreadPoolExecutor
+    
+    # Ensure tmp_dir exists
+    if not os.path.exists(tmp_dir):
+        os.makedirs(tmp_dir, exist_ok=True)
+    
+    print(f"Preparing datasets and directories in fast storage: {tmp_dir}")
+    
+    # 1. Output/checkpoint directory mapping
+    mapped_output = None
+    if output_dir is not None:
+        mapped_output = os.path.join(tmp_dir, os.path.basename(output_dir.rstrip('/\\')))
+        print(f"Mapping output directory: {output_dir} -> {mapped_output}")
+        create_dir(mapped_output)
+    
+    orig_path = config.PATH
+    config.PATH = os.path.join(tmp_dir, os.path.basename(orig_path.rstrip('/\\')))
+    print(f"Mapping checkpoints/logs directory: {orig_path} -> {config.PATH}")
+    create_dir(config.PATH)
+    
+    # Copy checkpoints if they exist (generator and discriminator)
+    for model_file in ['InpaintingModel_gen.pth', 'InpaintingModel_dis.pth', 'config.yml']:
+        src_file = os.path.join(orig_path, model_file)
+        if os.path.exists(src_file):
+            dst_file = os.path.join(config.PATH, model_file)
+            if not os.path.exists(dst_file) or os.path.getsize(src_file) != os.path.getsize(dst_file):
+                print(f"Copying checkpoint {model_file} to local storage...")
+                try:
+                    shutil.copy2(src_file, dst_file)
+                except Exception as e:
+                    print(f"Failed to copy checkpoint {model_file}: {e}")
+            
+    # 2. Helper to copy files concurrently
+    def copy_file_if_missing(src, dst):
+        if not os.path.exists(src):
+            return
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        if not os.path.exists(dst) or os.path.getsize(src) != os.path.getsize(dst):
+            try:
+                shutil.copy2(src, dst)
+            except Exception as e:
+                pass
+
+    def to_rel(path):
+        if os.path.isabs(path):
+            try:
+                return os.path.relpath(path)
+            except Exception:
+                return path.lstrip('/\\').replace(':', '')
+        return path
+
+    def copy_dir_contents(src_dir, dst_dir, limit_files=None):
+        if not os.path.exists(src_dir):
+            print(f"Warning: Source directory {src_dir} does not exist.")
+            return
+        os.makedirs(dst_dir, exist_ok=True)
+        
+        # Get all files recursively
+        all_files = glob.glob(os.path.join(src_dir, '**', '*'), recursive=True)
+        all_files = [f for f in all_files if os.path.isfile(f)]
+        
+        if limit_files is not None:
+            files_to_copy = [f for f in all_files if os.path.basename(f) in limit_files]
+        else:
+            files_to_copy = all_files
+            
+        print(f"Copying {len(files_to_copy)} files from {src_dir} to {dst_dir}...")
+        
+        with ThreadPoolExecutor(max_workers=16) as copypool:
+            futures = []
+            for src_file in files_to_copy:
+                rel_path = os.path.relpath(src_file, src_dir)
+                dst_file = os.path.join(dst_dir, rel_path)
+                futures.append(copypool.submit(copy_file_if_missing, src_file, dst_file))
+            for fut in futures:
+                fut.result()
+        print(f"Copying complete for {dst_dir}")
+
+    # 3. Copy/map mask datasets
+    if is_training:
+        orig_train_mask = config.TRAIN_MASK_FLIST
+        tmp_train_mask = os.path.join(tmp_dir, to_rel(orig_train_mask))
+        copy_dir_contents(orig_train_mask, tmp_train_mask)
+        config.TRAIN_MASK_FLIST = tmp_train_mask
+        
+        orig_test_mask = config.TEST_MASK_FLIST
+        tmp_test_mask = os.path.join(tmp_dir, to_rel(orig_test_mask))
+        copy_dir_contents(orig_test_mask, tmp_test_mask)
+        config.TEST_MASK_FLIST = tmp_test_mask
+    else:
+        orig_mask = config.TEST_MASK_FLIST
+        tmp_mask = os.path.join(tmp_dir, to_rel(orig_mask))
+        copy_dir_contents(orig_mask, tmp_mask)
+        config.TEST_MASK_FLIST = tmp_mask
+
+    # 4. Copy/map image datasets
+    if is_training:
+        orig_train_images = config.TRAIN_INPAINT_IMAGE_FLIST
+        tmp_train_images = os.path.join(tmp_dir, to_rel(orig_train_images))
+        
+        # Check space before copying full training set
+        total_size = 0
+        train_files = glob.glob(os.path.join(orig_train_images, '**', '*'), recursive=True)
+        train_files = [f for f in train_files if os.path.isfile(f)]
+        total_size = sum(os.path.getsize(f) for f in train_files)
+        
+        usage = shutil.disk_usage(tmp_dir)
+        if usage.free < total_size + 2 * 1024 * 1024 * 1024:  # leave 2GB margin
+            print(f"WARNING: Not enough space in {tmp_dir} (needed {total_size / (1024**3):.1f} GB, free {usage.free / (1024**3):.1f} GB). Skipping full copy of training images.")
+        else:
+            copy_dir_contents(orig_train_images, tmp_train_images)
+            config.TRAIN_INPAINT_IMAGE_FLIST = tmp_train_images
+            
+        orig_test_images = config.TEST_INPAINT_IMAGE_FLIST
+        tmp_test_images = os.path.join(tmp_dir, to_rel(orig_test_images))
+        copy_dir_contents(orig_test_images, tmp_test_images)
+        config.TEST_INPAINT_IMAGE_FLIST = tmp_test_images
+    else:
+        orig_test_images = config.TEST_INPAINT_IMAGE_FLIST
+        tmp_test_images = os.path.join(tmp_dir, to_rel(orig_test_images))
+        
+        limit_names = None
+        if selected_images is not None:
+            limit_names = set(os.path.basename(f) for f in selected_images)
+            
+        copy_dir_contents(orig_test_images, tmp_test_images, limit_files=limit_names)
+        config.TEST_INPAINT_IMAGE_FLIST = tmp_test_images
+
+    return config, mapped_output
+
+
+def prepare_tmp_dir_non_zero_rank(config, tmp_dir, is_training=False):
+    def to_rel(path):
+        import os
+        if os.path.isabs(path):
+            try:
+                return os.path.relpath(path)
+            except Exception:
+                return path.lstrip('/\\').replace(':', '')
+        return path
+
+    if is_training:
+        config.PATH = os.path.join(tmp_dir, os.path.basename(config.PATH.rstrip('/\\')))
+        config.TRAIN_MASK_FLIST = os.path.join(tmp_dir, to_rel(config.TRAIN_MASK_FLIST))
+        config.TEST_MASK_FLIST = os.path.join(tmp_dir, to_rel(config.TEST_MASK_FLIST))
+        config.TRAIN_INPAINT_IMAGE_FLIST = os.path.join(tmp_dir, to_rel(config.TRAIN_INPAINT_IMAGE_FLIST))
+        config.TEST_INPAINT_IMAGE_FLIST = os.path.join(tmp_dir, to_rel(config.TEST_INPAINT_IMAGE_FLIST))
+    else:
+        config.PATH = os.path.join(tmp_dir, os.path.basename(config.PATH.rstrip('/\\')))
+        config.TEST_MASK_FLIST = os.path.join(tmp_dir, to_rel(config.TEST_MASK_FLIST))
+        config.TEST_INPAINT_IMAGE_FLIST = os.path.join(tmp_dir, to_rel(config.TEST_INPAINT_IMAGE_FLIST))
+

@@ -47,11 +47,31 @@ def main(mode=None):
             print('Cuda is unavailable, use cpu')
             config.DEVICE = torch.device("cpu")
 
+    # --- Prepare Fast Temp Directory if requested ---
+    if getattr(config, 'TMP_DIR', None) is not None:
+        if config.RANK == 0:
+            from src.utils import prepare_tmp_dir
+            config, _ = prepare_tmp_dir(
+                config,
+                config.TMP_DIR,
+                is_training=(config.MODE == 1)
+            )
+        # If running in multi-GPU DDP mode, other processes must wait for Rank 0 to finish copying
+        if world_size > 1 and dist.is_initialized():
+            dist.barrier()
+            
+        # Non-zero ranks update their config.PATH and datasets paths to match Rank 0's updated config
+        if config.RANK != 0:
+            from src.utils import prepare_tmp_dir_non_zero_rank
+            prepare_tmp_dir_non_zero_rank(
+                config,
+                config.TMP_DIR,
+                is_training=(config.MODE == 1)
+            )
+
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
-
-
 
     # set cv2 running threads to 1 (prevents deadlocks with pytorch dataloader)
     cv2.setNumThreads(0)
@@ -92,26 +112,18 @@ def load_config(mode=None):
     """
 
     parser = argparse.ArgumentParser()
-    # parser.add_argument('--path', '--checkpoints', type=str, default='./checkpoints_irr_45000_tv0_beta0.5_wopixelshuffle_inputwithmask', help='model checkpoints path (default: ./checkpoints)')
     parser.add_argument('--path', '--checkpoints', type=str, default='./checkpoints',
                         help='model checkpoints path (default: ./checkpoints)')
-    # parser.add_argument(('--save_path', type=str, default='./checkpoints1' ,help='model save path (default: ./checkpoints1)'))
-
-
-    # parser.add_argument('--model', type=int, default='3',choices=[1, 2, 3], help='1: landmark prediction model, 2: inpaint model, 3: joint model')
     parser.add_argument('--model', type=int, default='2', choices=[1, 2, 3],
                         help='1: landmark prediction model, 2: inpaint model, 3: joint model')
-
-    # test mode
-    if mode == 2:
-        parser.add_argument('--input', type=str, help='path to the input images directory or an input image')
-        parser.add_argument('--mask', type=str, help='path to the masks directory or a mask file')
-        parser.add_argument('--landmark', type=str, help='path to the landmarks directory or a landmark file')
-        parser.add_argument('--output', type=str, help='path to the output directory')
+    parser.add_argument('--input', type=str, help='path to the input images directory or an input image')
+    parser.add_argument('--mask', type=str, help='path to the masks directory or a mask file')
+    parser.add_argument('--landmark', type=str, help='path to the landmarks directory or a landmark file')
+    parser.add_argument('--output', type=str, help='path to the output directory')
+    parser.add_argument('--tmp-dir', type=str, default=None, help='use fast local storage directory for inputs, masks, outputs, and checkpoints')
 
     args = parser.parse_args()
     config_path = os.path.join(args.path, 'config.yml')
-
 
     # create checkpoints path if does't exist
     if not os.path.exists(args.path):
@@ -126,13 +138,24 @@ def load_config(mode=None):
 
     # load config file
     config = Config(config_path)
+    config.PATH = args.path
     print(config_path)
+
+    # Save tmp-dir in config
+    if args.tmp_dir is not None:
+        config.TMP_DIR = args.tmp_dir
 
     # train mode
     if mode == 1:
         config.MODE = 1
         if args.model:
             config.MODEL = args.model
+        if args.input is not None:
+            config.TRAIN_INPAINT_IMAGE_FLIST = args.input
+        if args.mask is not None:
+            config.TRAIN_MASK_FLIST = args.mask
+        if args.output is not None:
+            config.RESULTS = args.output
 
     # test mode
     elif mode == 2:
@@ -145,10 +168,8 @@ def load_config(mode=None):
         if args.mask is not None:
             config.TEST_MASK_FLIST = args.mask
 
-
         if args.output is not None:
             config.RESULTS = args.output
-
 
     return config
 
