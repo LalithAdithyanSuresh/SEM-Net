@@ -185,7 +185,7 @@ def main():
     parser.add_argument('--path', type=str, default='./PlacesTraining', help='model checkpoints path')
     parser.add_argument('--output', type=str, default='./evaluation_results_images', help='output directory path')
     parser.add_argument('--batch-size', type=int, default=1, help='batch size for evaluation')
-    parser.add_argument('--input-size', type=int, default=None, help='override input image size')
+    parser.add_argument('--input-size', type=int, default=256, help='override input image size')
     parser.add_argument('--num-images', type=int, default=2000, help='limit evaluation to first N images')
     parser.add_argument('--tmp-dir', type=str, default=None, help='use fast local storage directory')
     args = parser.parse_args()
