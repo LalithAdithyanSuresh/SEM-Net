@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
 REPO_URL="https://github.com/LalithAdithyanSuresh/SEM-Net.git"
-REPO_BRANCH="ForMultiGPU"
+REPO_BRANCH="DAVA"
 REPO_DIR="SEM-Net"
-SCREEN_NAME="trainer"
+SCREEN_NAME="trainer-DAVA"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # STEP 0: Re-launch inside a 'trainer' screen session if not already in one
