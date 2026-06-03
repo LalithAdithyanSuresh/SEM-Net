@@ -187,6 +187,7 @@ def upload_file_chunked(file_path, server_url, session_id, chunk_size=10 * 1024 
 
 # --- MAIN ---
 def main():
+    print("VERSION: 2.0 - format-aware saving active")
     parser = argparse.ArgumentParser()
     parser.add_argument('--path', type=str, default='./PlacesTraining', help='model checkpoints path')
     parser.add_argument('--output', type=str, default='./evaluation_results_images', help='output directory path')
