@@ -321,9 +321,9 @@ def step_setup_cuda():
     os.environ["MAX_JOBS"] = "1"
     os.environ["PIP_NO_CACHE_DIR"] = "1"
     os.environ["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
-    os.environ["PIP_CACHE_DIR"] = "/tmp/cks/pip_cache"
-    os.environ["TORCH_HOME"] = "/tmp/cks/torch_cache"
-    os.environ["MPLCONFIGDIR"] = "/tmp/cks/matplotlib_cache"
+    os.environ["PIP_CACHE_DIR"] = os.path.abspath("tmp/pip_cache")
+    os.environ["TORCH_HOME"] = os.path.abspath("tmp/torch_cache")
+    os.environ["MPLCONFIGDIR"] = os.path.abspath("tmp/matplotlib_cache")
     
     # Prepend virtual environment path to PATH if venv already exists
     venv_bin = os.path.abspath("venv/bin")
