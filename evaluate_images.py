@@ -187,7 +187,6 @@ def main():
     parser.add_argument('--batch-size', type=int, default=1, help='batch size for evaluation')
     parser.add_argument('--input-size', type=int, default=256, help='override input image size')
     parser.add_argument('--num-images', type=int, default=2000, help='limit evaluation to first N images')
-    parser.add_argument('--tmp-dir', type=str, default=None, help='use fast local storage directory')
     args = parser.parse_args()
 
     config_path = os.path.join(args.path, 'config.yml')
@@ -215,45 +214,22 @@ def main():
     print(f"  - Batch size: {args.batch_size}")
     print(f"  - Limit images: {args.num_images}")
     print(f"  - Device: {config.DEVICE}")
-    
-    # Set relative dataset paths for Places365 testing
-    config.TEST_INPAINT_IMAGE_FLIST = "datasets/places365/test_256"
-    config.TEST_MASK_FLIST = "datasets/testing_mask_dataset"
+    print(f"  - Test images directory: {config.TEST_INPAINT_IMAGE_FLIST}")
+    print(f"  - Test masks directory: {config.TEST_MASK_FLIST}")
 
     test_dataset = Dataset(config, config.TEST_INPAINT_IMAGE_FLIST, config.TEST_MASK_FLIST,
                            augment=False, training=False)
     
     num_total = len(test_dataset.data)
+    if num_total == 0:
+        raise ValueError(f"No test images found in directory: {config.TEST_INPAINT_IMAGE_FLIST}. Please verify your config.yml or path.")
+        
     if args.num_images is not None and num_total > args.num_images:
         indices = np.linspace(0, num_total - 1, args.num_images, dtype=int).tolist()
         test_dataset.data = [test_dataset.data[idx] for idx in indices]
         print(f"Dataset limited to {len(test_dataset)} evenly spaced images sampled from the total {num_total}.")
     else:
         print(f"Dataset has {num_total} images (using all).")
-
-    if args.tmp_dir is not None:
-        from src.utils import prepare_tmp_dir
-        config, mapped_output = prepare_tmp_dir(
-            config, 
-            args.tmp_dir, 
-            is_training=False, 
-            selected_images=test_dataset.data,
-            output_dir=args.output
-        )
-        if mapped_output is not None:
-            args.output = mapped_output
-            
-        new_data_paths = []
-        for orig_path in test_dataset.data:
-            rel_path = os.path.relpath(orig_path, "datasets/places365/test_256")
-            new_data_paths.append(os.path.join(config.TEST_INPAINT_IMAGE_FLIST, rel_path))
-        test_dataset.data = new_data_paths
-        
-        new_mask_paths = []
-        for orig_path in test_dataset.mask_data:
-            rel_path = os.path.relpath(orig_path, "datasets/testing_mask_dataset")
-            new_mask_paths.append(os.path.join(config.TEST_MASK_FLIST, rel_path))
-        test_dataset.mask_data = new_mask_paths
 
     # LPIPS
     loss_fn_vgg = lpips.LPIPS(net='vgg').to(config.DEVICE)
