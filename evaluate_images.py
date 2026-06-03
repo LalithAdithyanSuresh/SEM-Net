@@ -222,7 +222,7 @@ def main():
     print(f"  - Limit images: {args.num_images}")
     print(f"  - Device: {config.DEVICE}")
     # Set relative dataset paths for Places365 testing
-    config.TEST_INPAINT_IMAGE_FLIST = "datasets/places365/test_256"
+    config.TEST_INPAINT_IMAGE_FLIST = "datasets/places365/places365_standard/val"
     config.TEST_MASK_FLIST = "datasets/testing_mask_dataset"
 
     print(f"  - Test images directory: {config.TEST_INPAINT_IMAGE_FLIST}")

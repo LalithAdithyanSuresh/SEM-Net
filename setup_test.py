@@ -375,24 +375,24 @@ def step_download_mask_dataset():
 
 def step_download_places365_test_dataset():
     dest_dir = os.path.join("datasets", "places365")
-    test_dir = os.path.join(dest_dir, "test_256")
-    if os.path.exists(test_dir) and os.path.isdir(test_dir) and len(os.listdir(test_dir)) > 0:
-        print("Places365 test dataset already exists. Skipping download/extraction.")
+    val_dir = os.path.join(dest_dir, "places365_standard", "val")
+    if os.path.exists(val_dir) and os.path.isdir(val_dir) and len(os.listdir(val_dir)) > 0:
+        print("Places365 validation dataset already exists. Skipping download/extraction.")
         return
         
-    local_tar_root = "test_256.tar"
-    archive_path = os.path.join("datasets", "test_256.tar")
+    local_tar_root = "places365standard_easyformat.tar"
+    archive_path = os.path.join("datasets", "places365standard_easyformat.tar")
     
     if os.path.exists(local_tar_root):
-        print(f"Found local test_256.tar in repository root. Moving it to {archive_path}...")
+        print(f"Found local places365standard_easyformat.tar in repository root. Moving it to {archive_path}...")
         os.makedirs("datasets", exist_ok=True)
         try:
             shutil.move(local_tar_root, archive_path)
         except Exception as e:
-            print(f"WARNING: Failed to move local test_256.tar: {e}. Attempting download fallback...")
+            print(f"WARNING: Failed to move local places365standard_easyformat.tar: {e}. Attempting download fallback...")
     
     if not os.path.exists(archive_path):
-        url = "http://data.csail.mit.edu/places/places365/test_256.tar"
+        url = "https://files.lalithadithyan.dev/download/places365standard_easyformat.tar"
         download_file(url, archive_path)
         
     extract_tar(archive_path, dest_dir)
