@@ -644,15 +644,15 @@ def step_download_latest_model():
         return
 
     # ── 3. Find the highest-iteration gen and dis checkpoints ────────────────
-    # Filename pattern:  000002000_InpaintingModel_gen.pth
+    # Filename pattern:  DAVA_000002000_InpaintingModel_gen.pth
     import re
     gen_files = [(int(m.group(1)), f) for f in file_list
-                 for m in [re.match(r'^(\d{9})_InpaintingModel_gen\.pth$', f)] if m]
+                 for m in [re.match(r'^DAVA_(\d{9})_InpaintingModel_gen\.pth$', f)] if m]
     dis_files = [(int(m.group(1)), f) for f in file_list
-                 for m in [re.match(r'^(\d{9})_InpaintingModel_dis\.pth$', f)] if m]
+                 for m in [re.match(r'^DAVA_(\d{9})_InpaintingModel_dis\.pth$', f)] if m]
 
     if not gen_files or not dis_files:
-        print("No padded checkpoint files found on server. Starting fresh.")
+        print("No DAVA checkpoint files found on server. Starting fresh.")
         return
 
     best_iter_gen, best_gen_name = max(gen_files, key=lambda x: x[0])

@@ -616,8 +616,8 @@ class sem():
 
                     # 9-digit zero-padded iteration prefix (e.g., 000002000)
                     iter_str = f"{iteration:09d}"
-                    target_gen = f"{iter_str}_{os.path.basename(self.inpaint_model.gen_weights_path)}"
-                    target_dis = f"{iter_str}_{os.path.basename(self.inpaint_model.dis_weights_path)}"
+                    target_gen = f"DAVA_{iter_str}_{os.path.basename(self.inpaint_model.gen_weights_path)}"
+                    target_dis = f"DAVA_{iter_str}_{os.path.basename(self.inpaint_model.dis_weights_path)}"
 
                     try:
                         shutil.copyfile(self.inpaint_model.gen_weights_path, temp_gen)

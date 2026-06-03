@@ -415,13 +415,13 @@ def step_download_latest_model():
     import glob
     import re
     
-    local_gens = glob.glob("*_InpaintingModel_gen.pth")
-    local_dics = glob.glob("*_InpaintingModel_dis.pth")
+    local_gens = glob.glob("DAVA_*_InpaintingModel_gen.pth")
+    local_dics = glob.glob("DAVA_*_InpaintingModel_dis.pth")
     
     if local_gens:
         gen_files_parsed = []
         for f in local_gens:
-            m = re.match(r'^(\d+)_InpaintingModel_gen\.pth$', f)
+            m = re.match(r'^DAVA_(\d+)_InpaintingModel_gen\.pth$', f)
             if m:
                 gen_files_parsed.append((int(m.group(1)), f))
         if gen_files_parsed:
@@ -429,14 +429,14 @@ def step_download_latest_model():
             print(f"Found local generator checkpoint in root: {best_gen_name}")
             shutil.copy(best_gen_name, gen_dest)
             
-            dis_name = f"{best_iter:09d}_InpaintingModel_dis.pth"
+            dis_name = f"DAVA_{best_iter:09d}_InpaintingModel_dis.pth"
             if os.path.exists(dis_name):
                 print(f"Found matching local discriminator checkpoint in root: {dis_name}")
                 shutil.copy(dis_name, dis_dest)
             elif local_dics:
                 dis_files_parsed = []
                 for f in local_dics:
-                    m = re.match(r'^(\d+)_InpaintingModel_dis\.pth$', f)
+                    m = re.match(r'^DAVA_(\d+)_InpaintingModel_dis\.pth$', f)
                     if m:
                         dis_files_parsed.append((int(m.group(1)), f))
                 if dis_files_parsed:
@@ -473,12 +473,12 @@ def step_download_latest_model():
         return
 
     gen_files = [(int(m.group(1)), f) for f in file_list
-                 for m in [re.match(r'^(\d{9})_InpaintingModel_gen\.pth$', f)] if m]
+                 for m in [re.match(r'^DAVA_(\d{9})_InpaintingModel_gen\.pth$', f)] if m]
     dis_files = [(int(m.group(1)), f) for f in file_list
-                 for m in [re.match(r'^(\d{9})_InpaintingModel_dis\.pth$', f)] if m]
+                 for m in [re.match(r'^DAVA_(\d{9})_InpaintingModel_dis\.pth$', f)] if m]
 
     if not gen_files or not dis_files:
-        print("No padded checkpoint files found on server. Starting fresh.")
+        print("No DAVA checkpoint files found on server. Starting fresh.")
         return
 
     best_iter_gen, best_gen_name = max(gen_files, key=lambda x: x[0])
