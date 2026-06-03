@@ -404,7 +404,7 @@ def step_download_latest_model():
     """Query the C2 files server, find the highest-iteration checkpoint pair
     (gen + dis) for the active session, and download them to PlacesTraining/."""
     files_url = os.environ.get("FILES_SERVER_URL", "https://files.lalithadithyan.dev")
-    session   = os.environ.get("C2_SESSION", "Places")
+    session   = os.environ.get("C2_SESSION", "DAVA")
     run_path  = "./PlacesTraining"
     os.makedirs(run_path, exist_ok=True)
 

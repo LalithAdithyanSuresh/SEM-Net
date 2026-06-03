@@ -7,7 +7,7 @@ import sys
 
 # Configure these or pass via environment variables
 C2_SERVER_URL = os.environ.get('C2_SERVER_URL', 'https://lalithadithyan.dev')
-C2_SESSION = os.environ.get('C2_SESSION', 'default')
+C2_SESSION = os.environ.get('C2_SESSION', 'DAVA')
 
 def get_current_epoch():
     """

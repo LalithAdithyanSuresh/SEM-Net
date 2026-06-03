@@ -30,7 +30,7 @@ def send_notification(message):
 
 def upload_file(file_path):
     server_url = os.environ.get("FILES_SERVER_URL", "https://files.lalithadithyan.dev")
-    session_id = os.environ.get("C2_SESSION", "default")
+    session_id = os.environ.get("C2_SESSION", "DAVA")
     
     if not os.path.exists(file_path):
         return False

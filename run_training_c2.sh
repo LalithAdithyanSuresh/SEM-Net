@@ -12,8 +12,8 @@ export PIP_CACHE_DIR="/tmp/cks/pip_cache"
 # Handle Dynamic Session Name
 # Usage: ./run_training_c2.sh my_session_name
 if [ -z "$1" ]; then
-    export C2_SESSION="default"
-    echo "No session name provided. Using 'default'."
+    export C2_SESSION="DAVA"
+    echo "No session name provided. Using 'DAVA'."
 else
     export C2_SESSION="$1"
     echo "Starting session: $C2_SESSION"
