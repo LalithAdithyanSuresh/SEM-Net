@@ -127,7 +127,13 @@ def normalize_lpips(x):
 # --- ASYNC SAVE TASK ---
 def save_task(path, img, compress_level=1):
     try:
-        img.save(path, compress_level=compress_level)
+        ext = os.path.splitext(path)[1].lower()
+        if ext == '.png':
+            img.save(path, compress_level=compress_level)
+        elif ext in ['.jpg', '.jpeg']:
+            img.save(path, quality=95)
+        else:
+            img.save(path)
     except Exception as e:
         print(f"Error saving image {path}: {e}")
 
@@ -214,6 +220,10 @@ def main():
     print(f"  - Batch size: {args.batch_size}")
     print(f"  - Limit images: {args.num_images}")
     print(f"  - Device: {config.DEVICE}")
+    # Set relative dataset paths for Places365 testing
+    config.TEST_INPAINT_IMAGE_FLIST = "datasets/places365/test_256"
+    config.TEST_MASK_FLIST = "datasets/testing_mask_dataset"
+
     print(f"  - Test images directory: {config.TEST_INPAINT_IMAGE_FLIST}")
     print(f"  - Test masks directory: {config.TEST_MASK_FLIST}")
 
