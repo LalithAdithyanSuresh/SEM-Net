@@ -1,4 +1,12 @@
 import os
+try:
+    import getpass
+    username = getpass.getuser()
+except Exception:
+    username = "semnet_user"
+os.environ["TORCH_HOME"] = f"/tmp/{username}/torch_cache"
+os.environ["MPLCONFIGDIR"] = f"/tmp/{username}/matplotlib_cache"
+
 import argparse
 import numpy as np
 import torch

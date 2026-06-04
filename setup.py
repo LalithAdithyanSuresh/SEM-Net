@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
 import os
+try:
+    import getpass
+    username = getpass.getuser()
+except Exception:
+    username = "semnet_user"
+os.environ["TORCH_HOME"] = f"/tmp/{username}/torch_cache"
+os.environ["MPLCONFIGDIR"] = f"/tmp/{username}/matplotlib_cache"
+
 import sys
 import subprocess
 import shutil
@@ -292,8 +300,18 @@ def main():
     print("           Starting Evaluation            ")
     print("==========================================")
     
+    # Resolve the python executable inside the virtual environment if present
+    python_bin = sys.executable
+    if os.path.exists("venv"):
+        venv_bin_python = os.path.abspath(os.path.join("venv", "bin", "python"))
+        venv_win_python = os.path.abspath(os.path.join("venv", "Scripts", "python.exe"))
+        if os.path.exists(venv_bin_python):
+            python_bin = venv_bin_python
+        elif os.path.exists(venv_win_python):
+            python_bin = venv_win_python
+
     eval_cmd = [
-        sys.executable,
+        python_bin,
         "evaluate_test.py",
         "--input-size", "256",
         "--batch-size", "16",
