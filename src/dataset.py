@@ -192,9 +192,14 @@ class Dataset(torch.utils.data.Dataset):
                     data = np.genfromtxt(flist, dtype=str, encoding='utf-8')
                     if data.ndim == 0:
                         data = np.array([data])
-                    
                     base_dir = os.path.dirname(flist)
-                    return [os.path.join(base_dir, line) if not os.path.isabs(line) else line for line in data]
+                    # If a line is already an absolute path or already starts with the base directory, keep it unchanged.
+                    # Otherwise, join it with the base directory.
+                    return [
+                        line if os.path.isabs(line) or line.startswith(base_dir + os.sep)
+                        else os.path.join(base_dir, line)
+                        for line in data
+                    ]
                 except Exception as e:
                     print(e)
                     return [flist]
