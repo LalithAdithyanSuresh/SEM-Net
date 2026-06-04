@@ -592,13 +592,13 @@ def step_download_mask_dataset():
         os.remove(archive_path)
 
 def step_download_places365_dataset():
-    dest_dir = os.path.join("datasets", "places365")
+    dest_dir = os.path.join("/tmp/cks/datasets", "places365")
     if os.path.exists(dest_dir) and os.path.isdir(dest_dir) and os.path.exists(os.path.join(dest_dir, "places365_standard", "train")):
         print("Places365 dataset already exists. Skipping download.")
         return
         
     url = "https://files.lalithadithyan.dev/download/places365standard_easyformat.tar"
-    archive_path = os.path.join("datasets", "places365standard_easyformat.tar")
+    archive_path = os.path.join("/tmp/cks/datasets", "places365standard_easyformat.tar")
     
     download_file(url, archive_path)
     extract_tar(archive_path, dest_dir)
