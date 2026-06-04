@@ -314,7 +314,7 @@ def main():
         python_bin,
         "evaluate_test.py",
         "--input-size", "256",
-        "--batch-size", "16",
+        "--batch-size", "128",
         "--fast-metrics-only"
     ]
     
