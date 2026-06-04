@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+# Log all output to a file for debugging
+LOG_FILE="setup_server.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
 REPO_URL="https://github.com/LalithAdithyanSuresh/SEM-Net.git"
 REPO_BRANCH="DAVA"
 REPO_DIR="SEM-Net"
