@@ -547,10 +547,7 @@ def main():
             current_milestone = current_count // 2000
             should_notify = False
             
-            if current_count <= 500:
-                should_notify = True
-                last_notified_milestone = current_milestone
-            elif current_milestone > last_notified_milestone:
+            if current_milestone > last_notified_milestone:
                 should_notify = True
                 last_notified_milestone = current_milestone
                 
