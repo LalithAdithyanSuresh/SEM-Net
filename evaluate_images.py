@@ -455,10 +455,27 @@ def main():
                     img_per_sec = run_processed_count / elapsed
                     remaining_images_run = max(0, total_initial_remaining - run_processed_count)
                     remaining_time_sec = remaining_images_run / img_per_sec
-                    eta_str = time.strftime("%H:%M:%S", time.gmtime(remaining_time_sec))
+                    
+                    # Adapt ETA to show days
+                    days = int(remaining_time_sec // 86400)
+                    hours = int((remaining_time_sec % 86400) // 3600)
+                    minutes = int((remaining_time_sec % 3600) // 60)
+                    seconds = int(remaining_time_sec % 60)
+                    if days > 0:
+                        eta_str = f"{days}d {hours:02d}:{minutes:02d}:{seconds:02d}"
+                    else:
+                        eta_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                    
+                    # Estimate time of finish (in IST timezone, UTC+5:30)
+                    from datetime import datetime, timedelta, timezone
+                    ist_tz = timezone(timedelta(hours=5, minutes=30))
+                    finish_time = datetime.now(timezone.utc).astimezone(ist_tz) + timedelta(seconds=remaining_time_sec)
+                    finish_str = finish_time.strftime("%Y-%m-%d %H:%M:%S")
                 else:
                     eta_str = "Calculating..."
-                send_notification(f"[{cat}] {current_count}/{len(test_dataset)} | PSNR: {avg_psnr:.2f} | ETA: {eta_str}")
+                    finish_str = "Calculating..."
+                    
+                send_notification(f"[{cat}] {current_count}/{len(test_dataset)} | PSNR: {avg_psnr:.2f} | ETA: {eta_str} | Finish (IST): {finish_str}")
 
             # Periodic Incremental Save
             if len(stats[cat]['name']) > 0:
