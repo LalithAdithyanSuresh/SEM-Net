@@ -119,9 +119,20 @@ def check_and_extract_archives():
                 except Exception as e:
                     print(f"[-] Error extracting GT dataset: {e}")
 
-# Call init functions
-check_and_extract_archives()
-init_db()
+def ensure_frontend_assets():
+    """Ensure templates and static files exist in the directory where server is run"""
+    for folder, path_var in [('templates', templates_path), ('static', static_path)]:
+        os.makedirs(path_var, exist_ok=True)
+        src_folder = os.path.join(script_dir, folder)
+        if src_folder != path_var and os.path.exists(src_folder):
+            print(f"[+] Copying {folder} folder assets to {path_var}...")
+            for item in os.listdir(src_folder):
+                src_item = os.path.join(src_folder, item)
+                dst_item = os.path.join(path_var, item)
+                if os.path.isdir(src_item):
+                    shutil.copytree(src_item, dst_item, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(src_item, dst_item)
 
 # --- Helper logic for recursive directories and qualitative files ---
 indexed_masks_cache = None
@@ -135,8 +146,12 @@ def get_indexed_masks():
     if not os.path.exists(mask_dir):
         return {'SMALL': [], 'MEDIUM': [], 'LARGE': []}
         
-    mask_files = [os.path.join(mask_dir, f) for f in os.listdir(mask_dir) 
-                  if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    try:
+        mask_files = [os.path.join(mask_dir, entry.name) for entry in os.scandir(mask_dir)
+                      if entry.is_file() and entry.name.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    except Exception:
+        mask_files = []
+        
     mask_files.sort()
     
     n = len(mask_files)
@@ -155,7 +170,11 @@ def get_indexed_masks():
 
 def find_model_folders(base_dir):
     model_folders = []
-    excluded = ['testing_mask_dataset', 'masks', 'iregularmask', 'venv', 'temp_', 'static', 'templates']
+    excluded = [
+        'testing_mask_dataset', 'masks', 'iregularmask', 'venv', 
+        'temp_', 'static', 'templates', 'test_256', 'datasets',
+        '.git', '.github', 'PlacesDateset', 'PlacesTraining'
+    ]
     
     for root, dirs, files in os.walk(base_dir):
         dirs[:] = [d for d in dirs if not d.startswith('.') and d not in excluded]
@@ -206,107 +225,136 @@ def parse_filename(filename):
             
     return base, None, None
 
-def find_image_file(folder, img_base):
-    if not os.path.exists(folder):
-        return None
-        
-    exts = ['.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG']
-    
-    # 1. Exact match
-    for ext in exts:
-        p = os.path.join(folder, img_base + ext)
-        if os.path.exists(p):
-            return img_base + ext
-            
-    # 2. Pattern match (starts with img_base + "_")
-    try:
-        files = os.listdir(folder)
-    except Exception:
-        return None
-        
-    for f in files:
-        f_base, f_ext = os.path.splitext(f)
-        if f_ext.lower() in exts:
-            if f_base.startswith(img_base + "_"):
-                return f
-            if img_base in f_base:
-                return f
-            # Match numeric strings inside the ID
-            img_digits = ''.join(c for c in img_base if c.isdigit())
-            f_digits = ''.join(c for c in f_base if c.isdigit())
-            if img_digits and f_digits and img_digits in f_digits:
-                return f
-                
-    return None
+# --- Path Caching Mechanism ---
+CACHE_FILE_PATH = os.path.join(DATA_DIR, 'paths_cache.json')
+paths_cache = None
 
-def find_gt_image(img_base):
-    img_base = os.path.basename(img_base).split('.')[0]
+def load_or_build_cache(rebuild=False):
+    global paths_cache
+    if paths_cache and not rebuild:
+        return paths_cache
+        
+    if os.path.exists(CACHE_FILE_PATH) and not rebuild:
+        print("[*] Loading file paths from paths_cache.json...")
+        try:
+            with open(CACHE_FILE_PATH, 'r') as f:
+                paths_cache = json.load(f)
+            return paths_cache
+        except Exception as e:
+            print(f"[-] Error reading paths_cache.json, rebuilding: {e}")
+            
+    print("[*] Building file paths cache (paths_cache.json)...")
     
-    possible_dirs = [
+    # 1. Model folders
+    model_folders = find_model_folders(DATA_DIR)
+    
+    # 2. Ground Truth images cache
+    gt_images = {}
+    possible_gt_dirs = [
         os.path.join(DATA_DIR, 'test_256'),
         os.path.join(DATA_DIR, 'datasets', 'places365', 'test_256'),
         os.path.join(DATA_DIR, 'PlacesDateset'),
     ]
+    exts = {'.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG'}
     
-    exts = ['.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG']
-    
-    for d in possible_dirs:
-        if os.path.exists(d):
-            for ext in exts:
-                p = os.path.join(d, img_base + ext)
-                if os.path.exists(p):
-                    return p
-            # Recursive check
-            for root, dirs, files in os.walk(d):
+    for gt_dir in possible_gt_dirs:
+        if os.path.exists(gt_dir):
+            for root, dirs, files in os.walk(gt_dir):
+                dirs[:] = [d for d in dirs if not d.startswith('.')]
                 for f in files:
                     f_base, f_ext = os.path.splitext(f)
-                    if f_base == img_base and f_ext.lower() in exts:
-                        return os.path.join(root, f)
-                        
-    model_folders = find_model_folders(DATA_DIR)
+                    if f_ext in exts:
+                        if f_base not in gt_images:
+                            full_p = os.path.join(root, f)
+                            rel_p = os.path.relpath(full_p, DATA_DIR).replace('\\', '/')
+                            gt_images[f_base] = rel_p
+                            
+    # Fallback to model's fid_real subfolders for GT
     for mf in model_folders:
         for size in ['LARGE', 'MEDIUM', 'SMALL']:
             real_dir = os.path.join(DATA_DIR, mf, f'fid_real_{size}')
             if os.path.exists(real_dir):
-                for ext in exts:
-                    p = os.path.join(real_dir, img_base + ext)
-                    if os.path.exists(p):
-                        return p
-                        
-    return None
+                try:
+                    for entry in os.scandir(real_dir):
+                        if entry.is_file():
+                            f_base, f_ext = os.path.splitext(entry.name)
+                            if f_ext in exts and f_base not in gt_images:
+                                rel_p = os.path.relpath(entry.path, DATA_DIR).replace('\\', '/')
+                                gt_images[f_base] = rel_p
+                except Exception:
+                    pass
 
-def find_mask_image(mask_id):
-    if not mask_id:
-        return None
-        
+    # 3. Mask images cache
+    mask_images = {}
     mask_dir = os.path.join(DATA_DIR, 'testing_mask_dataset')
-    if not os.path.exists(mask_dir):
-        return None
-        
-    exts = ['.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG']
-    for ext in exts:
-        p = os.path.join(mask_dir, mask_id + ext)
-        if os.path.exists(p):
-            return p
-            
+    if os.path.exists(mask_dir):
+        try:
+            for entry in os.scandir(mask_dir):
+                if entry.is_file():
+                    f_base, f_ext = os.path.splitext(entry.name)
+                    if f_ext in exts:
+                        rel_p = os.path.relpath(entry.path, DATA_DIR).replace('\\', '/')
+                        mask_images[f_base] = rel_p
+        except Exception:
+            pass
+
+    # 4. Model outputs cache
+    model_images = {}
+    for mf in model_folders:
+        model_images[mf] = {}
+        for size in ['LARGE', 'MEDIUM', 'SMALL']:
+            model_images[mf][size] = {}
+            model_dir = os.path.join(DATA_DIR, mf)
+            size_folder = get_size_folder(model_dir, size)
+            if os.path.exists(size_folder):
+                try:
+                    size_folder_rel = os.path.relpath(size_folder, DATA_DIR).replace('\\', '/')
+                    for entry in os.scandir(size_folder):
+                        if entry.is_file():
+                            f_base, f_ext = os.path.splitext(entry.name)
+                            if f_ext in exts:
+                                # Map exact name
+                                model_images[mf][size][f_base] = f"{size_folder_rel}/{entry.name}"
+                                # Parse qualitative format
+                                parsed_id, _, _ = parse_filename(entry.name)
+                                if parsed_id:
+                                    model_images[mf][size][parsed_id] = f"{size_folder_rel}/{entry.name}"
+                                    # Numeric fallback
+                                    digits = ''.join(c for c in parsed_id if c.isdigit())
+                                    if digits:
+                                        model_images[mf][size][digits] = f"{size_folder_rel}/{entry.name}"
+                except Exception as e:
+                    print(f"[-] Error mapping size folder {size} for {mf}: {e}")
+
+    paths_cache = {
+        "model_folders": model_folders,
+        "gt_images": gt_images,
+        "mask_images": mask_images,
+        "model_images": model_images
+    }
+
     try:
-        files = os.listdir(mask_dir)
-        for f in files:
-            f_base, f_ext = os.path.splitext(f)
-            if f_ext.lower() in exts:
-                if f_base.startswith(mask_id) or mask_id in f_base:
-                    return os.path.join(mask_dir, f)
-    except Exception:
-        pass
+        with open(CACHE_FILE_PATH, 'w') as f:
+            json.dump(paths_cache, f, indent=2)
+        print(f"[+] Saved paths cache file to {CACHE_FILE_PATH}")
+    except Exception as e:
+        print(f"[-] Failed to write cache to file: {e}")
         
-    return None
+    return paths_cache
+
+# Call startup init functions
+check_and_extract_archives()
+ensure_frontend_assets()
+init_db()
+load_or_build_cache()
 
 # --- API Endpoints ---
 
 @app.route('/api/folders')
 def api_folders():
-    folders = find_model_folders(DATA_DIR)
-    return jsonify(folders)
+    rebuild = request.args.get('rebuild', 'false').lower() == 'true'
+    cache = load_or_build_cache(rebuild=rebuild)
+    return jsonify(cache["model_folders"])
 
 @app.route('/api/data')
 def api_data():
@@ -317,7 +365,14 @@ def api_data():
     if not models:
         return jsonify([])
         
+    rebuild = request.args.get('rebuild', 'false').lower() == 'true'
+    cache = load_or_build_cache(rebuild=rebuild)
+    
+    gt_cache = cache["gt_images"]
+    model_images = cache["model_images"]
+    
     try:
+        # Process metrics CSVs
         dfs = []
         for i, m in enumerate(models):
             path = os.path.join(DATA_DIR, m, f'metrics_{size}.csv')
@@ -344,18 +399,10 @@ def api_data():
                 normalized_dfs.append(df[['ID', psnr_col]])
 
         if not normalized_dfs:
-            first_model_dir = os.path.join(DATA_DIR, models[0])
-            size_folder = get_size_folder(first_model_dir, size)
-            images = []
-            if os.path.exists(size_folder):
-                images.extend([f for f in os.listdir(size_folder) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
-            
-            unique_ids = []
-            for f in images:
-                img_id, _, _ = parse_filename(f)
-                if img_id:
-                    unique_ids.append(img_id)
-            unique_ids = sorted(list(set(unique_ids)))
+            # Listing images from the preloaded mapping of the first model
+            first_model = models[0]
+            mapping = model_images.get(first_model, {}).get(size, {})
+            unique_ids = sorted(list(set(mapping.keys())))
             merged = pd.DataFrame({'ID': unique_ids})
             for i in range(len(models)):
                 merged[f'PSNR_{i+1}'] = 0.0
@@ -382,9 +429,8 @@ def api_data():
         img_id = str(row['ID'])
         vote_data = votes_dict.get(img_id, {'winner': None, 'comment': ''})
         
-        gt_full_path = find_gt_image(img_id)
-        if gt_full_path:
-            gt_rel = os.path.relpath(gt_full_path, DATA_DIR).replace('\\', '/')
+        gt_rel = gt_cache.get(img_id)
+        if gt_rel:
             gt_path = f'/images/{gt_rel}'
         else:
             gt_path = ''
@@ -397,18 +443,20 @@ def api_data():
         }
         
         for i, m in enumerate(models):
-            model_dir = os.path.join(DATA_DIR, m)
-            size_folder = get_size_folder(model_dir, size)
-            img_file = find_image_file(size_folder, img_id)
-            
-            if img_file:
-                rel_img_path = os.path.relpath(os.path.join(size_folder, img_file), DATA_DIR).replace('\\', '/')
+            mapping = model_images.get(m, {}).get(size, {})
+            rel_img_path = mapping.get(img_id)
+            if not rel_img_path:
+                digits = ''.join(c for c in img_id if c.isdigit())
+                rel_img_path = mapping.get(digits)
+                
+            if rel_img_path:
                 item[f'f{i+1}_fake'] = f'/images/{rel_img_path}'
             else:
                 item[f'f{i+1}_fake'] = ''
                 
             val = row.get(f'PSNR_{i+1}', 0.0)
-            if (val == 0.0 or pd.isna(val) or val == '0') and img_file:
+            if (val == 0.0 or pd.isna(val) or val == '0') and rel_img_path:
+                img_file = os.path.basename(rel_img_path)
                 _, _, parsed_psnr = parse_filename(img_file)
                 if parsed_psnr:
                     val = float(parsed_psnr)
@@ -553,54 +601,57 @@ def index():
 
 @app.route('/api/mask_only/<path:model>/<size>/<image_name>')
 def api_mask_only(model, size, image_name):
-    model_dir = os.path.join(DATA_DIR, model)
-    size_folder = get_size_folder(model_dir, size)
+    cache = load_or_build_cache()
     
+    mapping = cache["model_images"].get(model, {}).get(size, {})
+    rel_img_path = mapping.get(image_name)
+    if not rel_img_path:
+        digits = ''.join(c for c in image_name if c.isdigit())
+        rel_img_path = mapping.get(digits)
+        
     mask_id = None
-    img_file = find_image_file(size_folder, image_name)
-    if img_file:
+    if rel_img_path:
+        img_file = os.path.basename(rel_img_path)
         _, parsed_mask_id, _ = parse_filename(img_file)
         if parsed_mask_id:
             mask_id = parsed_mask_id
             
-    mask_path = find_mask_image(mask_id)
+    mask_rel_path = cache["mask_images"].get(mask_id) if mask_id else None
     
     # Fallback to deterministic index-based matching
-    if not mask_path:
+    if not mask_rel_path:
         indexed_masks = get_indexed_masks()
         cat_masks = indexed_masks.get(size, [])
         if cat_masks:
-            real_dir = os.path.join(DATA_DIR, model, f'fid_real_{size}')
-            if not os.path.exists(real_dir):
-                real_dir = size_folder
-                
-            all_images = []
-            if os.path.exists(real_dir):
-                all_images = [f for f in os.listdir(real_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-                all_images.sort()
-                
+            all_images = sorted(list(set(mapping.values())))
+            
             image_filename = None
-            for f in all_images:
+            for f_rel in all_images:
+                f = os.path.basename(f_rel)
                 parsed_id, _, _ = parse_filename(f)
                 if parsed_id == image_name or f.startswith(image_name):
-                    image_filename = f
+                    image_filename = f_rel
                     break
                     
             if image_filename and image_filename in all_images:
                 img_index = all_images.index(image_filename)
-                mask_path = cat_masks[(img_index * 2) % len(cat_masks)]
+                mask_full_path = cat_masks[(img_index * 2) % len(cat_masks)]
+                mask_rel_path = os.path.relpath(mask_full_path, DATA_DIR).replace('\\', '/')
                 
-    if not mask_path:
+    if not mask_rel_path:
         return f"Mask not found for image {image_name} (parsed mask_id: {mask_id})", 404
         
     try:
+        mask_path = os.path.join(DATA_DIR, mask_rel_path)
         with Image.open(mask_path) as mask_img:
             ref_path = None
-            if img_file:
-                ref_path = os.path.join(size_folder, img_file)
+            if rel_img_path:
+                ref_path = os.path.join(DATA_DIR, rel_img_path)
             else:
-                ref_path = find_gt_image(image_name)
-                
+                gt_rel = cache["gt_images"].get(image_name)
+                if gt_rel:
+                    ref_path = os.path.join(DATA_DIR, gt_rel)
+                    
             if ref_path and os.path.exists(ref_path):
                 with Image.open(ref_path) as ref_img:
                     w, h = ref_img.size
