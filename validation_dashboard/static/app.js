@@ -58,6 +58,40 @@ const contexts = elements.canvases.map(c => c.getContext('2d', { willReadFrequen
 const hiddenContexts = elements.hiddenCanvases.map(c => c.getContext('2d', { willReadFrequently: true }));
 const maskCtx = elements.hiddenMask.getContext('2d', { willReadFrequently: true });
 
+function savePreferences() {
+    const prefs = {
+        size: elements.sizeSelect.value,
+        sort: elements.sortSelect.value,
+        filterBestModel: elements.filterBestModel.value,
+        filterMargin: document.getElementById('filterMargin') ? document.getElementById('filterMargin').value : '0',
+        models: elements.modelSelects.map(s => s.value)
+    };
+    localStorage.setItem('inpainting_dashboard_prefs', JSON.stringify(prefs));
+}
+
+function loadPreferences(folders) {
+    const prefsStr = localStorage.getItem('inpainting_dashboard_prefs');
+    if (!prefsStr) return;
+    try {
+        const prefs = JSON.parse(prefsStr);
+        if (prefs.size) elements.sizeSelect.value = prefs.size;
+        if (prefs.sort) elements.sortSelect.value = prefs.sort;
+        if (prefs.filterBestModel) elements.filterBestModel.value = prefs.filterBestModel;
+        
+        const filterMarginEl = document.getElementById('filterMargin');
+        if (filterMarginEl && prefs.filterMargin) filterMarginEl.value = prefs.filterMargin;
+        
+        if (prefs.models && Array.isArray(prefs.models)) {
+            elements.modelSelects.forEach((sel, i) => {
+                const savedVal = prefs.models[i];
+                if (savedVal === "" || folders.includes(savedVal)) {
+                    sel.value = savedVal;
+                }
+            });
+        }
+    } catch (e) { console.error("Error loading preferences:", e); }
+}
+
 async function fetchFolders() {
     try {
         const response = await fetch('/api/folders');
@@ -71,6 +105,8 @@ async function fetchFolders() {
             });
             if (folders[i]) sel.value = folders[i];
         });
+        
+        loadPreferences(folders);
         fetchData();
     } catch (e) { console.error(e); }
 }
@@ -91,24 +127,55 @@ async function fetchData() {
 function applyFilters() {
     const search = elements.searchInput.value.toLowerCase();
     const bestModel = elements.filterBestModel.value;
+    const filterMarginEl = document.getElementById('filterMargin');
+    const marginThreshold = parseFloat(filterMarginEl ? filterMarginEl.value : '0');
     const sort = elements.sortSelect.value;
     
     let filtered = state.data.filter(item => {
         if (search && !item.id.toLowerCase().includes(search)) return false;
         
+        // Extract all valid PSNRs for currently enabled models
+        const psnrs = [];
+        for (let i = 1; i <= 5; i++) {
+            if (item[`psnr_${i}`] !== undefined && elements.modelSelects[i-1].value) {
+                psnrs.push({ index: i, value: item[`psnr_${i}`] });
+            }
+        }
+        
+        if (psnrs.length === 0) return true;
+        
+        // Sort descending by PSNR value
+        psnrs.sort((a, b) => b.value - a.value);
+        const bestVal = psnrs[0].value;
+        const bestIdx = psnrs[0].index;
+        
         if (bestModel !== 'all') {
             const idx = parseInt(bestModel);
-            const psnrs = [item.psnr_1, item.psnr_2, item.psnr_3, item.psnr_4, item.psnr_5].filter(p => p !== undefined);
-            const max = Math.max(...psnrs);
-            if (item[`psnr_${idx}`] !== max) return false;
+            if (bestIdx !== idx) return false;
         }
+        
+        if (marginThreshold > 0) {
+            // Find the second best value (or 0 if only one model is selected)
+            const runnerUpVal = psnrs.length > 1 ? psnrs[1].value : 0;
+            const diff = bestVal - runnerUpVal;
+            if (diff < marginThreshold) return false;
+        }
+        
         return true;
     });
     
     filtered.sort((a, b) => {
         if (sort === 'id_asc') return a.id.localeCompare(b.id);
         if (sort === 'best_psnr_desc') {
-            const getBest = x => Math.max(...[x.psnr_1, x.psnr_2, x.psnr_3, x.psnr_4, x.psnr_5].filter(p => p !== undefined));
+            const getBest = x => {
+                const vals = [];
+                for (let i = 1; i <= 5; i++) {
+                    if (x[`psnr_${i}`] !== undefined && elements.modelSelects[i-1].value) {
+                        vals.push(x[`psnr_${i}`]);
+                    }
+                }
+                return vals.length > 0 ? Math.max(...vals) : 0;
+            };
             return getBest(b) - getBest(a);
         }
         if (sort.startsWith('psnr')) {
@@ -305,10 +372,12 @@ window.onmousemove = e => { if (state.isDragging) { state.translateX = e.clientX
 window.onmouseup = () => state.isDragging = false;
 
 elements.searchInput.oninput = applyFilters;
-elements.filterBestModel.onchange = applyFilters;
-elements.sortSelect.onchange = applyFilters;
-elements.sizeSelect.onchange = fetchData;
-elements.modelSelects.forEach(s => s.onchange = fetchData);
+elements.filterBestModel.onchange = () => { savePreferences(); applyFilters(); };
+const filterMarginEl = document.getElementById('filterMargin');
+if (filterMarginEl) filterMarginEl.onchange = () => { savePreferences(); applyFilters(); };
+elements.sortSelect.onchange = () => { savePreferences(); applyFilters(); };
+elements.sizeSelect.onchange = () => { savePreferences(); fetchData(); };
+elements.modelSelects.forEach(s => s.onchange = () => { savePreferences(); fetchData(); });
 elements.resetZoomBtn.onclick = centerImages;
 elements.toggleDiffBtn.onclick = () => { state.showDiff = !state.showDiff; elements.toggleDiffBtn.classList.toggle('active', state.showDiff); drawImages(); };
 
