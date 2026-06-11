@@ -69,7 +69,7 @@ except Exception: pass
     
     # Run Python and pipe stdout+stderr to the log streamer script
     # Run with torchrun for DDP support (Multi-GPU)
-    torchrun --nproc_per_node=2 --master_port=29501 main.py --model 2 --path "$RUN_PATH" 2>&1 | python -u push_logs.py
+    torchrun --nproc_per_node=2 --master_port=29502 main.py --model 2 --path "$RUN_PATH" 2>&1 | python -u push_logs.py
     
     EXIT_CODE=${PIPESTATUS[0]}
     
