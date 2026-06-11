@@ -8,6 +8,7 @@ REPO_URL="https://github.com/LalithAdithyanSuresh/SEM-Net.git"
 REPO_BRANCH="DAVA"
 REPO_DIR="SEM-Net"
 SCREEN_NAME="trainer-DAVA"
+export C2_SESSION="DAVA"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # STEP 0: Re-launch inside a 'trainer' screen session if not already in one
