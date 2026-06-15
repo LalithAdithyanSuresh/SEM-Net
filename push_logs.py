@@ -15,6 +15,7 @@ try:
 except Exception:
     pass
 stop_local_logging = False
+iteration_counter = 0
 
 buffer = []
 last_push = time.time()
@@ -38,10 +39,10 @@ while True:
                 try:
                     log_fp.write(line + "\n")
                     log_fp.flush()
-                    # Check for iteration number using regex
-                    match = re.search(r'(?:iter|iteration).*?(\d+)', line.lower())
-                    if match:
-                        if int(match.group(1)) >= 100:
+                    # Check for iteration progress bar (e.g., "1388/450865 [")
+                    if re.search(r'^\d+/\d+\s+\[', line):
+                        iteration_counter += 1
+                        if iteration_counter >= 100:
                             stop_local_logging = True
                             log_fp.write("--- STOPPING LOCAL LOGGING AFTER 100 ITERATIONS ---\n")
                             log_fp.flush()

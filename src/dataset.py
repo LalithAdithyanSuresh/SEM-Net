@@ -177,29 +177,43 @@ class Dataset(torch.utils.data.Dataset):
 
     def load_flist(self, flist):
         if isinstance(flist, list):
-            return flist
-
-        # flist: image file path, image directory path, text file flist path
-        if isinstance(flist, str):
+            paths = flist
+        elif isinstance(flist, str):
             if os.path.isdir(flist):
-                flist = list(glob.glob(os.path.join(flist, '**', '*.jpg'), recursive=True)) + \
+                paths = list(glob.glob(os.path.join(flist, '**', '*.jpg'), recursive=True)) + \
                         list(glob.glob(os.path.join(flist, '**', '*.png'), recursive=True))
-                flist.sort()
-                return flist
-
-            if os.path.isfile(flist):
+                paths.sort()
+            elif os.path.isfile(flist):
                 try:
                     data = np.genfromtxt(flist, dtype=str, encoding='utf-8')
                     if data.ndim == 0:
                         data = np.array([data])
                     
                     base_dir = os.path.dirname(flist)
-                    return [os.path.join(base_dir, line) if not os.path.isabs(line) else line for line in data]
+                    paths = [os.path.join(base_dir, line) if not os.path.isabs(line) else line for line in data]
                 except Exception as e:
                     print(e)
-                    return [flist]
+                    paths = [flist]
+            else:
+                paths = []
+        else:
+            paths = []
+
+        if self.training and len(paths) > 0:
+            from collections import defaultdict
+            categories = defaultdict(list)
+            for p in paths:
+                categories[os.path.dirname(p)].append(p)
+
+            halved_paths = []
+            for cat_dir in sorted(categories.keys()):
+                cat_files = sorted(categories[cat_dir])
+                halved_paths.extend(cat_files[:len(cat_files) // 2])
+
+            print(f"[DATASET] Halved categories: reduced training dataset from {len(paths)} to {len(halved_paths)} images.")
+            return halved_paths
         
-        return []
+        return paths
 
     def create_iterator(self, batch_size):
         while True:
