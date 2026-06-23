@@ -25,8 +25,9 @@ else
     echo "[WARNING] No virtual environment (.venv or venv) found. Running in system Python environment."
 fi
 
-# 0. Install required packages (ensures gdown is available for downloading weights/datasets)
+# 0. Install required packages (ensures gdown and correct PyTorch version are available)
 echo "[*] Installing dependencies..."
+pip install torch==2.1.2 torchvision==0.16.2 --extra-index-url https://download.pytorch.org/whl/cu121
 pip install "numpy<2.0.0" omegaconf webdataset pytorch-lightning kornia joblib hydra-core requests scikit-image easydict opencv-python tabulate scikit-learn pyyaml pandas matplotlib packaging einops timm gdown
 
 # 1. Clone CMT repo if not already cloned
