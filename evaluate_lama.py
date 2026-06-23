@@ -46,6 +46,24 @@ def load_model(model_path, device):
     with open(config_path, 'r') as f:
         train_config = OmegaConf.load(f)
     
+    # Fix any hardcoded paths pointing to /group-volume
+    from omegaconf import DictConfig, ListConfig
+    def fix_config_paths(cfg):
+        if isinstance(cfg, DictConfig):
+            for k, v in cfg.items():
+                if isinstance(v, str) and (v.startswith('/group-volume') or v.startswith('/group_volume')):
+                    cfg[k] = v.replace('/group-volume', './group-volume').replace('/group_volume', './group_volume')
+                elif isinstance(v, (DictConfig, ListConfig)):
+                    fix_config_paths(v)
+        elif isinstance(cfg, ListConfig):
+            for i, v in enumerate(cfg):
+                if isinstance(v, str) and (v.startswith('/group-volume') or v.startswith('/group_volume')):
+                    cfg[i] = v.replace('/group-volume', './group-volume').replace('/group_volume', './group_volume')
+                elif isinstance(v, (DictConfig, ListConfig)):
+                    fix_config_paths(v)
+                    
+    fix_config_paths(train_config)
+    
     # Locate the checkpoint file
     models_dir = os.path.join(model_path, 'models')
     checkpoint_path = os.path.join(models_dir, 'best.ckpt')
