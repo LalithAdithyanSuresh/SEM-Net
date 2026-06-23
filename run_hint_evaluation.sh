@@ -8,7 +8,7 @@ export C2_SESSION="DAVA"
 export TORCH_HOME="./tmp/torch_cache"
 
 echo "================================================="
-echo "CMT Evaluation Shell Script Starting"
+echo "HINT Evaluation Shell Script Starting"
 echo "================================================="
 
 # Create datasets directory if not exists
@@ -18,29 +18,32 @@ mkdir -p datasets
 echo "[*] Installing dependencies..."
 pip install "numpy<2.0.0" omegaconf webdataset pytorch-lightning kornia joblib hydra-core requests scikit-image easydict opencv-python tabulate scikit-learn pyyaml pandas matplotlib packaging einops timm gdown
 
-# 1. Clone CMT repo if not already cloned
-if [ ! -d "CMT" ]; then
-    echo "[*] Cloning CMT repository..."
-    git clone https://github.com/keunsoo-ko/CMT.git
+# 1. Clone HINT repo if not already present
+if [ ! -d "HINT" ] && [ ! -d "TEMP_QUALITATIVE/TEMP_QUALITATIVE/HINT" ]; then
+    echo "[*] Cloning HINT repository..."
+    git clone https://github.com/ChrisChen1023/HINT.git
 else
-    echo "[*] CMT repository already exists."
+    echo "[*] HINT directory already exists."
 fi
 
-# 2. Download CelebA-HQ model weights if not already present
-if [ ! -f "CMT/CelebA.pth" ]; then
-    echo "[*] Downloading CMT CelebA model weights from Google Drive..."
-    mkdir -p CMT
-    gdown --id 1e6EbwGnMGgGXAn4QLffT_Zx_BbidBSbR -O CMT/CelebA.pth
-else
-    # Check if the file is an HTML page (starts with '<')
-    if head -n 1 "CMT/CelebA.pth" | grep -q "^<"; then
-        echo "[!] CMT CelebA model weights appear to be a corrupted HTML file. Re-downloading with gdown..."
-        rm -f CMT/CelebA.pth
-        gdown --id 1e6EbwGnMGgGXAn4QLffT_Zx_BbidBSbR -O CMT/CelebA.pth
+# 2. Check and resolve HINT checkpoints
+HINT_CHECKPOINT_DIR="TEMP_QUALITATIVE/TEMP_QUALITATIVE/HINT/HINT_Validate_Places2"
+
+if [ ! -d "$HINT_CHECKPOINT_DIR" ]; then
+    HINT_CHECKPOINT_DIR="checkpoints/hint_celebahq"
+    if [ ! -d "$HINT_CHECKPOINT_DIR" ] || [ ! -f "$HINT_CHECKPOINT_DIR/InpaintingModel_gen.pth" ] || [ ! -f "$HINT_CHECKPOINT_DIR/config.yml" ]; then
+        echo "[*] Pre-trained weights not found at $HINT_CHECKPOINT_DIR. Downloading HINT CelebA-HQ checkpoint from Google Drive..."
+        mkdir -p "$HINT_CHECKPOINT_DIR"
+        # Download the files inside the folder using gdown folder mode
+        gdown --folder https://drive.google.com/drive/folders/1DPmw5LSVxmRXoiLzPrIePXJHla0ek6E9 -O "$HINT_CHECKPOINT_DIR"
     else
-        echo "[*] CMT CelebA model weights already exist and are valid."
+        echo "[*] Using existing HINT CelebA-HQ checkpoints at $HINT_CHECKPOINT_DIR."
     fi
+else
+    echo "[*] Using existing Places2 checkpoints at $HINT_CHECKPOINT_DIR."
 fi
+
+echo "[*] HINT checkpoint path configured as: $HINT_CHECKPOINT_DIR"
 
 # 3. Download and unzip CelebA-HQ 256 test dataset if not already present
 if [ ! -d "datasets/celeba_hq_256_test" ]; then
@@ -65,9 +68,11 @@ else
 fi
 
 # 5. Run evaluation script
-echo "[*] Starting CMT evaluation..."
-python -u evaluate_cmt.py --model-path CMT/CelebA.pth --image-dir datasets/celeba_hq_256_test --mask-dir datasets/testing_mask_dataset --output-dir evaluation_results_cmt --log-file cmt_evaluation.log
+# If you are using Places2 model, the script uses the default path: TEMP_QUALITATIVE/TEMP_QUALITATIVE/HINT/HINT_Validate_Places2
+# If evaluating CelebA-HQ, pass your downloaded checkpoints path: --model-path checkpoints/hint_celebahq
+echo "[*] Starting HINT evaluation..."
+python -u evaluate_hint.py --model-path "$HINT_CHECKPOINT_DIR" --image-dir datasets/celeba_hq_256_test --mask-dir datasets/testing_mask_dataset --output-dir evaluation_results_hint --log-file hint_evaluation.log
 
 echo "================================================="
-echo "CMT Evaluation Shell Script Finished!"
+echo "HINT Evaluation Shell Script Finished!"
 echo "================================================="

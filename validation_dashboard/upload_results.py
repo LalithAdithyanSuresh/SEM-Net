@@ -104,7 +104,7 @@ def upload_path(path, host, target_name=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Upload validation results to the dashboard server.")
     parser.add_argument("path", nargs='?', help="Path to the folder or .zip file containing results")
-    parser.add_argument("--host", default="http://validate.lalithadithyan.dev", help="URL of the dashboard server")
+    parser.add_argument("--host", default="https://validate.lalithadithyan.dev", help="URL of the dashboard server")
     parser.add_argument("--masks", help="Path to the original mask directory to upload")
     
     args = parser.parse_args()
