@@ -44,7 +44,7 @@ fi
 
 # 4. Install required packages
 echo "[*] Installing dependencies..."
-pip install "numpy<2.0.0" omegaconf webdataset pytorch-lightning kornia joblib hydra-core albumentations requests scikit-image
+pip install "numpy<2.0.0" omegaconf webdataset pytorch-lightning kornia joblib hydra-core albumentations requests scikit-image easydict opencv-python tabulate scikit-learn pyyaml
 
 # 5. Run evaluation script
 echo "[*] Starting LaMa evaluation..."
