@@ -15,9 +15,28 @@ sys.path.insert(0, os.path.abspath('lama'))
 try:
     from saicinpainting.training.trainers import load_checkpoint
     from omegaconf import OmegaConf
-except ImportError:
-    print("[ERROR] Could not import saicinpainting or omegaconf. Ensure LaMa is cloned and dependencies are installed.")
+except Exception as e:
+    import traceback
+    traceback.print_exc()
+    print(f"[ERROR] Could not import saicinpainting or omegaconf: {e}")
     sys.exit(1)
+
+class Tee:
+    def __init__(self, original_stream, file_handle):
+        self.original_stream = original_stream
+        self.file_handle = file_handle
+
+    def write(self, message):
+        self.original_stream.write(message)
+        self.file_handle.write(message)
+        self.file_handle.flush()
+
+    def flush(self):
+        self.original_stream.flush()
+        self.file_handle.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.original_stream, name)
 
 def load_model(model_path, device):
     config_path = os.path.join(model_path, 'config.yaml')
@@ -91,7 +110,25 @@ def main():
     parser.add_argument('--mask-dir', type=str, default='datasets/testing_mask_dataset', help='Path to testing masks')
     parser.add_argument('--output-dir', type=str, default='evaluation_results_lama', help='Output directory')
     parser.add_argument('--num-images', type=int, default=2000, help='Number of test images to evaluate')
+    parser.add_argument('--log-file', type=str, default='lama_evaluation.log', help='Path to save terminal logs')
     args = parser.parse_args()
+
+    if args.log_file:
+        log_dir = os.path.dirname(args.log_file)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+        log_file_handle = open(args.log_file, 'w', encoding='utf-8')
+        original_stdout = sys.stdout
+        original_stderr = sys.stderr
+        sys.stdout = Tee(sys.stdout, log_file_handle)
+        sys.stderr = Tee(sys.stderr, log_file_handle)
+        
+        import atexit
+        def cleanup():
+            sys.stdout = original_stdout
+            sys.stderr = original_stderr
+            log_file_handle.close()
+        atexit.register(cleanup)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")

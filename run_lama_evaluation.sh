@@ -48,7 +48,7 @@ pip install "numpy<2.0.0" omegaconf webdataset pytorch-lightning kornia joblib h
 
 # 5. Run evaluation script
 echo "[*] Starting LaMa evaluation..."
-python -u evaluate_lama.py --model-path lama/big-lama --image-dir datasets/celeba_hq_256_test --mask-dir datasets/testing_mask_dataset --output-dir evaluation_results_lama
+python -u evaluate_lama.py --model-path lama/big-lama --image-dir datasets/celeba_hq_256_test --mask-dir datasets/testing_mask_dataset --output-dir evaluation_results_lama --log-file lama_evaluation.log
 
 echo "================================================="
 echo "LaMa Evaluation Shell Script Finished!"
