@@ -15,21 +15,78 @@ echo "================================================="
 # Create datasets directory if not exists
 mkdir -p datasets
 
-# 1. Detect and activate virtual environment
+# Set CUDA Toolkit paths (critical for compiling causal-conv1d, mamba-ssm, and DCNv3)
+export CUDA_HOME="/usr/local/cuda-12.4"
+if [ ! -d "$CUDA_HOME" ]; then
+    export CUDA_HOME="/usr/local/cuda"
+fi
+if [ -d "$CUDA_HOME" ]; then
+    echo "[*] Configuring CUDA environment at $CUDA_HOME..."
+    export PATH="$CUDA_HOME/bin:$PATH"
+    export LD_LIBRARY_PATH="$CUDA_HOME/lib64:$LD_LIBRARY_PATH"
+else
+    echo "[WARNING] CUDA Toolkit directory not found. Package compilation might fail."
+fi
+
+# 1. Detect, create, and activate virtual environment
+if [ ! -d ".venv" ] && [ ! -d "venv" ]; then
+    echo "[*] No virtual environment found. Creating one (.venv)..."
+    python3 -m venv .venv
+fi
+
 if [ -d ".venv" ]; then
     echo "[*] Activating virtual environment (.venv)..."
     source .venv/bin/activate
 elif [ -d "venv" ]; then
     echo "[*] Activating virtual environment (venv)..."
     source venv/bin/activate
-else
-    echo "[WARNING] No virtual environment found. Running in system Python environment."
 fi
 
 # 2. Install required pip packages (ensures PyTorch is compiled for CUDA 12.1)
 echo "[*] Installing dependencies..."
 pip install torch==2.1.2 torchvision==0.16.2 --extra-index-url https://download.pytorch.org/whl/cu121
 pip install "numpy<2.0.0" omegaconf webdataset pytorch-lightning kornia joblib hydra-core requests scikit-image easydict opencv-python tabulate scikit-learn pyyaml pandas matplotlib packaging einops timm gdown
+
+# 2.5 Compile and install Mamba modules if missing
+if ! python -c "import mamba_ssm" &>/dev/null; then
+    echo "[*] mamba_ssm not found. Compiling and installing causal-conv1d and mamba-ssm..."
+    pip install causal-conv1d==1.1.3.post1 mamba-ssm==1.1.3.post1 --no-build-isolation -v
+else
+    echo "[*] mamba_ssm already installed."
+fi
+
+# 2.6 Compile DCNv3 CUDA kernels if missing
+if ! python -c "import DCNv3" &>/dev/null; then
+    echo "[*] DCNv3 not found. Compiling DCNv3 CUDA kernels..."
+    # Apply boxing.h patch to ATen if it exists in PyTorch
+    python -c "
+import glob, os
+paths = glob.glob(os.path.join('.venv', 'lib', 'python*', 'site-packages', 'torch', 'include', 'ATen', 'core', 'boxing', 'impl', 'boxing.h')) + \
+        glob.glob(os.path.join('venv', 'lib', 'python*', 'site-packages', 'torch', 'include', 'ATen', 'core', 'boxing', 'impl', 'boxing.h'))
+for path in paths:
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        if '// has_ivalue_to<T> tests the presence' in content and 'struct has_ivalue_to : std::true_type {};' not in content:
+            print(f'Patching ATen boxing.h: {path}')
+            start_idx = content.find('// has_ivalue_to<T> tests')
+            end_idx = content.find('// boxing predicates')
+            rep = '// has_ivalue_to<T> tests the presence/absence of instance method IValue::to<T>()\\n//\\ntemplate <class T, class Enable = void>\\nstruct has_ivalue_to : std::true_type {};\\n\\n'
+            new_content = content[:start_idx] + rep + content[end_idx:]
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(new_content)
+    except Exception as e:
+        print(f'Failed to patch: {e}')
+"
+    
+    cd src/ops_dcnv3
+    chmod +x make.sh
+    rm -rf build/
+    sh make.sh
+    cd ../..
+else
+    echo "[*] DCNv3 already compiled."
+fi
 
 # 3. Synchronize branch to DAVA
 echo "[*] Pulling latest changes from branch DAVA..."
