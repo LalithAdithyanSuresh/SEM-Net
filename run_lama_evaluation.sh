@@ -2,7 +2,7 @@
 
 # Configuration variables
 export C2_SERVER_URL="https://lalithadithyan.dev"
-export FILES_SERVER_URL="https://files.lalithadityan.dev"
+export FILES_SERVER_URL="https://files.lalithadithyan.dev"
 export C2_SESSION="DAVA"
 
 echo "================================================="
@@ -34,7 +34,7 @@ fi
 # 3. Download and unzip CelebA-HQ 256 test dataset if not already present
 if [ ! -d "datasets/celeba_hq_256_test" ]; then
     echo "[*] Downloading CelebA-HQ 256 test dataset..."
-    curl -L -o celeba_hq_256_test.zip https://files.lalithadityan.dev/download/celeba_hq_256_test.zip
+    curl -L -o celeba_hq_256_test.zip https://files.lalithadithyan.dev/download/celeba_hq_256_test.zip
     echo "[*] Unzipping CelebA-HQ 256 test dataset..."
     unzip celeba_hq_256_test.zip -d datasets/
     rm celeba_hq_256_test.zip
