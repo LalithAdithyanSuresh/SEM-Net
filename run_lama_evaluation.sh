@@ -4,6 +4,7 @@
 export C2_SERVER_URL="https://lalithadithyan.dev"
 export FILES_SERVER_URL="https://files.lalithadithyan.dev"
 export C2_SESSION="DAVA"
+export TORCH_HOME="./tmp/torch_cache"
 
 echo "================================================="
 echo "LaMa Evaluation Shell Script Starting"

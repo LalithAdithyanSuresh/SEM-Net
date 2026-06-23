@@ -87,6 +87,38 @@ def load_model(model_path, device):
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
         
+    # Ensure TORCH_HOME is defined in the environment so that LaMa knows where to load or save weights
+    if 'TORCH_HOME' not in os.environ:
+        os.environ['TORCH_HOME'] = os.path.expanduser('~/.cache/torch')
+        
+    # Check and download missing ADE20K resnet50 dilated encoder weights required for perceptual loss
+    torch_home = os.environ['TORCH_HOME']
+    ade_dir = os.path.join(torch_home, 'ade20k', 'ade20k-resnet50dilated-ppm_deepsup')
+    ade_weight_path = os.path.join(ade_dir, 'encoder_epoch_20.pth')
+    
+    if not os.path.exists(ade_weight_path):
+        print(f"[*] Downloading missing ADE20K resnet50 dilated encoder weights to {ade_weight_path}...")
+        os.makedirs(ade_dir, exist_ok=True)
+        url = "http://sceneparsing.csail.mit.edu/model/pytorch/ade20k-resnet50dilated-ppm_deepsup/encoder_epoch_20.pth"
+        try:
+            response = requests.get(url, stream=True, timeout=60)
+            response.raise_for_status()
+            total_size = int(response.headers.get('content-length', 0))
+            with open(ade_weight_path, 'wb') as f, tqdm(
+                desc="ADE20K weights",
+                total=total_size,
+                unit='iB',
+                unit_scale=True,
+                unit_divisor=1024,
+            ) as bar:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+                        bar.update(len(chunk))
+            print("[*] Download complete!")
+        except Exception as e:
+            print(f"[ERROR] Failed to download ADE20K weights: {e}")
+        
     # Register 'env' resolver for environment variables in configuration
     try:
         if not OmegaConf.has_resolver('env'):
