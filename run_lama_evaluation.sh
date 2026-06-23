@@ -22,11 +22,11 @@ else
 fi
 
 # 2. Download and place CelebA-HQ model weights if not already present
-if [ ! -d "lama/lama-regular-celebahq" ]; then
+if [ ! -d "lama/lama-fourier-celeba" ]; then
     echo "[*] Downloading LaMa CelebA-HQ model weights and config..."
-    mkdir -p lama/lama-regular-celebahq/models
-    curl -L -o lama/lama-regular-celebahq/config.yaml https://huggingface.co/camenduru/big-lama/resolve/main/lama-celeba-hq/lama-regular/config.yaml
-    curl -L -o lama/lama-regular-celebahq/models/best.ckpt https://huggingface.co/camenduru/big-lama/resolve/main/lama-celeba-hq/lama-regular/models/best.ckpt
+    mkdir -p lama/lama-fourier-celeba/models
+    curl -L -o lama/lama-fourier-celeba/config.yaml https://huggingface.co/camenduru/big-lama/resolve/main/lama-celeba-hq/lama-fourier/config.yaml
+    curl -L -o lama/lama-fourier-celeba/models/best.ckpt https://huggingface.co/camenduru/big-lama/resolve/main/lama-celeba-hq/lama-fourier/models/best.ckpt
 else
     echo "[*] LaMa CelebA-HQ model weights already exist."
 fi
@@ -60,7 +60,7 @@ pip install "numpy<2.0.0" omegaconf webdataset pytorch-lightning kornia joblib h
 
 # 5. Run evaluation script
 echo "[*] Starting LaMa evaluation..."
-python -u evaluate_lama.py --model-path lama/lama-regular-celebahq --image-dir datasets/celeba_hq_256_test --mask-dir datasets/testing_mask_dataset --output-dir evaluation_results_lama --log-file lama_evaluation.log
+python -u evaluate_lama.py --model-path lama/lama-fourier-celeba --image-dir datasets/celeba_hq_256_test --mask-dir datasets/testing_mask_dataset --output-dir evaluation_results_lama --log-file lama_evaluation.log
 
 echo "================================================="
 echo "LaMa Evaluation Shell Script Finished!"

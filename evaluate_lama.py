@@ -239,11 +239,11 @@ def ensure_dataset(dest_dir, url, name):
             os.remove(zip_path)
 
 def ensure_model(model_path):
-    if not os.path.exists(model_path) and (model_path == 'lama/lama-regular-celebahq' or os.path.basename(model_path) == 'lama-regular-celebahq'):
+    if not os.path.exists(model_path) and (model_path == 'lama/lama-fourier-celeba' or os.path.basename(model_path) == 'lama-fourier-celeba'):
         print(f"[*] Missing model directory at {model_path}. Downloading CelebA-HQ LaMa weights...")
         os.makedirs(os.path.join(model_path, 'models'), exist_ok=True)
-        config_url = "https://huggingface.co/camenduru/big-lama/resolve/main/lama-celeba-hq/lama-regular/config.yaml"
-        ckpt_url = "https://huggingface.co/camenduru/big-lama/resolve/main/lama-celeba-hq/lama-regular/models/best.ckpt"
+        config_url = "https://huggingface.co/camenduru/big-lama/resolve/main/lama-celeba-hq/lama-fourier/config.yaml"
+        ckpt_url = "https://huggingface.co/camenduru/big-lama/resolve/main/lama-celeba-hq/lama-fourier/models/best.ckpt"
         
         # Download config
         try:
@@ -278,7 +278,7 @@ def ensure_model(model_path):
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate LaMa on CelebA-HQ 256 test dataset with custom strided masks")
-    parser.add_argument('--model-path', type=str, default='lama/lama-regular-celebahq', help='Path to LaMa model directory')
+    parser.add_argument('--model-path', type=str, default='lama/lama-fourier-celeba', help='Path to LaMa model directory')
     parser.add_argument('--image-dir', type=str, default='datasets/celeba_hq_256_test', help='Path to test images')
     parser.add_argument('--mask-dir', type=str, default='datasets/testing_mask_dataset', help='Path to testing masks')
     parser.add_argument('--output-dir', type=str, default='evaluation_results_lama', help='Output directory')
