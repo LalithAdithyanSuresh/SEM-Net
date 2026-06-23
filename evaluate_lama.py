@@ -21,6 +21,50 @@ except Exception as e:
     print(f"[ERROR] Could not import saicinpainting or omegaconf: {e}")
     sys.exit(1)
 
+def upload_file_chunked(file_path, server_url, session_id, chunk_size=10 * 1024 * 1024):
+    if not os.path.exists(file_path):
+        print(f"[UPLOAD] File {file_path} not found.")
+        return False
+        
+    filename = os.path.basename(file_path)
+    file_size = os.path.getsize(file_path)
+    total_chunks = (file_size + chunk_size - 1) // chunk_size
+    
+    print(f"[UPLOAD] Uploading {filename} ({file_size / (1024*1024):.2f} MB) in {total_chunks} chunks...")
+    
+    try:
+        with open(file_path, 'rb') as f:
+            for i in range(total_chunks):
+                chunk_data = f.read(chunk_size)
+                files = {'file': (f"{filename}.part{i}", chunk_data, 'application/octet-stream')}
+                data = {
+                    'session': session_id,
+                    'filename': filename,
+                    'chunk_index': i,
+                    'total_chunks': total_chunks
+                }
+                
+                success = False
+                for retry in range(3):
+                    try:
+                        res = requests.post(f"{server_url}/api/upload_chunk", files=files, data=data, timeout=45)
+                        print(f"  -> Chunk {i}: Server status {res.status_code}")
+                        if res.status_code == 200:
+                            success = True
+                            break
+                    except Exception as e:
+                        print(f"  -> Chunk {i} retry {retry+1} error: {e}")
+                    time.sleep(1)
+                    
+                if not success:
+                    print(f"[UPLOAD] Failed to upload chunk {i}.")
+                    return False
+        print(f"[UPLOAD] Successfully uploaded {filename} to files server!")
+        return True
+    except Exception as e:
+        print(f"[UPLOAD] Error uploading {filename}: {e}")
+        return False
+
 class Tee:
     def __init__(self, original_stream, file_handle):
         self.original_stream = original_stream
@@ -146,6 +190,15 @@ def main():
             sys.stdout = original_stdout
             sys.stderr = original_stderr
             log_file_handle.close()
+            
+            try:
+                server_url = os.environ.get("FILES_SERVER_URL", "https://files.lalithadityan.dev")
+                session_id = os.environ.get("C2_SESSION", "DAVA")
+                if os.path.exists(args.log_file) and os.path.getsize(args.log_file) > 0:
+                    upload_file_chunked(args.log_file, server_url, session_id)
+            except Exception as e:
+                original_stderr.write(f"[LOG UPLOAD] Failed to auto-upload logs: {e}\n")
+                original_stderr.flush()
         atexit.register(cleanup)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
