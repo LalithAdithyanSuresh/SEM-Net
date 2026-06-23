@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Automatically switch to the script's directory
+cd "$(dirname "$0")"
+
 # Configuration variables
 export C2_SERVER_URL="https://lalithadithyan.dev"
 export FILES_SERVER_URL="https://files.lalithadithyan.dev"
@@ -140,7 +143,7 @@ if [ "$MODE" == "start" ]; then
     fi
     mkdir -p "$CHECKPOINT_DIR"
     echo "[*] Downloading default model configuration config.yml..."
-    gdown --id 1tXf-AhpM9To83fVIrAaPJ82pO3ant_7V -O "$CHECKPOINT_DIR/config.yml"
+    gdown 1tXf-AhpM9To83fVIrAaPJ82pO3ant_7V -O "$CHECKPOINT_DIR/config.yml"
 else
     echo "[*] Continue mode selected (resuming from pre-trained weights)."
     mkdir -p "$CHECKPOINT_DIR"
@@ -148,33 +151,33 @@ else
     # Download generator weights if missing
     if [ ! -f "$CHECKPOINT_DIR/InpaintingModel_gen.pth" ]; then
         echo "[*] Downloading pre-trained generator weights from Google Drive..."
-        gdown --id 1Pr4mg3qo2zlGtEI9GMdFMmGkU4V5kpIi -O "$CHECKPOINT_DIR/InpaintingModel_gen.pth"
+        gdown 1Pr4mg3qo2zlGtEI9GMdFMmGkU4V5kpIi -O "$CHECKPOINT_DIR/InpaintingModel_gen.pth"
     fi
     
     # Verify generator file corruption
     if [ -f "$CHECKPOINT_DIR/InpaintingModel_gen.pth" ] && head -n 1 "$CHECKPOINT_DIR/InpaintingModel_gen.pth" | grep -q "^<"; then
         echo "[!] Generator weights file appears to be a corrupted HTML file. Re-downloading..."
         rm -f "$CHECKPOINT_DIR/InpaintingModel_gen.pth"
-        gdown --id 1Pr4mg3qo2zlGtEI9GMdFMmGkU4V5kpIi -O "$CHECKPOINT_DIR/InpaintingModel_gen.pth"
+        gdown 1Pr4mg3qo2zlGtEI9GMdFMmGkU4V5kpIi -O "$CHECKPOINT_DIR/InpaintingModel_gen.pth"
     fi
 
     # Download discriminator weights if missing
     if [ ! -f "$CHECKPOINT_DIR/InpaintingModel_dis.pth" ]; then
         echo "[*] Downloading pre-trained discriminator weights from Google Drive..."
-        gdown --id 116S6kNiocQH6v7l_0wdI7qtnjUbDx8rv -O "$CHECKPOINT_DIR/InpaintingModel_dis.pth"
+        gdown 116S6kNiocQH6v7l_0wdI7qtnjUbDx8rv -O "$CHECKPOINT_DIR/InpaintingModel_dis.pth"
     fi
     
     # Verify discriminator file corruption
     if [ -f "$CHECKPOINT_DIR/InpaintingModel_dis.pth" ] && head -n 1 "$CHECKPOINT_DIR/InpaintingModel_dis.pth" | grep -q "^<"; then
         echo "[!] Discriminator weights file appears to be a corrupted HTML file. Re-downloading..."
         rm -f "$CHECKPOINT_DIR/InpaintingModel_dis.pth"
-        gdown --id 116S6kNiocQH6v7l_0wdI7qtnjUbDx8rv -O "$CHECKPOINT_DIR/InpaintingModel_dis.pth"
+        gdown 116S6kNiocQH6v7l_0wdI7qtnjUbDx8rv -O "$CHECKPOINT_DIR/InpaintingModel_dis.pth"
     fi
 
     # Download config if missing
     if [ ! -f "$CHECKPOINT_DIR/config.yml" ]; then
         echo "[*] Downloading model configuration config.yml..."
-        gdown --id 1tXf-AhpM9To83fVIrAaPJ82pO3ant_7V -O "$CHECKPOINT_DIR/config.yml"
+        gdown 1tXf-AhpM9To83fVIrAaPJ82pO3ant_7V -O "$CHECKPOINT_DIR/config.yml"
     fi
 fi
 
