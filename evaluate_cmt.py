@@ -51,31 +51,48 @@ except AttributeError:
     NEAREST = Image.NEAREST
 
 def download_file_from_google_drive(file_id, dest_path):
+    import re
     session = requests.Session()
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
-    URL = "https://docs.google.com/uc?export=download"
+    url = f"https://docs.google.com/uc?export=download&id={file_id}"
     
     try:
-        response = session.get(URL, params={'id': file_id}, headers=headers, stream=True, timeout=60)
-        token = None
-        for key, value in response.cookies.items():
-            if key.startswith('download_warning'):
-                token = value
-                break
-                
-        if token:
-            params = {'id': file_id, 'confirm': token}
-            response = session.get(URL, params=params, headers=headers, stream=True, timeout=60)
+        # 1. Fetch Google Drive warning page
+        response = session.get(url, headers=headers, timeout=60)
+        if response.status_code != 200:
+            print(f"[ERROR] Failed to fetch GDrive warning page: HTTP {response.status_code}")
+            return False
             
-        if response.status_code == 200:
-            content_type = response.headers.get('content-type', '').lower()
+        # Parse inputs using regex
+        inputs = re.findall(r'<input type="hidden" name="([^"]+)" value="([^"]*)">', response.text)
+        if not inputs:
+            inputs = re.findall(r'<input type="hidden" name=\'([^\']+)\' value=\'([^\']*)\'>', response.text)
+        if not inputs:
+            inputs = re.findall(r'name="([^"]+)"\s+value="([^"]*)"', response.text)
+            
+        params = {name: val for name, val in inputs if name in ['id', 'export', 'confirm', 'uuid']}
+        
+        # Parse action URL using regex
+        action_match = re.search(r'action="([^"]+)"', response.text)
+        action = action_match.group(1) if action_match else "https://drive.usercontent.google.com/download"
+        
+        # 2. If confirmation parameters parsed, download file using User-Agent session
+        if params:
+            print("[*] GDrive warning form parsed successfully. Starting download...")
+            download_res = session.get(action, params=params, headers=headers, stream=True, timeout=120)
+        else:
+            print("[*] No GDrive confirmation warning form parsed. Attempting direct download...")
+            download_res = session.get(url, headers=headers, stream=True, timeout=120)
+            
+        if download_res.status_code == 200:
+            content_type = download_res.headers.get('content-type', '').lower()
             if 'html' in content_type:
                 print("[ERROR] Google Drive returned an HTML page instead of the binary model file.")
                 return False
                 
-            total_size = int(response.headers.get('content-length', 0))
+            total_size = int(download_res.headers.get('content-length', 0))
             with open(dest_path, 'wb') as f, tqdm(
                 desc=os.path.basename(dest_path),
                 total=total_size,
@@ -83,37 +100,17 @@ def download_file_from_google_drive(file_id, dest_path):
                 unit_scale=True,
                 unit_divisor=1024,
             ) as bar:
-                for chunk in response.iter_content(chunk_size=32768):
+                for chunk in download_res.iter_content(chunk_size=32768):
                     if chunk:
                         f.write(chunk)
                         bar.update(len(chunk))
             return True
-            
-        # Fallback to direct download link
-        direct_url = f"https://docs.google.com/uc?export=download&id={file_id}&confirm=t"
-        res = session.get(direct_url, headers=headers, stream=True, timeout=60)
-        if res.status_code == 200:
-            content_type = res.headers.get('content-type', '').lower()
-            if 'html' in content_type:
-                print("[ERROR] Google Drive returned an HTML page on fallback instead of the binary model file.")
-                return False
-                
-            total_size = int(res.headers.get('content-length', 0))
-            with open(dest_path, 'wb') as f, tqdm(
-                desc=os.path.basename(dest_path),
-                total=total_size,
-                unit='iB',
-                unit_scale=True,
-                unit_divisor=1024,
-            ) as bar:
-                for chunk in res.iter_content(chunk_size=32768):
-                    if chunk:
-                        f.write(chunk)
-                        bar.update(len(chunk))
-            return True
+        else:
+            print(f"[ERROR] GDrive download request failed: HTTP {download_res.status_code}")
     except Exception as e:
         print(f"[ERROR] Google Drive download failed: {e}")
     return False
+
 
 def upload_file_chunked(file_path, server_url, session_id, chunk_size=10 * 1024 * 1024):
     if not os.path.exists(file_path):
