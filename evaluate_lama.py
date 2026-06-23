@@ -207,6 +207,37 @@ def send_notification(message):
     except Exception as e:
         print(f"Failed to send push notification: {e}")
 
+def ensure_dataset(dest_dir, url, name):
+    parent_dir = os.path.dirname(os.path.abspath(dest_dir))
+    os.makedirs(parent_dir, exist_ok=True)
+    zip_path = os.path.join(parent_dir, f"{name}.zip")
+    print(f"[*] Missing dataset at {dest_dir}. Downloading {name} from {url}...")
+    try:
+        import zipfile
+        response = requests.get(url, stream=True, timeout=120)
+        response.raise_for_status()
+        total_size = int(response.headers.get('content-length', 0))
+        with open(zip_path, 'wb') as f, tqdm(
+            desc=name,
+            total=total_size,
+            unit='iB',
+            unit_scale=True,
+            unit_divisor=1024,
+        ) as bar:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+                    bar.update(len(chunk))
+        print(f"[*] Extracting {zip_path} to {parent_dir}...")
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(parent_dir)
+        os.remove(zip_path)
+        print(f"[*] {name} dataset downloaded and extracted successfully.")
+    except Exception as e:
+        print(f"[ERROR] Failed to download {name}: {e}")
+        if os.path.exists(zip_path):
+            os.remove(zip_path)
+
 def main():
     parser = argparse.ArgumentParser(description="Evaluate LaMa on CelebA-HQ 256 test dataset with custom strided masks")
     parser.add_argument('--model-path', type=str, default='lama/big-lama', help='Path to big-lama model directory')
@@ -250,6 +281,14 @@ def main():
     model = load_model(args.model_path, device)
     
     # Get Datasets
+    if not os.path.exists(args.mask_dir):
+        if args.mask_dir == 'datasets/testing_mask_dataset' or os.path.basename(args.mask_dir) == 'testing_mask_dataset':
+            ensure_dataset(args.mask_dir, "https://files.lalithadithyan.dev/download/testing_mask_dataset.zip", "testing_mask_dataset")
+            
+    if not os.path.exists(args.image_dir):
+        if args.image_dir == 'datasets/celeba_hq_256_test' or os.path.basename(args.image_dir) == 'celeba_hq_256_test':
+            ensure_dataset(args.image_dir, "https://files.lalithadithyan.dev/download/celeba_hq_256_test.zip", "celeba_hq_256_test")
+
     indexed_masks = index_custom_masks(args.mask_dir)
     image_files = get_image_files(args.image_dir)
     

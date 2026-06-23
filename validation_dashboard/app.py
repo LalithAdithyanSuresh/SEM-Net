@@ -56,12 +56,58 @@ import json
 CACHE_FILE = os.path.join(os.path.dirname(__file__), 'mask_cache.json')
 indexed_masks_cache = None
 
+def ensure_celeba_hq_test_dataset():
+    celeba_dir = os.path.join(DATA_DIR, 'celeba_hq_256_test')
+    if not os.path.exists(celeba_dir):
+        print(f"[*] Downloading missing celeba_hq_256_test dataset...")
+        url = "https://files.lalithadithyan.dev/download/celeba_hq_256_test.zip"
+        zip_path = os.path.join(DATA_DIR, "celeba_hq_256_test.zip")
+        try:
+            import requests
+            import zipfile
+            os.makedirs(DATA_DIR, exist_ok=True)
+            r = requests.get(url, timeout=120)
+            r.raise_for_status()
+            with open(zip_path, 'wb') as f:
+                f.write(r.content)
+            print("[*] Unzipping celeba_hq_256_test...")
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(DATA_DIR)
+            os.remove(zip_path)
+            print("[*] celeba_hq_256_test downloaded and extracted successfully.")
+        except Exception as e:
+            print(f"[ERROR] Failed to download CelebA-HQ test dataset: {e}")
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+
 def get_indexed_masks():
     global indexed_masks_cache
     if indexed_masks_cache:
         return indexed_masks_cache
         
     mask_dir = os.path.join(DATA_DIR, 'testing_mask_dataset')
+    if not os.path.exists(mask_dir):
+        print(f"[*] Downloading missing testing_mask_dataset...")
+        url = "https://files.lalithadithyan.dev/download/testing_mask_dataset.zip"
+        zip_path = os.path.join(DATA_DIR, "testing_mask_dataset.zip")
+        try:
+            import requests
+            import zipfile
+            os.makedirs(DATA_DIR, exist_ok=True)
+            r = requests.get(url, timeout=120)
+            r.raise_for_status()
+            with open(zip_path, 'wb') as f:
+                f.write(r.content)
+            print("[*] Unzipping testing_mask_dataset...")
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(DATA_DIR)
+            os.remove(zip_path)
+            print("[*] testing_mask_dataset downloaded successfully.")
+        except Exception as e:
+            print(f"[ERROR] Failed to download mask dataset: {e}")
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+                
     if not os.path.exists(mask_dir):
         return {'SMALL': [], 'MEDIUM': [], 'LARGE': []}
         
@@ -86,6 +132,8 @@ def get_indexed_masks():
     return categories
 
 init_db()
+ensure_celeba_hq_test_dataset()
+get_indexed_masks()
 
 def get_grid_files(folder, size):
     grid_dir = os.path.join(folder, '5_image_grid', size)
@@ -131,6 +179,31 @@ def api_data():
                         dfs.append(new_df)
                 except Exception as e:
                     print(f"Error reading metrics for {m}: {e}")
+            else:
+                # Check if this is a LaMa grid directory
+                lama_size_dir = os.path.join(DATA_DIR, m, size)
+                if os.path.exists(lama_size_dir):
+                    try:
+                        data_list = []
+                        for f in os.listdir(lama_size_dir):
+                            if f.lower().endswith(('.png', '.jpg', '.jpeg')):
+                                # File format: SMALL_im00000_mask00000_42.99.png
+                                parts = f.split('_')
+                                if len(parts) >= 4 and parts[1].startswith('im'):
+                                    img_id = parts[1][2:]  # strip 'im'
+                                    psnr_part = parts[3]
+                                    psnr_val = psnr_part.replace('.png', '').replace('.jpg', '').replace('.jpeg', '')
+                                    try:
+                                        psnr_val = float(psnr_val)
+                                        data_list.append({'Image': f"{img_id}.png", 'PSNR': psnr_val})
+                                    except ValueError:
+                                        pass
+                        if data_list:
+                            df = pd.DataFrame(data_list)
+                            new_df = df[['Image', 'PSNR']].rename(columns={'PSNR': f'PSNR_{i+1}'}).copy()
+                            dfs.append(new_df)
+                    except Exception as e:
+                        print(f"Error scanning LaMa folder {m} for size {size}: {e}")
 
         # Normalize all dataframes to use 'ID' for robust merging
         normalized_dfs = []
@@ -148,11 +221,28 @@ def api_data():
             # Fallback to directory listing
             first_model_dir = os.path.join(DATA_DIR, models[0])
             images = []
-            # Check standard subfolder or root
-            search_paths = [os.path.join(first_model_dir, f'fid_real_{size}'), first_model_dir]
-            for d in search_paths:
-                if os.path.exists(d):
-                    images.extend([f for f in os.listdir(d) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
+            
+            # Check if first model is a LaMa folder
+            is_lama_0 = False
+            for s in ['SMALL', 'MEDIUM', 'LARGE']:
+                if os.path.exists(os.path.join(first_model_dir, s)):
+                    is_lama_0 = True
+                    break
+            
+            if is_lama_0:
+                lama_size_dir = os.path.join(first_model_dir, size)
+                if os.path.exists(lama_size_dir):
+                    for f in os.listdir(lama_size_dir):
+                        if f.lower().endswith(('.png', '.jpg', '.jpeg')):
+                            parts = f.split('_')
+                            if len(parts) >= 2 and parts[1].startswith('im'):
+                                images.append(parts[1][2:] + '.png')
+            else:
+                # Check standard subfolder or root
+                search_paths = [os.path.join(first_model_dir, f'fid_real_{size}'), first_model_dir]
+                for d in search_paths:
+                    if os.path.exists(d):
+                        images.extend([f for f in os.listdir(d) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
             
             unique_ids = sorted(list(set([f.split('.')[0] for f in images])))
             merged = pd.DataFrame({'ID': unique_ids})
@@ -191,11 +281,30 @@ def api_data():
         # Helper to find image path robustly
         def get_robust_path(model_name, subfolder_prefix, img_id_base):
             try:
-                # 1. Try standard subfolder: fid_fake_SMALL/00000.png
-                subfolder = f"{subfolder_prefix}_{size}"
                 model_path = os.path.join(DATA_DIR, model_name)
                 if not os.path.exists(model_path): return None
                 
+                # Check if this is a LaMa folder layout
+                is_lama = False
+                for s in ['SMALL', 'MEDIUM', 'LARGE']:
+                    if os.path.exists(os.path.join(model_path, s)):
+                        is_lama = True
+                        break
+                        
+                if is_lama:
+                    # Verify that a grid file exists for this img_id_base in the size folder
+                    size_dir = os.path.join(model_path, size)
+                    if os.path.exists(size_dir):
+                        for f in os.listdir(size_dir):
+                            if f.lower().endswith(('.png', '.jpg', '.jpeg')):
+                                f_parts = f.split('_')
+                                if len(f_parts) >= 2 and f_parts[1] == f"im{img_id_base}":
+                                    # Return virtual path which serve_image crops dynamically
+                                    return f'/images/{model_name}/{subfolder_prefix}_{size}/{img_id_base}.png'
+                    return None
+                
+                # 1. Try standard subfolder: fid_fake_SMALL/00000.png
+                subfolder = f"{subfolder_prefix}_{size}"
                 exts = ['.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG']
                 
                 target_sub = os.path.join(model_path, subfolder)
@@ -203,6 +312,15 @@ def api_data():
                     for ext in exts:
                         if os.path.exists(os.path.join(target_sub, img_id_base + ext)):
                             return f'/images/{model_name}/{subfolder}/{img_id_base}{ext}'
+                            
+                # Fallback for Ground Truth (fid_real): serve from global celeba_hq_256_test
+                if subfolder_prefix == 'fid_real':
+                    ensure_celeba_hq_test_dataset()
+                    global_gt_dir = os.path.join(DATA_DIR, 'celeba_hq_256_test')
+                    if os.path.exists(global_gt_dir):
+                        for ext in exts:
+                            if os.path.exists(os.path.join(global_gt_dir, img_id_base + ext)):
+                                return f'/images/celeba_hq_256_test/{img_id_base}{ext}'
                 
                 # 2. Try root folder second (flat structure)
                 for ext in exts:
@@ -366,6 +484,66 @@ def api_upload():
 @app.route('/images/<model_name>/<path:filename>')
 def serve_image(model_name, filename):
     model_dir = os.path.join(DATA_DIR, model_name)
+    
+    # Check if this is a LaMa folder layout
+    is_lama = False
+    for s in ['SMALL', 'MEDIUM', 'LARGE']:
+        if os.path.exists(os.path.join(model_dir, s)):
+            is_lama = True
+            break
+            
+    if is_lama:
+        # filename is e.g. "fid_real_SMALL/00000.png" or "fid_fake_SMALL/00000.png"
+        parts = filename.split('/')
+        if len(parts) == 2:
+            subfolder, img_file = parts
+            img_id = os.path.splitext(img_file)[0]
+            
+            sub_parts = subfolder.split('_')
+            if len(sub_parts) >= 3:
+                prefix = "_".join(sub_parts[:2]) # 'fid_real' or 'fid_fake'
+                size = sub_parts[2] # 'SMALL', 'MEDIUM', 'LARGE'
+                
+                # Find matching grid file in model_dir/size/
+                size_dir = os.path.join(model_dir, size)
+                if os.path.exists(size_dir):
+                    grid_file = None
+                    for f in os.listdir(size_dir):
+                        if f.lower().endswith(('.png', '.jpg', '.jpeg')):
+                            f_parts = f.split('_')
+                            if len(f_parts) >= 2 and f_parts[1] == f"im{img_id}":
+                                grid_file = f
+                                break
+                    
+                    if grid_file:
+                        grid_path = os.path.join(size_dir, grid_file)
+                        try:
+                            # Crop and return correct grid slice on the fly
+                            with Image.open(grid_path) as img:
+                                grid_w, grid_h = img.size
+                                w = grid_w // 5
+                                h = grid_h
+                                
+                                if prefix == 'fid_real':
+                                    # Section 1: Ground Truth
+                                    box = (0, 0, w, h)
+                                elif prefix == 'fid_fake':
+                                    # Section 5: Merged Inpainted Image
+                                    box = (4 * w, 0, 5 * w, h)
+                                else:
+                                    box = None
+                                    
+                                if box:
+                                    cropped = img.crop(box)
+                                    buf = io.BytesIO()
+                                    cropped.save(buf, format='PNG')
+                                    buf.seek(0)
+                                    return send_file(buf, mimetype='image/png')
+                        except Exception as e:
+                            return f"Error cropping LaMa grid: {e}", 500
+                            
+        return "Image not found", 404
+        
     return send_from_directory(model_dir, filename)
 
 @app.route('/')
@@ -375,9 +553,21 @@ def index():
 @app.route('/api/mask_only/<model>/<size>/<image_name>')
 def api_mask_only(model, size, image_name):
     # Deterministic Indexing ONLY (No direct ID mapping)
-    real_dir = os.path.join(DATA_DIR, model, f'fid_real_{size}')
-    if not os.path.exists(real_dir):
-        real_dir = os.path.join(DATA_DIR, model)
+    model_dir = os.path.join(DATA_DIR, model)
+    
+    # Check if this is a LaMa folder layout
+    is_lama = False
+    for s in ['SMALL', 'MEDIUM', 'LARGE']:
+        if os.path.exists(os.path.join(model_dir, s)):
+            is_lama = True
+            break
+            
+    if is_lama:
+        real_dir = os.path.join(model_dir, size)
+    else:
+        real_dir = os.path.join(model_dir, f'fid_real_{size}')
+        if not os.path.exists(real_dir):
+            real_dir = model_dir
         
     if not os.path.exists(real_dir):
         return "Category directory not found", 404
@@ -386,10 +576,17 @@ def api_mask_only(model, size, image_name):
     all_images.sort()
     
     image_filename = None
-    for f in all_images:
-        if f.startswith(image_name): 
-            image_filename = f
-            break
+    if is_lama:
+        target_token = f"_im{image_name}_"
+        for f in all_images:
+            if target_token in f:
+                image_filename = f
+                break
+    else:
+        for f in all_images:
+            if f.startswith(image_name): 
+                image_filename = f
+                break
             
     if not image_filename:
         return f"Image {image_name} not found in {model}", 404
