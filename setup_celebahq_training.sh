@@ -3,6 +3,51 @@
 # Automatically switch to the script's directory
 cd "$(dirname "$0")"
 
+# Check if we need to locate and transition to the repository root
+if [ -z "$SEMNET_LAUNCHED_FROM_REPO" ]; then
+    if [ ! -f "main.py" ] || [ ! -f "push_logs.py" ]; then
+        echo "[*] main.py or push_logs.py not found in current directory ($(pwd)). Searching in subdirectories..."
+        FOUND_DIR=$(find . -maxdepth 3 -name "main.py" -exec dirname {} \; | head -n 1)
+        if [ -n "$FOUND_DIR" ] && [ -f "$FOUND_DIR/push_logs.py" ]; then
+            LAUNCH_DIR="$(pwd)"
+            # Get absolute path of repository
+            cd "$FOUND_DIR"
+            REPO_DIR="$(pwd)"
+            cd "$LAUNCH_DIR"
+            
+            echo "[*] Found repository root at: $REPO_DIR"
+            
+            # Helper to move directories safely
+            move_dir_safely() {
+                local src="$1"
+                local dest="$2"
+                if [ -d "$src" ]; then
+                    echo "[*] Moving contents of $src to $dest..."
+                    mkdir -p "$dest"
+                    cp -r "$src"/. "$dest/" 2>/dev/null || true
+                    rm -rf "$src"
+                fi
+            }
+            
+            move_dir_safely "datasets" "$REPO_DIR/datasets"
+            move_dir_safely "checkpoints_celebahq" "$REPO_DIR/checkpoints_celebahq"
+            
+            if [ -f "$REPO_DIR/setup_celebahq_training.sh" ]; then
+                echo "[*] Executing repository version of setup_celebahq_training.sh..."
+                export SEMNET_LAUNCHED_FROM_REPO=1
+                exec bash "$REPO_DIR/setup_celebahq_training.sh" "$@"
+            else
+                echo "[*] Changing directory to repository root: $REPO_DIR"
+                cd "$REPO_DIR"
+            fi
+        else
+            echo "[ERROR] Could not find the repository directory containing main.py and push_logs.py."
+            echo "Please run this script from within the SEM-Net repository."
+            exit 1
+        fi
+    fi
+fi
+
 # Configuration variables
 export C2_SERVER_URL="https://lalithadithyan.dev"
 export FILES_SERVER_URL="https://files.lalithadithyan.dev"
