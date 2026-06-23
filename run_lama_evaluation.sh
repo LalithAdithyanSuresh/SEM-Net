@@ -43,6 +43,18 @@ else
     echo "[*] CelebA-HQ 256 test dataset already exists."
 fi
 
+# 3.5 Download and unzip testing mask dataset if not already present
+if [ ! -d "datasets/testing_mask_dataset" ]; then
+    echo "[*] Downloading testing mask dataset..."
+    curl -L -o testing_mask_dataset.zip https://files.lalithadithyan.dev/download/testing_mask_dataset.zip
+    echo "[*] Unzipping testing mask dataset..."
+    unzip testing_mask_dataset.zip -d datasets/
+    rm testing_mask_dataset.zip
+else
+    echo "[*] Testing mask dataset already exists."
+fi
+
+
 # 4. Install required packages
 echo "[*] Installing dependencies..."
 pip install "numpy<2.0.0" omegaconf webdataset pytorch-lightning kornia joblib hydra-core "albumentations==0.5.2" requests scikit-image easydict opencv-python tabulate scikit-learn pyyaml pandas matplotlib packaging
