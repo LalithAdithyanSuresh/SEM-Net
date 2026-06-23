@@ -25,15 +25,16 @@ fi
 if [ ! -f "CMT/CelebA.pth" ]; then
     echo "[*] Downloading CMT CelebA model weights from Google Drive..."
     mkdir -p CMT
-    # Google Drive File ID: 1e6EbwGnMGgGXAn4QLffT_Zx_BbidBSbR
-    CONFIRM=$(curl -sc /tmp/gcookie "https://docs.google.com/uc?export=download&id=1e6EbwGnMGgGXAn4QLffT_Zx_BbidBSbR" | grep -o 'confirm=[^&]*' | head -n1)
-    if [ -n "$CONFIRM" ]; then
-        curl -Lb /tmp/gcookie "https://docs.google.com/uc?export=download&${CONFIRM}&id=1e6EbwGnMGgGXAn4QLffT_Zx_BbidBSbR" -o CMT/CelebA.pth
-    else
-        curl -L "https://docs.google.com/uc?export=download&confirm=t&id=1e6EbwGnMGgGXAn4QLffT_Zx_BbidBSbR" -o CMT/CelebA.pth
-    fi
+    gdown --id 1e6EbwGnMGgGXAn4QLffT_Zx_BbidBSbR -O CMT/CelebA.pth
 else
-    echo "[*] CMT CelebA model weights already exist."
+    # Check if the file is an HTML page (starts with '<')
+    if head -n 1 "CMT/CelebA.pth" | grep -q "^<"; then
+        echo "[!] CMT CelebA model weights appear to be a corrupted HTML file. Re-downloading with gdown..."
+        rm -f CMT/CelebA.pth
+        gdown --id 1e6EbwGnMGgGXAn4QLffT_Zx_BbidBSbR -O CMT/CelebA.pth
+    else
+        echo "[*] CMT CelebA model weights already exist and are valid."
+    fi
 fi
 
 # 3. Download and unzip CelebA-HQ 256 test dataset if not already present
@@ -60,7 +61,7 @@ fi
 
 # 4. Install required packages
 echo "[*] Installing dependencies..."
-pip install "numpy<2.0.0" omegaconf webdataset pytorch-lightning kornia joblib hydra-core requests scikit-image easydict opencv-python tabulate scikit-learn pyyaml pandas matplotlib packaging einops timm
+pip install "numpy<2.0.0" omegaconf webdataset pytorch-lightning kornia joblib hydra-core requests scikit-image easydict opencv-python tabulate scikit-learn pyyaml pandas matplotlib packaging einops timm gdown
 
 # 5. Run evaluation script
 echo "[*] Starting CMT evaluation..."

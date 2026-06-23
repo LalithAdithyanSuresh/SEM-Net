@@ -52,10 +52,13 @@ except AttributeError:
 
 def download_file_from_google_drive(file_id, dest_path):
     session = requests.Session()
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
     URL = "https://docs.google.com/uc?export=download"
     
     try:
-        response = session.get(URL, params={'id': file_id}, stream=True, timeout=60)
+        response = session.get(URL, params={'id': file_id}, headers=headers, stream=True, timeout=60)
         token = None
         for key, value in response.cookies.items():
             if key.startswith('download_warning'):
@@ -64,9 +67,14 @@ def download_file_from_google_drive(file_id, dest_path):
                 
         if token:
             params = {'id': file_id, 'confirm': token}
-            response = session.get(URL, params=params, stream=True, timeout=60)
+            response = session.get(URL, params=params, headers=headers, stream=True, timeout=60)
             
         if response.status_code == 200:
+            content_type = response.headers.get('content-type', '').lower()
+            if 'html' in content_type:
+                print("[ERROR] Google Drive returned an HTML page instead of the binary model file.")
+                return False
+                
             total_size = int(response.headers.get('content-length', 0))
             with open(dest_path, 'wb') as f, tqdm(
                 desc=os.path.basename(dest_path),
@@ -83,8 +91,13 @@ def download_file_from_google_drive(file_id, dest_path):
             
         # Fallback to direct download link
         direct_url = f"https://docs.google.com/uc?export=download&id={file_id}&confirm=t"
-        res = session.get(direct_url, stream=True, timeout=60)
+        res = session.get(direct_url, headers=headers, stream=True, timeout=60)
         if res.status_code == 200:
+            content_type = res.headers.get('content-type', '').lower()
+            if 'html' in content_type:
+                print("[ERROR] Google Drive returned an HTML page on fallback instead of the binary model file.")
+                return False
+                
             total_size = int(res.headers.get('content-length', 0))
             with open(dest_path, 'wb') as f, tqdm(
                 desc=os.path.basename(dest_path),
@@ -253,7 +266,17 @@ def ensure_dataset(dest_dir, url, name):
 
 def ensure_model(model_path):
     if os.path.exists(model_path):
-        return
+        # Verify if the existing file is a corrupted HTML file (starts with '<')
+        try:
+            with open(model_path, 'r', encoding='utf-8', errors='ignore') as f:
+                first_chars = f.read(10)
+                if first_chars.startswith('<'):
+                    print(f"[!] Warning: {model_path} appears to be a corrupted HTML file. Deleting and re-downloading...")
+                    os.remove(model_path)
+                else:
+                    return
+        except Exception:
+            return
         
     filename = os.path.basename(model_path).lower()
     
