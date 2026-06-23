@@ -14,6 +14,17 @@ echo "================================================="
 # Create datasets directory if not exists
 mkdir -p datasets
 
+# Activate virtual environment if it exists
+if [ -d ".venv" ]; then
+    echo "[*] Activating virtual environment (.venv)..."
+    source .venv/bin/activate
+elif [ -d "venv" ]; then
+    echo "[*] Activating virtual environment (venv)..."
+    source venv/bin/activate
+else
+    echo "[WARNING] No virtual environment (.venv or venv) found. Running in system Python environment."
+fi
+
 # 0. Install required packages (ensures gdown is available for downloading weights/datasets)
 echo "[*] Installing dependencies..."
 pip install "numpy<2.0.0" omegaconf webdataset pytorch-lightning kornia joblib hydra-core requests scikit-image easydict opencv-python tabulate scikit-learn pyyaml pandas matplotlib packaging einops timm gdown
