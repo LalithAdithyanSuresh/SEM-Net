@@ -60,7 +60,7 @@ fi
 
 # 4. Install required packages
 echo "[*] Installing dependencies..."
-pip install "numpy<2.0.0" omegaconf webdataset pytorch-lightning kornia joblib hydra-core requests scikit-image easydict opencv-python tabulate scikit-learn pyyaml pandas matplotlib packaging einops
+pip install "numpy<2.0.0" omegaconf webdataset pytorch-lightning kornia joblib hydra-core requests scikit-image easydict opencv-python tabulate scikit-learn pyyaml pandas matplotlib packaging einops timm
 
 # 5. Run evaluation script
 echo "[*] Starting CMT evaluation..."
