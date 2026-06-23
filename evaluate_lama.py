@@ -238,9 +238,47 @@ def ensure_dataset(dest_dir, url, name):
         if os.path.exists(zip_path):
             os.remove(zip_path)
 
+def ensure_model(model_path):
+    if not os.path.exists(model_path) and (model_path == 'lama/lama-regular-celebahq' or os.path.basename(model_path) == 'lama-regular-celebahq'):
+        print(f"[*] Missing model directory at {model_path}. Downloading CelebA-HQ LaMa weights...")
+        os.makedirs(os.path.join(model_path, 'models'), exist_ok=True)
+        config_url = "https://huggingface.co/camenduru/big-lama/resolve/main/lama-celeba-hq/lama-regular/config.yaml"
+        ckpt_url = "https://huggingface.co/camenduru/big-lama/resolve/main/lama-celeba-hq/lama-regular/models/best.ckpt"
+        
+        # Download config
+        try:
+            r = requests.get(config_url, timeout=30)
+            r.raise_for_status()
+            with open(os.path.join(model_path, 'config.yaml'), 'wb') as f:
+                f.write(r.content)
+            print("[*] config.yaml downloaded successfully.")
+        except Exception as e:
+            print(f"[ERROR] Failed to download config.yaml: {e}")
+            
+        # Download best.ckpt
+        try:
+            response = requests.get(ckpt_url, stream=True, timeout=120)
+            response.raise_for_status()
+            total_size = int(response.headers.get('content-length', 0))
+            ckpt_path = os.path.join(model_path, 'models', 'best.ckpt')
+            with open(ckpt_path, 'wb') as f, tqdm(
+                desc="best.ckpt",
+                total=total_size,
+                unit='iB',
+                unit_scale=True,
+                unit_divisor=1024,
+            ) as bar:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+                        bar.update(len(chunk))
+            print("[*] best.ckpt downloaded successfully.")
+        except Exception as e:
+            print(f"[ERROR] Failed to download best.ckpt: {e}")
+
 def main():
     parser = argparse.ArgumentParser(description="Evaluate LaMa on CelebA-HQ 256 test dataset with custom strided masks")
-    parser.add_argument('--model-path', type=str, default='lama/big-lama', help='Path to big-lama model directory')
+    parser.add_argument('--model-path', type=str, default='lama/lama-regular-celebahq', help='Path to LaMa model directory')
     parser.add_argument('--image-dir', type=str, default='datasets/celeba_hq_256_test', help='Path to test images')
     parser.add_argument('--mask-dir', type=str, default='datasets/testing_mask_dataset', help='Path to testing masks')
     parser.add_argument('--output-dir', type=str, default='evaluation_results_lama', help='Output directory')
@@ -278,6 +316,7 @@ def main():
     print(f"Using device: {device}")
     
     # Load Model
+    ensure_model(args.model_path)
     model = load_model(args.model_path, device)
     
     # Get Datasets
