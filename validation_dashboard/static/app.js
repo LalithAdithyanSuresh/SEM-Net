@@ -204,11 +204,24 @@ function loadImages(item) {
             state.images[`m${i}`].src = item[`f${i}_fake`];
         }
     }
+    // Find the first selected model to determine mask index deterministically
+    let activeModel = 'none';
+    for (let i = 0; i < elements.modelSelects.length; i++) {
+        if (elements.modelSelects[i].value) {
+            activeModel = elements.modelSelects[i].value;
+            break;
+        }
+    }
+    
     // Load mask separately
     state.images.mask.onload = drawImages;
-    const m1 = elements.modelSelects[0].value || 'none';
-    const sz = elements.sizeSelect.value;
-    state.images.mask.src = `/api/mask_only/${m1}/${sz}/${item.id}`;
+    if (activeModel !== 'none') {
+        const sz = elements.sizeSelect.value;
+        state.images.mask.src = `/api/mask_only/${activeModel}/${sz}/${item.id}`;
+    } else {
+        // Clear the mask image to avoid displaying a previous image's mask
+        state.images.mask.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    }
 }
 
 function drawImages() {
