@@ -431,13 +431,46 @@ def main():
         futures = []
         last_notified_milestone = len(stats[cat]['psnr']) // 2000
 
+        # Check for category-specific flists
+        img_flist = f"datasets/places365/val_images_{cat}.flist"
+        mask_flist = f"datasets/places365/val_masks_{cat}.flist"
+        
+        if os.path.exists(img_flist) and os.path.exists(mask_flist):
+            print(f"Loading category-specific flist pairs: {img_flist} and {mask_flist}")
+            config.MASK = 6  # Non-random external mask loading
+            cat_dataset = Dataset(config, img_flist, mask_flist, augment=False, training=False)
+            if args.num_images is not None and len(cat_dataset) > args.num_images:
+                cat_dataset.data = cat_dataset.data[:args.num_images]
+                cat_dataset.mask_data = cat_dataset.mask_data[:args.num_images]
+            print(f"Category {cat} dataset loaded with {len(cat_dataset)} pairs.")
+            use_flist = True
+        else:
+            print(f"Category flists not found. Using default directories.")
+            config.MASK = 3
+            cat_dataset = test_dataset
+            use_flist = False
+            
+        cat_loader = DataLoader(
+            cat_dataset, 
+            batch_size=args.batch_size, 
+            shuffle=False,
+            num_workers=4,
+            pin_memory=True
+        )
 
-        for index, items in enumerate(test_loader):
-            images, _ = items
+        for index, items in enumerate(cat_loader):
+            if use_flist:
+                images, masks = items
+                images = images.to(config.DEVICE)
+                masks = masks.to(config.DEVICE)
+            else:
+                images, _ = items
+                images = images.to(config.DEVICE)
+                
             curr_batch_size = images.shape[0]
 
             # Determine filenames in current batch
-            batch_filenames = [test_dataset.load_name(index * args.batch_size + i) for i in range(curr_batch_size)]
+            batch_filenames = [cat_dataset.load_name(index * args.batch_size + i) for i in range(curr_batch_size)]
             
             # Identify indices in this batch that have not been evaluated yet
             indices_to_evaluate = [i for i, name in enumerate(batch_filenames) if name not in completed_images]
@@ -446,10 +479,11 @@ def main():
                 # Entire batch is already completed! Skip inference
                 continue
 
-            images = images.to(config.DEVICE)
             h, w = images.shape[2], images.shape[3]
-            stride = 2 if len(test_dataset) == 2000 else 1
-            masks = get_custom_mask(indexed_masks, cat, index, h, w, curr_batch_size, stride=stride).to(config.DEVICE)
+            
+            if not use_flist:
+                stride = 2 if len(test_dataset) == 2000 else 1
+                masks = get_custom_mask(indexed_masks, cat, index, h, w, curr_batch_size, stride=stride).to(config.DEVICE)
 
             with torch.no_grad():
                 outputs_img = model(images, masks)

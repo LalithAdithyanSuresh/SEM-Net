@@ -20,3 +20,8 @@ datasets/
 training_output.log
 setup_history.txt
 TEMP_QUALITATIVE/
+CCC/
+*.tex
+*.pdf
+*.aux
+*.out
