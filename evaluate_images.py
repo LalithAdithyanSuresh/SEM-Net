@@ -209,6 +209,7 @@ def main():
     parser.add_argument('--num-images', type=int, default=2000, help='limit evaluation to first N images')
     parser.add_argument('--limit-eval', type=int, default=0, help='limit evaluation to the first N images (e.g. 20) for quick test, 0 to disable')
     parser.add_argument('--ignore-flists', action='store_true', help='ignore val_images_*.flist files even if they exist')
+    parser.add_argument('--checkpoint', type=str, default=None, help='load specific generator checkpoint file name/path')
     args = parser.parse_args()
 
     config_path = os.path.join(args.path, 'config.yml')
@@ -263,6 +264,12 @@ def main():
 
     # Model
     model = InpaintingModel(config).to(config.DEVICE)
+    if args.checkpoint is not None:
+        if os.path.isabs(args.checkpoint) or os.path.exists(args.checkpoint):
+            model.gen_weights_path = args.checkpoint
+        else:
+            model.gen_weights_path = os.path.join(args.path, args.checkpoint)
+        print(f"Overriding generator weights path to: {model.gen_weights_path}")
     model.load()
     
     if hasattr(config, 'GPU') and len(config.GPU) > 1 and config.DEVICE.type == 'cuda':

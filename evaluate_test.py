@@ -243,6 +243,7 @@ def main():
     parser.add_argument('--num-images', type=int, default=None, help='limit evaluation to first N images')
     parser.add_argument('--tmp-dir', type=str, default=None, help='use fast local storage directory for inputs, masks, and outputs')
     parser.add_argument('--fast-metrics-only', action='store_true', help='Skip image saving and FID calculation for max speed')
+    parser.add_argument('--checkpoint', type=str, default=None, help='load specific generator checkpoint file name/path')
     args = parser.parse_args()
 
     config = Config(os.path.join(args.path, 'config.yml'))
@@ -309,6 +310,12 @@ def main():
 
     # Model
     model = InpaintingModel(config).to(config.DEVICE)
+    if args.checkpoint is not None:
+        if os.path.isabs(args.checkpoint) or os.path.exists(args.checkpoint):
+            model.gen_weights_path = args.checkpoint
+        else:
+            model.gen_weights_path = os.path.join(args.path, args.checkpoint)
+        print(f"Overriding generator weights path to: {model.gen_weights_path}")
     model.load()
     
     if hasattr(config, 'GPU') and len(config.GPU) > 1:
