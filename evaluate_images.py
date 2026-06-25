@@ -61,26 +61,39 @@ fid.frechet_distance = robust_frechet_distance
 
 # --- CUSTOM MASK INDEXING ---
 def index_custom_masks(mask_dir):
-    print(f"Indexing masks in {mask_dir}...")
+    print(f"Indexing masks in {mask_dir} by numeric filenames...")
     categories = {'SMALL': [], 'MEDIUM': [], 'LARGE': []}
     mask_files = [f for f in os.listdir(mask_dir) if f.endswith(('.png', '.jpg', '.jpeg'))]
-    mask_files.sort() # Ensure deterministic sequential order
+    
+    # Sort files numerically
+    mask_files.sort(key=lambda x: int(os.path.splitext(x)[0]) if os.path.splitext(x)[0].isdigit() else 999999)
     
     for f in tqdm(mask_files):
         mask_path = os.path.join(mask_dir, f)
-        try:
-            mask_img = Image.open(mask_path).convert('L')
-            mask_np = np.array(mask_img)
-            ratio = np.mean(mask_np) / 255.0
-            
-            if 0.01 < ratio <= 0.20:
+        base = os.path.splitext(f)[0]
+        if base.isdigit():
+            val = int(base)
+            if 0 <= val < 4000:
                 categories['SMALL'].append(mask_path)
-            elif 0.20 < ratio <= 0.40:
+            elif 4000 <= val < 8000:
                 categories['MEDIUM'].append(mask_path)
-            elif 0.40 < ratio <= 0.60:
+            elif 8000 <= val < 12000:
                 categories['LARGE'].append(mask_path)
-        except Exception as e:
-            print(f"Skip {f}: {e}")
+        else:
+            # Fallback to ratio check if not numeric
+            try:
+                mask_img = Image.open(mask_path).convert('L')
+                mask_np = np.array(mask_img)
+                ratio = np.mean(mask_np) / 255.0
+                
+                if 0.01 < ratio <= 0.20:
+                    categories['SMALL'].append(mask_path)
+                elif 0.20 < ratio <= 0.40:
+                    categories['MEDIUM'].append(mask_path)
+                elif 0.40 < ratio <= 0.60:
+                    categories['LARGE'].append(mask_path)
+            except Exception as e:
+                print(f"Skip {f}: {e}")
             
     print(f"Index complete: SMALL({len(categories['SMALL'])}), MEDIUM({len(categories['MEDIUM'])}), LARGE({len(categories['LARGE'])})")
     return categories
