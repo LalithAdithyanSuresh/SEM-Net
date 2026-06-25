@@ -246,7 +246,7 @@ def main():
     print(f"  - GPUs: {config.GPU if hasattr(config, 'GPU') else 'CPU'}")
     
     # Set relative dataset paths for Places365 testing
-    config.TEST_INPAINT_IMAGE_FLIST = "datasets/places365/places365_standard/val"
+    config.TEST_INPAINT_IMAGE_FLIST = "datasets/places365/test_256"
     config.TEST_MASK_FLIST = "datasets/testing_mask_dataset"
 
     test_dataset = Dataset(config, config.TEST_INPAINT_IMAGE_FLIST, config.TEST_MASK_FLIST,
@@ -276,7 +276,7 @@ def main():
         # Update test_dataset data paths to use the copied versions in tmp_dir
         new_data_paths = []
         for orig_path in test_dataset.data:
-            rel_path = os.path.relpath(orig_path, "datasets/places365/places365_standard/val")
+            rel_path = os.path.relpath(orig_path, "datasets/places365/test_256")
             new_data_paths.append(os.path.join(config.TEST_INPAINT_IMAGE_FLIST, rel_path))
         test_dataset.data = new_data_paths
         

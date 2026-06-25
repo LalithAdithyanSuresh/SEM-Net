@@ -192,7 +192,7 @@ def main():
         if args.copy_to:
             print(f"  [+] Physically copied validation pairs to: {args.copy_to}")
 
-    print("\n[✓] Done! Flist files generated successfully.")
+    print("\n[+] Done! Flist files generated successfully.")
 
 if __name__ == "__main__":
     main()
