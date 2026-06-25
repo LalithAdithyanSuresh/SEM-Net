@@ -103,73 +103,96 @@ def main():
     output_dir_abs = os.path.abspath(args.output_dir)
     
     for cat in categories:
-        csv_path = os.path.join(csv_dir, f"metrics_{cat}.csv")
-        if not os.path.exists(csv_path):
-            print(f"[!] Warning: Metrics CSV for {cat} not found at {csv_path}. Skipping category.")
-            continue
-            
-        print(f"\nProcessing category: {cat}")
+        # Determine if we can scan the folder directly
+        cat_dir = os.path.join(csv_dir, cat)
+        pairs = []
+        
+        if os.path.exists(cat_dir) and os.path.isdir(cat_dir):
+            files = [f for f in os.listdir(cat_dir) if f.endswith('.png')]
+            if files:
+                print(f"[*] Found {len(files)} result images in folder: {cat_dir}. Parsing filenames...")
+                files.sort()
+                for f in files:
+                    name_without_ext = os.path.splitext(f)[0]
+                    parts = name_without_ext.split('_')
+                    mask_idx = -1
+                    for idx, part in enumerate(parts):
+                        if part.isdigit() and len(part) == 5:
+                            mask_idx = idx
+                            break
+                    if mask_idx != -1:
+                        img_name = "_".join(parts[:mask_idx]) + ".jpg"
+                        mask_id = parts[mask_idx]
+                        pairs.append((img_name, mask_id))
+        
+        if not pairs:
+            # Fallback to CSV
+            csv_path = os.path.join(csv_dir, f"metrics_{cat}.csv")
+            if not os.path.exists(csv_path):
+                print(f"[!] Warning: Neither results folder nor CSV found for category {cat}. Skipping.")
+                continue
+                
+            print(f"[*] Reading metrics from CSV: {csv_path}")
+            with open(csv_path, 'r', newline='', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                try:
+                    header = next(reader)
+                except StopIteration:
+                    print(f"[!] CSV {csv_path} is empty. Skipping.")
+                    continue
+                    
+                for row in reader:
+                    if not row or not row[0].strip() or row[0] == 'AVERAGE':
+                        continue
+                    pairs.append((row[0], row[1]))
+                    
+        print(f"\nProcessing category: {cat} ({len(pairs)} pairs)")
         img_flist_lines = []
         mask_flist_lines = []
         
         missing_images = 0
         missing_masks = 0
         
-        with open(csv_path, 'r', newline='', encoding='utf-8') as f:
-            reader = csv.reader(f)
-            try:
-                header = next(reader)
-            except StopIteration:
-                print(f"[!] CSV {csv_path} is empty. Skipping.")
-                continue
+        for img_name, mask_id in pairs:
+            # Locate the image file
+            found_img = find_file(image_dir, img_name)
+            if not found_img:
+                missing_images += 1
+                if missing_images <= 5:
+                    print(f"  [?] Missing image file: '{img_name}' in {image_dir}")
+                found_img = os.path.join(image_dir, img_name)
+            
+            found_img_abs = os.path.abspath(found_img)
                 
-            for row in reader:
-                if not row or not row[0].strip() or row[0] == 'AVERAGE':
-                    continue
+            # Locate the mask file (MaskID is e.g. 00000, file is 00000.png)
+            mask_name = f"{mask_id}.png"
+            found_mask = find_file(mask_dir, mask_name)
+            if not found_mask:
+                missing_masks += 1
+                if missing_masks <= 5:
+                    print(f"  [?] Missing mask file: '{mask_name}' in {mask_dir}")
+                found_mask = os.path.join(mask_dir, mask_name)
+            
+            found_mask_abs = os.path.abspath(found_mask)
+            
+            # Compute relative paths from output_dir to the resolved files
+            rel_img_path = os.path.relpath(found_img_abs, output_dir_abs).replace('\\', '/')
+            rel_mask_path = os.path.relpath(found_mask_abs, output_dir_abs).replace('\\', '/')
+            
+            img_flist_lines.append(rel_img_path)
+            mask_flist_lines.append(rel_mask_path)
+            
+            # Optional physical copying
+            if args.copy_to:
+                dest_img_dir = os.path.join(args.copy_to, "images", cat)
+                dest_mask_dir = os.path.join(args.copy_to, "masks", cat)
+                os.makedirs(dest_img_dir, exist_ok=True)
+                os.makedirs(dest_mask_dir, exist_ok=True)
                 
-                img_name = row[0]
-                mask_id = row[1]
-                
-                # Locate the image file
-                found_img = find_file(image_dir, img_name)
-                if not found_img:
-                    missing_images += 1
-                    if missing_images <= 5:
-                        print(f"  [?] Missing image file: '{img_name}' in {image_dir}")
-                    found_img = os.path.join(image_dir, img_name)
-                
-                found_img_abs = os.path.abspath(found_img)
-                    
-                # Locate the mask file (MaskID is e.g. 00000, file is 00000.png)
-                mask_name = f"{mask_id}.png"
-                found_mask = find_file(mask_dir, mask_name)
-                if not found_mask:
-                    missing_masks += 1
-                    if missing_masks <= 5:
-                        print(f"  [?] Missing mask file: '{mask_name}' in {mask_dir}")
-                    found_mask = os.path.join(mask_dir, mask_name)
-                
-                found_mask_abs = os.path.abspath(found_mask)
-                
-                # Compute relative paths from output_dir to the resolved files
-                # This matches the relative paths in datasets/places365/val_images_SMALL.flist
-                rel_img_path = os.path.relpath(found_img_abs, output_dir_abs).replace('\\', '/')
-                rel_mask_path = os.path.relpath(found_mask_abs, output_dir_abs).replace('\\', '/')
-                
-                img_flist_lines.append(rel_img_path)
-                mask_flist_lines.append(rel_mask_path)
-                
-                # Optional physical copying
-                if args.copy_to:
-                    dest_img_dir = os.path.join(args.copy_to, "images", cat)
-                    dest_mask_dir = os.path.join(args.copy_to, "masks", cat)
-                    os.makedirs(dest_img_dir, exist_ok=True)
-                    os.makedirs(dest_mask_dir, exist_ok=True)
-                    
-                    if os.path.exists(found_img_abs):
-                        shutil.copy2(found_img_abs, os.path.join(dest_img_dir, os.path.basename(found_img_abs)))
-                    if os.path.exists(found_mask_abs):
-                        shutil.copy2(found_mask_abs, os.path.join(dest_mask_dir, os.path.basename(found_mask_abs)))
+                if os.path.exists(found_img_abs):
+                    shutil.copy2(found_img_abs, os.path.join(dest_img_dir, os.path.basename(found_img_abs)))
+                if os.path.exists(found_mask_abs):
+                    shutil.copy2(found_mask_abs, os.path.join(dest_mask_dir, os.path.basename(found_mask_abs)))
 
         # Write flists
         img_flist = os.path.join(args.output_dir, f"val_images_{cat}.flist")
