@@ -207,7 +207,7 @@ def main():
     parser.add_argument('--batch-size', type=int, default=1, help='batch size for evaluation')
     parser.add_argument('--input-size', type=int, default=256, help='override input image size')
     parser.add_argument('--num-images', type=int, default=2000, help='limit evaluation to first N images')
-    parser.add_argument('--limit-eval', type=int, default=20, help='limit evaluation to the first N images (e.g. 20) for quick test')
+    parser.add_argument('--limit-eval', type=int, default=0, help='limit evaluation to the first N images (e.g. 20) for quick test, 0 to disable')
     parser.add_argument('--ignore-flists', action='store_true', help='ignore val_images_*.flist files even if they exist')
     args = parser.parse_args()
 
