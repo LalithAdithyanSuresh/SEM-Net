@@ -194,6 +194,8 @@ def main():
     parser.add_argument('--batch-size', type=int, default=1, help='batch size for evaluation')
     parser.add_argument('--input-size', type=int, default=256, help='override input image size')
     parser.add_argument('--num-images', type=int, default=2000, help='limit evaluation to first N images')
+    parser.add_argument('--limit-eval', type=int, default=20, help='limit evaluation to the first N images (e.g. 20) for quick test')
+    parser.add_argument('--ignore-flists', action='store_true', help='ignore val_images_*.flist files even if they exist')
     args = parser.parse_args()
 
     config_path = os.path.join(args.path, 'config.yml')
@@ -370,7 +372,7 @@ def main():
         img_flist = f"datasets/places365/val_images_{cat}.flist"
         mask_flist = f"datasets/places365/val_masks_{cat}.flist"
         
-        if os.path.exists(img_flist) and os.path.exists(mask_flist):
+        if not args.ignore_flists and os.path.exists(img_flist) and os.path.exists(mask_flist):
             print(f"Loading category-specific flist pairs: {img_flist} and {mask_flist}")
             config.MASK = 6  # Non-random external mask loading
             cat_dataset = Dataset(config, img_flist, mask_flist, augment=False, training=False)
@@ -380,7 +382,7 @@ def main():
             print(f"Category {cat} dataset loaded with {len(cat_dataset)} pairs.")
             use_flist = True
         else:
-            print(f"Category flists not found. Using default directories.")
+            print(f"Category flists not found (or ignored). Using default directories.")
             config.MASK = 3
             cat_dataset = test_dataset
             use_flist = False
@@ -488,6 +490,11 @@ def main():
                 else:
                     eta_str = "Calculating..."
                 send_notification(f"[{cat}] {current_count}/{len(test_dataset)} | PSNR: {avg_psnr:.2f} | ETA: {eta_str}")
+
+            # Early evaluation limit termination check
+            if args.limit_eval is not None and args.limit_eval > 0 and len(stats[cat]['psnr']) >= args.limit_eval:
+                print(f"Reached evaluation limit of {args.limit_eval} images for {cat}. Stopping evaluation loop.")
+                break
 
             # Periodic Incremental Save
             if len(stats[cat]['name']) > 0:

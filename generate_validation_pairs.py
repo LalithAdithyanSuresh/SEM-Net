@@ -3,14 +3,14 @@
 Generate Validation Pairs for SEM-Net
 ======================================
 Parses CMT evaluation metrics CSVs from the CCC folder to match image IDs with mask IDs.
-Locates the original images and mask files on the system, resolves their paths,
-and outputs .flist files for evaluation. Optionally copies the files to a target directory.
+Locates the original images and mask files in the relative datasets directory, resolves their paths,
+and outputs portable relative .flist files for evaluation.
 
 Usage:
   python generate_validation_pairs.py [options]
 
 Example:
-  python generate_validation_pairs.py --image-dir /mnt/datadrive/inpaint/places2/test_256 --mask-dir /mnt/datadrive/inpaint/iregularmask/test_mask/mask/testing_mask_dataset
+  python generate_validation_pairs.py
 """
 
 import os
@@ -31,7 +31,7 @@ def find_file(directory, filename, extensions=['.jpg', '.png', '.jpeg']):
     return None
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate validation flists/datasets from CMT evaluations in CCC.")
+    parser = argparse.ArgumentParser(description="Generate validation flists from CMT evaluations in CCC.")
     parser.add_argument("--csv-dir", type=str, default=None,
                         help="Directory containing CCC evaluation metrics CSVs (e.g., metrics_SMALL.csv)")
     parser.add_argument("--image-dir", type=str, default=None,
@@ -62,11 +62,11 @@ def main():
     
     print(f"[*] Using CSV directory: {csv_dir}")
 
-    # 2. Resolve Image Directory
+    # 2. Resolve Image Directory (relative dataset folder test_256)
     image_search_paths = [
+        "datasets/places365/test_256",
         "datasets/places365/places365_standard/val",
         "/mnt/datadrive/inpaint/places2/test_256",
-        "/home/snuc/Desktop/SEM-NETHybrid/TEMP_QUALITATIVE/places2/test_256",
         "."
     ]
     image_dir = args.image_dir
@@ -76,7 +76,7 @@ def main():
                 image_dir = p
                 break
         if not image_dir:
-            image_dir = "datasets/places365/places365_standard/val"  # default fallback
+            image_dir = "datasets/places365/test_256"  # default fallback
             
     print(f"[*] Using Image directory: {image_dir}")
 
@@ -84,7 +84,6 @@ def main():
     mask_search_paths = [
         "datasets/testing_mask_dataset",
         "/mnt/datadrive/inpaint/iregularmask/test_mask/mask/testing_mask_dataset",
-        "/home/snuc/Desktop/SEM-NETHybrid/TEMP_QUALITATIVE/testing_mask_dataset",
         "."
     ]
     mask_dir = args.mask_dir
@@ -101,6 +100,7 @@ def main():
     # 4. Process Categories
     categories = ["SMALL", "MEDIUM", "LARGE"]
     os.makedirs(args.output_dir, exist_ok=True)
+    output_dir_abs = os.path.abspath(args.output_dir)
     
     for cat in categories:
         csv_path = os.path.join(csv_dir, f"metrics_{cat}.csv")
@@ -109,8 +109,8 @@ def main():
             continue
             
         print(f"\nProcessing category: {cat}")
-        img_paths = []
-        mask_paths = []
+        img_flist_lines = []
+        mask_flist_lines = []
         
         missing_images = 0
         missing_masks = 0
@@ -130,19 +130,17 @@ def main():
                 img_name = row[0]
                 mask_id = row[1]
                 
-                # Try to locate the image
+                # Locate the image file
                 found_img = find_file(image_dir, img_name)
                 if not found_img:
                     missing_images += 1
-                    # Log first few missing as samples
                     if missing_images <= 5:
                         print(f"  [?] Missing image file: '{img_name}' in {image_dir}")
-                    # Use fallback path
                     found_img = os.path.join(image_dir, img_name)
                 
                 found_img_abs = os.path.abspath(found_img)
                     
-                # Try to locate the mask (MaskID is e.g. 00000, file is 00000.png)
+                # Locate the mask file (MaskID is e.g. 00000, file is 00000.png)
                 mask_name = f"{mask_id}.png"
                 found_mask = find_file(mask_dir, mask_name)
                 if not found_mask:
@@ -152,9 +150,14 @@ def main():
                     found_mask = os.path.join(mask_dir, mask_name)
                 
                 found_mask_abs = os.path.abspath(found_mask)
-                    
-                img_paths.append(found_img_abs)
-                mask_paths.append(found_mask_abs)
+                
+                # Compute relative paths from output_dir to the resolved files
+                # This matches the relative paths in datasets/places365/val_images_SMALL.flist
+                rel_img_path = os.path.relpath(found_img_abs, output_dir_abs).replace('\\', '/')
+                rel_mask_path = os.path.relpath(found_mask_abs, output_dir_abs).replace('\\', '/')
+                
+                img_flist_lines.append(rel_img_path)
+                mask_flist_lines.append(rel_mask_path)
                 
                 # Optional physical copying
                 if args.copy_to:
@@ -173,15 +176,15 @@ def main():
         mask_flist = os.path.join(args.output_dir, f"val_masks_{cat}.flist")
         
         with open(img_flist, 'w', encoding='utf-8') as f_out:
-            for p in img_paths:
-                f_out.write(p + '\n')
+            for line in img_flist_lines:
+                f_out.write(line + '\n')
                 
         with open(mask_flist, 'w', encoding='utf-8') as f_out:
-            for p in mask_paths:
-                f_out.write(p + '\n')
+            for line in mask_flist_lines:
+                f_out.write(line + '\n')
                 
-        print(f"[+] Wrote {len(img_paths)} image paths to {img_flist}")
-        print(f"[+] Wrote {len(mask_paths)} mask paths to {mask_flist}")
+        print(f"[+] Wrote {len(img_flist_lines)} image paths to {img_flist}")
+        print(f"[+] Wrote {len(mask_flist_lines)} mask paths to {mask_flist}")
         if missing_images > 0:
             print(f"  [!] Warning: {missing_images} image files were not found locally.")
         if missing_masks > 0:
