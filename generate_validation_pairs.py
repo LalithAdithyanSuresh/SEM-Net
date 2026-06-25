@@ -44,8 +44,10 @@ def main():
                         help="Optional directory to physically copy the validation image-mask pairs to")
     args = parser.parse_args()
 
-    # 1. Resolve CSV Directory
+    # 1. Resolve CSV/results Directory
     csv_search_paths = [
+        "CMT_Validate_Places2/results",
+        "results",
         "CCC/CMT_Validate_Places2/results",
         "CCC/results",
         "CCC",
@@ -54,11 +56,14 @@ def main():
     csv_dir = args.csv_dir
     if not csv_dir:
         for p in csv_search_paths:
-            if os.path.exists(p):
-                csv_dir = p
-                break
+            if os.path.exists(p) and os.path.isdir(p):
+                has_small_dir = os.path.exists(os.path.join(p, "SMALL"))
+                has_small_csv = os.path.exists(os.path.join(p, "metrics_SMALL.csv"))
+                if has_small_dir or has_small_csv:
+                    csv_dir = p
+                    break
         if not csv_dir:
-            csv_dir = "CCC/CMT_Validate_Places2/results"  # default fallback
+            csv_dir = "CMT_Validate_Places2/results"  # default fallback
     
     print(f"[*] Using CSV directory: {csv_dir}")
 
