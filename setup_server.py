@@ -609,9 +609,22 @@ def step_download_places365_dataset():
 def step_download_latest_model():
     """Query the C2 files server, find the highest-iteration checkpoint pair
     (gen + dis) for the active session, and download them to PlacesTraining/."""
+    import sys
     files_url = os.environ.get("FILES_SERVER_URL", "https://files.lalithadithyan.dev")
     session   = os.environ.get("C2_SESSION", "DAVA")
     run_path  = "./PlacesTraining"
+
+    if "--from-scratch" in sys.argv:
+        print("[*] --from-scratch flag detected. Cleaning up local checkpoints and skipping server download to start fresh.")
+        for filename in ["InpaintingModel_gen.pth", "InpaintingModel_dis.pth", "epoch_state.json"]:
+            path = os.path.join(run_path, filename)
+            if os.path.exists(path):
+                print(f"Removing local file: {path}")
+                try:
+                    os.remove(path)
+                except Exception as e:
+                    print(f"Warning: could not remove {path}: {e}")
+        return
 
     gen_dest = os.path.join(run_path, "InpaintingModel_gen.pth")
     dis_dest = os.path.join(run_path, "InpaintingModel_dis.pth")
