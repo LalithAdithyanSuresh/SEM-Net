@@ -406,15 +406,50 @@ def step_download_places2_test_256():
         print("Places2 test_256 dataset already exists. Skipping download.")
         return
         
-    url = "https://files.lalithadithyan.dev/download/test_256.zip"
-    dest_zip = os.path.join("datasets", "places365", "test_256.zip")
     extract_to = os.path.join("datasets", "places365")
+    os.makedirs(extract_to, exist_ok=True)
     
-    download_file(url, dest_zip)
-    extract_zip(dest_zip, extract_to)
+    # Check for local files in the current directory or datasets folder first
+    local_candidates = [
+        "test_256.tar", "test_256.zip",
+        os.path.join("datasets", "test_256.tar"),
+        os.path.join("datasets", "test_256.zip"),
+        os.path.join("datasets", "places365", "test_256.tar"),
+        os.path.join("datasets", "places365", "test_256.zip")
+    ]
     
-    if os.path.exists(dest_zip):
-        os.remove(dest_zip)
+    local_file = None
+    for cand in local_candidates:
+        if os.path.exists(cand) and os.path.isfile(cand):
+            local_file = cand
+            print(f"Found local test_256 archive: {local_file}")
+            break
+            
+    if local_file is None:
+        # Fallback to downloading
+        url = "https://files.lalithadithyan.dev/download/test_256.tar"
+        dest_archive = os.path.join("datasets", "places365", "test_256.tar")
+        print(f"No local archive found. Downloading from {url}...")
+        try:
+            download_file(url, dest_archive)
+            local_file = dest_archive
+        except Exception:
+            # Try zip version if tar download fails
+            url_zip = "https://files.lalithadithyan.dev/download/test_256.zip"
+            dest_archive = os.path.join("datasets", "places365", "test_256.zip")
+            print(f"Tar download failed/not found. Trying zip from {url_zip}...")
+            download_file(url_zip, dest_archive)
+            local_file = dest_archive
+
+    # Extract based on file type
+    if local_file.endswith(".tar"):
+        extract_tar(local_file, extract_to)
+    else:
+        extract_zip(local_file, extract_to)
+        
+    # Clean up downloaded files if they were downloaded under datasets/places365/
+    if "places365" in os.path.dirname(local_file) and os.path.exists(local_file):
+        os.remove(local_file)
 
 def step_download_latest_model():
     """Query the C2 files server, find the highest-iteration checkpoint pair
