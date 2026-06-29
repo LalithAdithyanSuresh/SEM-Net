@@ -600,8 +600,8 @@ def main():
         # Step 12: Download & extract mask dataset
         execute_step(12, "Download & extract mask dataset", step_download_mask_dataset)
         
-        # Step 13: Download & extract Places365 test dataset
-        execute_step(13, "Download & extract Places365 test dataset", step_download_places365_test_dataset)
+        # Step 13: Download & extract Places365 test dataset (Optional/Disabled to save bandwidth)
+        # execute_step(13, "Download & extract Places365 test dataset", step_download_places365_test_dataset)
 
         # Step 14: Download & extract Places2 test_256 dataset
         execute_step(14, "Download & extract Places2 test_256 dataset", step_download_places2_test_256)
