@@ -21,7 +21,7 @@ def remove_readonly(func, path, excinfo):
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(line_buffering=True)
 
-TOTAL_STEPS = 14
+TOTAL_STEPS = 15
 
 def run_command(cmd_args, cwd=None, shell=False):
     process = subprocess.Popen(
@@ -400,6 +400,22 @@ def step_download_places365_test_dataset():
     if os.path.exists(archive_path):
         os.remove(archive_path)
 
+def step_download_places2_test_256():
+    dest_dir = os.path.join("datasets", "places365", "test_256")
+    if os.path.exists(dest_dir) and os.path.isdir(dest_dir) and len(os.listdir(dest_dir)) > 0:
+        print("Places2 test_256 dataset already exists. Skipping download.")
+        return
+        
+    url = "https://files.lalithadithyan.dev/download/test_256.zip"
+    dest_zip = os.path.join("datasets", "places365", "test_256.zip")
+    extract_to = os.path.join("datasets", "places365")
+    
+    download_file(url, dest_zip)
+    extract_zip(dest_zip, extract_to)
+    
+    if os.path.exists(dest_zip):
+        os.remove(dest_zip)
+
 def step_download_latest_model():
     """Query the C2 files server, find the highest-iteration checkpoint pair
     (gen + dis) for the active session, and download them to PlacesTraining/."""
@@ -587,8 +603,11 @@ def main():
         # Step 13: Download & extract Places365 test dataset
         execute_step(13, "Download & extract Places365 test dataset", step_download_places365_test_dataset)
 
-        # Step 14: Download latest model checkpoint from C2 files server
-        execute_step(14, "Restoring latest model checkpoint from files server", step_download_latest_model)
+        # Step 14: Download & extract Places2 test_256 dataset
+        execute_step(14, "Download & extract Places2 test_256 dataset", step_download_places2_test_256)
+
+        # Step 15: Download latest model checkpoint from C2 files server
+        execute_step(15, "Restoring latest model checkpoint from files server", step_download_latest_model)
 
     except BaseException as e:
         print(f"\nERROR during setup: {e}", file=sys.stderr)
