@@ -61,16 +61,23 @@ class BaseModel(nn.Module):
 
             self.discriminator.load_state_dict(dis_state_dict)
 
-    def save(self):
-        print('\nsaving %s...\n' % self.name)
+    def save(self, prefix=None):
+        if prefix:
+            gen_path = os.path.join(self.config.PATH, f"{prefix}_gen.pth")
+            dis_path = os.path.join(self.config.PATH, f"{prefix}_dis.pth")
+        else:
+            gen_path = self.gen_weights_path
+            dis_path = self.dis_weights_path
+
+        print('\nsaving %s to %s...\n' % (self.name, gen_path))
         torch.save({
             'iteration': self.iteration,
             'generator': self.generator.state_dict()
-        }, self.gen_weights_path)
+        }, gen_path)
 
         torch.save({
             'discriminator': self.discriminator.state_dict()
-        }, self.dis_weights_path)
+        }, dis_path)
 
 
 

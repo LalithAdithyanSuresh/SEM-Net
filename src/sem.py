@@ -97,6 +97,10 @@ class sem():
         # Persist epoch across restarts so it doesn't reset to 0 on resume
         self.epoch_state_file = os.path.join(config.PATH, 'epoch_state.json')
 
+        # Best model tracking
+        self.best_epoch_psnr = -1.0
+        self.top5_best_models = []
+
     def load(self):
 
 
@@ -228,7 +232,8 @@ class sem():
 		 
 
 
-                if iteration % 3000 == 0:
+                val_milestones = {1, 10, 50, 100, 200, 400, 500, 1000, 1500}
+                if (iteration in val_milestones) or (iteration > 0 and iteration % 2000 == 0):
                     create_dir(self.results_path)
                     path_val = os.path.join(self.results_path, self.model_name, 'validation')
                     create_dir(path_val)
@@ -283,13 +288,7 @@ class sem():
 
                     # ── Helper: hole-only patch heatmap (no lines, plasma gradient) ─
                     def _draw_hole_heatmap(scan_orders, mask_np, img_size, patch_size):
-                        """
-                        For each patch inside the mask, fill its pixel rectangle with a
-                        plasma-colormap color that encodes its rank in the scan sequence.
-                        boundary patches (first visited) → dark purple
-                        deep-center patches (last visited) → bright yellow
-                        """
-                        H_px, W_px = img_size[1], img_size[0]   # PIL size is (W, H)
+                        H_px, W_px = img_size[1], img_size[0]
                         canvas = np.zeros((H_px, W_px, 3), dtype=np.uint8)
 
                         if not scan_orders:
@@ -298,7 +297,6 @@ class sem():
                         H_m, W_m = mask_np.shape
                         cmap = plt.cm.plasma
 
-                        # Collect only the hole patches, preserving their scan order rank
                         hole_patches = []
                         for (p_i, p_j) in scan_orders:
                             cy = min(int(p_i * patch_size + patch_size // 2), H_m - 1)
@@ -311,11 +309,10 @@ class sem():
 
                         n = len(hole_patches)
                         for local_rank, (p_i, p_j) in enumerate(hole_patches):
-                            t   = local_rank / max(n - 1, 1)   # 0.0 (boundary) → 1.0 (center)
+                            t   = local_rank / max(n - 1, 1)
                             r, g, b, _ = cmap(t)
                             color = (int(r * 255), int(g * 255), int(b * 255))
 
-                            # Pixel bounding box of this patch
                             y0 = int(p_i * patch_size)
                             x0 = int(p_j * patch_size)
                             y1 = min(y0 + patch_size, H_px)
@@ -323,25 +320,18 @@ class sem():
 
                             canvas[y0:y1, x0:x1] = color
 
-                            # 1-px dark inner border so patches are visually distinct
                             if patch_size > 2:
                                 dark = (max(color[0]-60, 0), max(color[1]-60, 0), max(color[2]-60, 0))
-                                canvas[y0, x0:x1]   = dark  # top
-                                canvas[y1-1, x0:x1] = dark  # bottom
-                                canvas[y0:y1, x0]   = dark  # left
-                                canvas[y0:y1, x1-1] = dark  # right
+                                canvas[y0, x0:x1]   = dark
+                                canvas[y1-1, x0:x1] = dark
+                                canvas[y0:y1, x0]   = dark
+                                canvas[y0:y1, x1-1] = dark
 
                         return Image.fromarray(canvas)
 
                     # ── Helper: hole lines overlaid on plasma heatmap ────────────
                     def _draw_hole_path_overlay(scan_orders, mask_np, img_size, patch_size):
-                        """
-                        Plasma-filled hole patches (same as heatmap) with the rainbow
-                        scan-order line drawn on top, connecting only hole patches.
-                        Shows BOTH gradient score AND traversal order.
-                        """
                         from matplotlib.collections import LineCollection
-                        # Start from the heatmap as a numpy canvas
                         H_px, W_px = img_size[1], img_size[0]
                         canvas = np.zeros((H_px, W_px, 3), dtype=np.uint8)
 
@@ -362,7 +352,6 @@ class sem():
                             return Image.new('RGB', img_size, (30, 30, 30))
 
                         n = len(hole_patches)
-                        # Fill patches with plasma
                         for local_rank, (p_i, p_j) in enumerate(hole_patches):
                             t = local_rank / max(n - 1, 1)
                             r, g, b, _ = cmap_plasma(t)
@@ -371,7 +360,6 @@ class sem():
                             y1, x1 = min(y0+patch_size, H_px), min(x0+patch_size, W_px)
                             canvas[y0:y1, x0:x1] = color
 
-                        # Overlay rainbow line via matplotlib
                         base_img = Image.fromarray(canvas)
                         fig = plt.figure(figsize=(img_size[0]/100, img_size[1]/100), dpi=100)
                         ax  = fig.add_axes([0, 0, 1, 1])
@@ -398,6 +386,7 @@ class sem():
                         return Image.open(buf).convert('RGB').resize(img_size)
 
                     val_count = 0
+                    val_psnr_list = []
                     for val_items in val_loader:
                         val_images, val_masks = self.cuda(*val_items)
                         val_inputs = (val_images * (1 - val_masks)) + val_masks
@@ -405,6 +394,8 @@ class sem():
                             val_outputs_img = self.inpaint_model(val_images, val_masks)
                         
                         val_outputs_merged = (val_outputs_img * val_masks) + (val_images * (1 - val_masks))
+                        val_psnr_val = self.psnr(self.postprocess(val_images), self.postprocess(val_outputs_merged)).item()
+                        val_psnr_list.append(val_psnr_val)
 
                         # ── Extract scan path & attn layer (every image) ─────────
                         patch_size  = 1
@@ -422,7 +413,7 @@ class sem():
                                 scan_orders = [(int(idx) // W_p, int(idx) % W_p)
                                                for idx in scan_orders_tensor.cpu().tolist()]
                         except Exception as e:
-                            print(f"Could not extract scan_orders: {e}")
+                            pass
 
                         # ── PIL conversions ───────────────────────────────────────
                         gt_img_pil    = Image.fromarray(self.postprocess(val_images)[0].cpu().numpy().astype(np.uint8))
@@ -430,19 +421,12 @@ class sem():
                         pred_img_pil  = Image.fromarray(self.postprocess(val_outputs_img)[0].cpu().numpy().astype(np.uint8))
                         pred_mask_pil = Image.fromarray(self.postprocess(val_outputs_merged)[0].cpu().numpy().astype(np.uint8))
                         img_size = gt_img_pil.size
-                        mask_np  = val_masks[0, 0].cpu().float().numpy()  # H×W, 1=hole
+                        mask_np  = val_masks[0, 0].cpu().float().numpy()
 
-                        # ── Panel 3: Full path (all tokens on masked-input bg) ────
-                        full_path_pil = _draw_path_panel(scan_orders, mask_np, gt_mask_pil,
-                                                         patch_size, img_size)
-
-                        # ── Panel 4: Hole-only patch heatmap (plasma, no lines) ────
-                        hole_path_pil = _draw_hole_heatmap(scan_orders, mask_np, img_size, patch_size)
-
-                        # ── Panel 5: Hole heatmap + rainbow line overlay ──────────
+                        full_path_pil  = _draw_path_panel(scan_orders, mask_np, gt_mask_pil, patch_size, img_size)
+                        hole_path_pil  = _draw_hole_heatmap(scan_orders, mask_np, img_size, patch_size)
                         hole_lines_pil = _draw_hole_path_overlay(scan_orders, mask_np, img_size, patch_size)
 
-                        # ── Panel 5: DA-Mamba offset heatmap (every image) ────────
                         try:
                             import cv2
                             da_offset_pil = None
@@ -462,7 +446,6 @@ class sem():
                         except Exception:
                             da_offset_pil = Image.new('RGB', img_size, (80, 80, 80))
 
-                        # ── 8-panel stitch ────────────────────────────────────────
                         panels       = [gt_img_pil, gt_mask_pil, full_path_pil,
                                         hole_path_pil, hole_lines_pil,
                                         da_offset_pil, pred_img_pil, pred_mask_pil]
@@ -481,13 +464,51 @@ class sem():
                             draw_im.text((x_off + 4, max_height + 2), lbl, fill=(220, 220, 220))
                             x_off += im.size[0]
 
-                        # ── Save & upload ─────────────────────────────────────────
                         orig_idx  = all_indices[val_count]
                         name      = self.test_dataset.load_name(orig_idx)[:-4] + f'_iter{iteration}.png'
                         save_path = os.path.join(path_val, name)
                         new_im.save(save_path)
                         print(f"Saved validation image {val_count+1}/{len(all_indices)} to {save_path}")
                         val_count += 1
+
+                    if self.config.RANK == 0 and len(val_psnr_list) > 0:
+                        mean_val_psnr = float(np.mean(val_psnr_list))
+                        print(f"\n[VALIDATION] Iteration {iteration} | Average Validation PSNR: {mean_val_psnr:.2f} dB")
+
+                        # 1. Save best model per epoch
+                        if mean_val_psnr > self.best_epoch_psnr:
+                            self.best_epoch_psnr = mean_val_psnr
+                            epoch_prefix = f"InpaintingModel_best_epoch_{epoch}"
+                            self.inpaint_model.save(prefix=epoch_prefix)
+                            print(f"[BEST MODEL] Epoch {epoch} new best PSNR ({mean_val_psnr:.2f} dB) -> Saved {epoch_prefix}_gen.pth")
+
+                        # 2. Keep top 5 best models overall
+                        if len(self.top5_best_models) < 5 or mean_val_psnr > self.top5_best_models[-1]['psnr']:
+                            top_prefix = f"InpaintingModel_top_psnr_{mean_val_psnr:.2f}_iter_{iteration}"
+                            self.inpaint_model.save(prefix=top_prefix)
+                            gen_path = os.path.join(self.config.PATH, f"{top_prefix}_gen.pth")
+                            dis_path = os.path.join(self.config.PATH, f"{top_prefix}_dis.pth")
+                            
+                            self.top5_best_models.append({
+                                'psnr': mean_val_psnr,
+                                'epoch': epoch,
+                                'iter': iteration,
+                                'prefix': top_prefix,
+                                'gen': gen_path,
+                                'dis': dis_path
+                            })
+                            self.top5_best_models.sort(key=lambda x: x['psnr'], reverse=True)
+
+                            if len(self.top5_best_models) > 5:
+                                removed = self.top5_best_models.pop()
+                                for pth in [removed['gen'], removed['dis']]:
+                                    if os.path.exists(pth):
+                                        try:
+                                            os.remove(pth)
+                                        except Exception as e:
+                                            print(f"Warning: Failed to remove old top-5 checkpoint {pth}: {e}")
+                            top_scores = [f"{m['psnr']:.2f}dB" for m in self.top5_best_models]
+                            print(f"[TOP 5 MODELS] Updated Top 5 models list: {top_scores}")
 
                     self.inpaint_model.train()
                 ##############
