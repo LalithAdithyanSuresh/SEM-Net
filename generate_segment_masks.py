@@ -92,21 +92,43 @@ def process_chunk_gpu(gpu_id, image_paths, output_dir, model_name, batch_size, s
                 for img_path in batch_paths:
                     out_path = get_out_path(img_path, output_dir)
                     try:
-                        res_single = model(img_path, device=device, retina_masks=True, imgsz=1024, conf=0.4, iou=0.9, verbose=False)
+                        if is_fastsam:
+                            res_single = model(img_path, device=device, retina_masks=True, imgsz=1024, conf=0.4, iou=0.9, verbose=False)
+                        else:
+                            res_single = model(img_path, device=device, verbose=False)
+                            
                         if res_single and len(res_single) > 0 and res_single[0].masks is not None and len(res_single[0].masks.data) > 0:
-                            masks = res_single[0].masks.data.cpu().numpy()
-                            h, w = masks.shape[1], masks.shape[2]
+                            raw_masks = res_single[0].masks.data.cpu().numpy()
+                            h, w = raw_masks.shape[1], raw_masks.shape[2]
                             combined_mask = np.zeros((h, w, 3), dtype=np.uint8)
-                            np.random.seed(42)
-                            colors = np.random.randint(40, 255, size=(max(len(masks), 200), 3), dtype=np.uint8)
-                            areas = [np.sum(m > 0.5) for m in masks]
-                            sorted_indices = np.argsort(areas)[::-1]
-                            for idx in sorted_indices:
-                                combined_mask[masks[idx] > 0.5] = colors[idx]
-                            for idx in sorted_indices:
-                                mask_u8 = (masks[idx] > 0.5).astype(np.uint8) * 255
-                                contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                                cv2.drawContours(combined_mask, contours, -1, (20, 20, 20), 1)
+                            
+                            organic_masks = []
+                            for m in raw_masks:
+                                m_bin = m > 0.5
+                                mask_area = np.sum(m_bin)
+                                if mask_area < 25:
+                                    continue
+                                if is_fastsam:
+                                    y_idx, x_idx = np.where(m_bin)
+                                    if len(y_idx) == 0:
+                                        continue
+                                    bbox_area = (y_idx.max() - y_idx.min() + 1) * (x_idx.max() - x_idx.min() + 1)
+                                    rectangularity = mask_area / float(bbox_area)
+                                    if rectangularity > 0.88:
+                                        continue
+                                organic_masks.append(m_bin)
+                                
+                            if organic_masks:
+                                np.random.seed(42)
+                                num_masks = len(organic_masks)
+                                colors = np.random.randint(40, 255, size=(max(num_masks, 200), 3), dtype=np.uint8)
+                                areas = [np.sum(m) for m in organic_masks]
+                                sorted_indices = np.argsort(areas)[::-1]
+                                for rank, idx in enumerate(sorted_indices):
+                                    mask_i = organic_masks[idx]
+                                    unique_id = int((rank + 1) * 255 / max(num_masks, 1))
+                                    combined_mask[mask_i, 0] = unique_id
+                                    combined_mask[mask_i, 1:] = colors[idx, 1:]
                         else:
                             img = cv2.imread(img_path)
                             h, w = img.shape[:2] if img is not None else (256, 256)
@@ -118,9 +140,9 @@ def process_chunk_gpu(gpu_id, image_paths, output_dir, model_name, batch_size, s
     except Exception as e:
         print(f"Worker exception on gpu {gpu_id}: {e}", file=sys.stderr)
 
-def generate_masks_for_dir(input_dir, output_dir, gpus=None, batch_size=16, model_name="FastSAM-s.pt", overwrite=True):
+def generate_masks_for_dir(input_dir, output_dir, gpus=None, batch_size=16, model_name="sam_b.pt", overwrite=True, workers_per_gpu=1, num_workers=None):
     if not os.path.exists(input_dir):
-        print(f"[FastSAM] Input directory {input_dir} does not exist. Skipping.")
+        print(f"[SAM Parallel] Input directory {input_dir} does not exist. Skipping.")
         return
 
     try:
@@ -136,7 +158,7 @@ def generate_masks_for_dir(input_dir, output_dir, gpus=None, batch_size=16, mode
 
     image_paths = sorted(list(set(image_paths)))
     if not image_paths:
-        print(f"[FastSAM] No images found in {input_dir}.")
+        print(f"[SAM Parallel] No images found in {input_dir}.")
         return
 
     if gpus is None:
@@ -148,20 +170,30 @@ def generate_masks_for_dir(input_dir, output_dir, gpus=None, batch_size=16, mode
     else:
         gpu_list = gpus
 
-    num_workers = len(gpu_list)
-    print(f"[FastSAM] Processing {len(image_paths)} images from {input_dir} -> {output_dir}")
-    print(f"[FastSAM] Using {num_workers} worker process(es) across GPU(s): {gpu_list} (Batch size: {batch_size})")
+    # Expand workers per GPU
+    worker_gpu_list = []
+    if num_workers is not None and num_workers > 0:
+        for i in range(num_workers):
+            worker_gpu_list.append(gpu_list[i % len(gpu_list)])
+    else:
+        for gpu_id in gpu_list:
+            for _ in range(workers_per_gpu):
+                worker_gpu_list.append(gpu_id)
+
+    total_workers = len(worker_gpu_list)
+    print(f"[SAM Parallel] Processing {len(image_paths)} images from {input_dir} -> {output_dir}")
+    print(f"[SAM Parallel] Using {total_workers} parallel worker process(es) across GPU(s): {worker_gpu_list} (Batch size: {batch_size})")
 
     # Chunk image paths across workers
-    chunks = [[] for _ in range(num_workers)]
+    chunks = [[] for _ in range(total_workers)]
     for idx, path in enumerate(image_paths):
-        chunks[idx % num_workers].append(path)
+        chunks[idx % total_workers].append(path)
 
     ctx = mp.get_context("spawn")
     status_queue = ctx.Queue()
     processes = []
 
-    for gpu_id, chunk in zip(gpu_list, chunks):
+    for gpu_id, chunk in zip(worker_gpu_list, chunks):
         if not chunk:
             continue
         p = ctx.Process(
@@ -185,7 +217,7 @@ def generate_masks_for_dir(input_dir, output_dir, gpus=None, batch_size=16, mode
     for p in processes:
         p.join()
 
-    print(f"[FastSAM] Completed segment mask generation for {output_dir}.")
+    print(f"[SAM Parallel] Completed segment mask generation for {output_dir}.")
 
 def main():
     parser = argparse.ArgumentParser(description="Generate segment masks using SAM / FastSAM with multi-GPU parallel processing.")
@@ -195,6 +227,8 @@ def main():
     parser.add_argument("--model", default="sam_b.pt", help="SAM model weights file (e.g. sam_b.pt, mobile_sam.pt, FastSAM-s.pt)")
     parser.add_argument("--batch-size", type=int, default=16, help="Batch size per GPU inference call (default: 16)")
     parser.add_argument("--gpus", type=str, default=None, help="Comma-separated GPU indices to use, e.g., '0,1' (default: auto-detect all GPUs)")
+    parser.add_argument("--workers-per-gpu", type=int, default=1, help="Number of parallel worker processes per GPU (default: 1)")
+    parser.add_argument("--num-workers", type=int, default=None, help="Total number of parallel worker processes to spawn across all GPUs")
     parser.add_argument("--no-overwrite", action="store_true", help="Do not overwrite existing mask files")
     args = parser.parse_args()
 
@@ -221,13 +255,14 @@ def main():
     print(f"  Train: {train_input} -> {train_output}")
     print(f"  Test:  {test_input} -> {test_output}")
     print(f"  Batch size: {args.batch_size}")
+    print(f"  Workers per GPU: {args.workers_per_gpu}")
     print(f"  Overwrite existing: {overwrite}")
 
     if os.path.exists(train_input):
-        generate_masks_for_dir(train_input, train_output, gpus=gpus, batch_size=args.batch_size, model_name=args.model, overwrite=overwrite)
+        generate_masks_for_dir(train_input, train_output, gpus=gpus, batch_size=args.batch_size, model_name=args.model, overwrite=overwrite, workers_per_gpu=args.workers_per_gpu, num_workers=args.num_workers)
     
     if os.path.exists(test_input):
-        generate_masks_for_dir(test_input, test_output, gpus=gpus, batch_size=args.batch_size, model_name=args.model, overwrite=overwrite)
+        generate_masks_for_dir(test_input, test_output, gpus=gpus, batch_size=args.batch_size, model_name=args.model, overwrite=overwrite, workers_per_gpu=args.workers_per_gpu, num_workers=args.num_workers)
 
 if __name__ == "__main__":
     main()
