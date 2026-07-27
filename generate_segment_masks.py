@@ -73,7 +73,10 @@ def generate_masks_for_dir(input_dir, output_dir, gpus=None, batch_size=16, mode
         print(f"[FastSAM] Input directory {input_dir} does not exist. Skipping.")
         return
 
-    os.makedirs(output_dir, exist_ok=True)
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+    except FileExistsError:
+        pass
 
     image_extensions = ("*.jpg", "*.jpeg", "*.png", "*.bmp", "*.webp")
     image_paths = []
