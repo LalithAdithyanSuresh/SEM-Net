@@ -27,7 +27,7 @@ def remove_readonly(func, path, excinfo):
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(line_buffering=True)
 
-TOTAL_STEPS = 14
+TOTAL_STEPS = 15
 
 # ── Live Status Reporter ───────────────────────────────────────────────────
 # Posts live step progress to the C2 server for the dashboard.
@@ -68,6 +68,7 @@ class StatusReporter:
         'Download & extract mask dataset',
         'Download & extract Places365 dataset',
         'Restoring latest model checkpoint',
+        'Generating FastSAM segment masks (train_seg & test_seg)',
     ]
 
     def _read_history(self):
@@ -312,8 +313,7 @@ def step_verify_workspace():
 def step_setup_cuda():
     cuda_dir = "/usr/local/cuda-12.4"
     if not os.path.exists(cuda_dir):
-        print(f"WARNING: CUDA 12.4 Toolkit directory not found at {cuda_dir}. Skipping CUDA configuration.")
-        return
+        raise RuntimeError(f"CUDA 12.4 Toolkit directory not found at {cuda_dir}. Strict setup requires CUDA 12.4.")
     print(f"Configuring environment to use CUDA Toolkit: {cuda_dir}")
     os.environ["CUDA_HOME"] = cuda_dir
     os.environ["PATH"] = f"{cuda_dir}/bin:" + os.environ.get("PATH", "")
@@ -337,7 +337,7 @@ def step_setup_cuda():
                 print(f"[OK] CUDA compiler (nvcc) found: {line.strip()}")
                 break
     except Exception as e:
-        print(f"WARNING: 'nvcc' not found or failed: {e}. Compilation might fail.")
+        raise RuntimeError(f"'nvcc' not found or failed: {e}. CUDA compilation support is required.")
 
 def step_create_venv():
     if os.path.exists("venv"):
@@ -492,8 +492,7 @@ def patch_pytorch_boxing_header():
     import glob
     paths = glob.glob(os.path.join("venv", "lib", "python*", "site-packages", "torch", "include", "ATen", "core", "boxing", "impl", "boxing.h"))
     if not paths:
-        print("WARNING: Could not find boxing.h to patch. It might not be installed yet, or in a different path.")
-        return
+        raise RuntimeError("Could not find boxing.h header file in PyTorch site-packages for ops_dcnv3 patching.")
     for path in paths:
         try:
             print(f"Checking if {path} needs template parsing patch...")
@@ -702,6 +701,16 @@ def step_download_latest_model():
 
     print(f"[OK] Model checkpoints restored to {run_path}/ (iteration {best_iter_gen:,})")
 
+def step_generate_segment_masks():
+    venv_python = os.path.abspath(os.path.join("venv", "bin", "python"))
+    python_bin = venv_python if os.path.exists(venv_python) else sys.executable
+    script_path = os.path.abspath("generate_segment_masks.py")
+    if not os.path.exists(script_path):
+        raise RuntimeError("generate_segment_masks.py script not found!")
+    print("Running FastSAM segment mask generator with 8 workers...")
+    subprocess.check_call([python_bin, script_path, "--workers", "8"])
+
+
 
 def log_setup_run(start_time, status, error_msg=None):
     duration = time.time() - start_time
@@ -848,6 +857,9 @@ def main():
         # Step 14: Download latest model checkpoint from C2 files server
         execute_step(14, "Restoring latest model checkpoint from files server", step_download_latest_model)
 
+        # Step 15: Generate FastSAM segment masks for train and test directories using 8 workers
+        execute_step(15, "Generating FastSAM segment masks (train_seg & test_seg)", step_generate_segment_masks)
+
     except BaseException as e:
         err_msg = str(e) or type(e).__name__
         log_setup_run(start_time, "FAILED", err_msg)
@@ -863,6 +875,10 @@ def main():
     print("==========================================================")
 
     log_setup_run(start_time, "SUCCESS")
+
+    if "--no-launch" in sys.argv or "--setup-only" in sys.argv:
+        print("Setup completed. Skipping auto-launch of training script.")
+        sys.exit(0)
 
     # Auto-launch the training script
     training_script = os.path.abspath("run_training_c2.sh")
