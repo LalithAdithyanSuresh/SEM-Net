@@ -714,7 +714,7 @@ def log_setup_run(start_time, status, error_msg=None):
     dur_str = f"{h}h {m}m {s}s" if h > 0 else f"{m}m {s}s" if m > 0 else f"{s}s"
     
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    session = os.environ.get('C2_SESSION', 'DAVA')
+    session = os.environ.get('C2_SESSION', 'segment')
     
     log_line = f"[{timestamp}] Session: {session} | Status: {status} | Duration: {dur_str}"
     if error_msg:
@@ -746,7 +746,7 @@ def main():
     # Log start to history file
     try:
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        session = os.environ.get('C2_SESSION', 'DAVA')
+        session = os.environ.get('C2_SESSION', 'segment')
         with open("setup_history.txt", "a") as f:
             f.write(f"[{timestamp}] Session: {session} | Status: STARTED\n")
     except Exception:
@@ -754,7 +754,7 @@ def main():
 
     # Init live status reporter (posts to C2 server in background)
     c2_url  = os.environ.get('C2_SERVER_URL', 'https://lalithadithyan.dev')
-    session = os.environ.get('C2_SESSION', 'DAVA')
+    session = os.environ.get('C2_SESSION', 'segment')
     try:
         _reporter = StatusReporter(c2_url, session)
         print(f"[Dashboard] Live status: {c2_url}/dashboard/status?session={session}")
@@ -868,7 +868,7 @@ def main():
 
     # Auto-launch the training script
     training_script = os.path.abspath("run_training_c2.sh")
-    session_name = os.environ.get("C2_SESSION", "DAVA")
+    session_name = os.environ.get("C2_SESSION", "segment")
 
     if not os.path.exists(training_script):
         print(f"ERROR: Training script not found at {training_script}. Please run it manually.")

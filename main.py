@@ -175,4 +175,14 @@ def load_config(mode=None):
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    try:
+        main()
+    except (KeyboardInterrupt, SystemExit):
+        print("\n[Training Interrupted by User (Ctrl+C)] Exiting...")
+        if dist.is_initialized():
+            try:
+                dist.destroy_process_group()
+            except Exception:
+                pass
+        sys.exit(0)

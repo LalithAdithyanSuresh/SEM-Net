@@ -12,8 +12,8 @@ export PIP_CACHE_DIR="./tmp/pip_cache"
 # Handle Dynamic Session Name
 # Usage: ./run_training_c2.sh my_session_name
 if [ -z "$1" ]; then
-    export C2_SESSION="DAVA"
-    echo "No session name provided. Using 'DAVA'."
+    export C2_SESSION="segment"
+    echo "No session name provided. Using 'segment'."
 else
     export C2_SESSION="$1"
     echo "Starting session: $C2_SESSION"
@@ -35,7 +35,7 @@ echo "====================================="
 echo "Starting Local SEM-Net Training loop: [$C2_SESSION]"
 echo "====================================="
 
-RUN_PATH="./PlacesTraining"
+RUN_PATH="./segmentCamino"
 
 # Run Python training locally
 torchrun --nproc_per_node=2 --master_port=29501 main.py --model 2 --path "$RUN_PATH"
