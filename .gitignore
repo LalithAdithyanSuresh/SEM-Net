@@ -2,9 +2,12 @@ checkpoints/
 checkpoints_c2/
 checkpoints_places/
 *.pth
+*.pt
+*.bin
 *.dat
 *.log
 **/__pycache__/
+*.pyc
 evaluation_results*/
 inference_results/
 *.zip
@@ -14,7 +17,8 @@ updated_spiral/
 PlacesDateset/results/
 Eval_SPIRAL_BUTMORE/
 updated_spiral_8x8/
-src/ops_dcnv3/
+src/ops_dcnv3/build/
+LAST/src/ops_dcnv3/build/
 datasets/
 
 training_output.log
@@ -25,3 +29,6 @@ CCC/
 *.pdf
 *.aux
 *.out
+*.bbl
+*.blg
+temp/

@@ -1,0 +1,250 @@
+import os
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+from .networks import SEM, Discriminator
+from .loss import AdversarialLoss, PerceptualLoss, StyleLoss, TVLoss
+import math
+from torch.nn.parallel import DistributedDataParallel as DDP
+
+
+class BaseModel(nn.Module):
+    def __init__(self, name, config):
+        super(BaseModel, self).__init__()
+
+        self.name = name
+        self.config = config
+        self.iteration = 0
+
+        self.gen_weights_path = os.path.join(config.PATH, name + '_gen.pth')
+        self.dis_weights_path = os.path.join(config.PATH, name + '_dis.pth')
+
+    def load(self):
+        if os.path.exists(self.gen_weights_path):
+            print('Loading %s generator...' % self.name)
+            
+            if torch.cuda.is_available():
+                data = torch.load(self.gen_weights_path)
+                
+            else: 
+                data = torch.load(self.gen_weights_path, map_location=lambda storage, loc: storage)
+
+            gen_state_dict = data['generator']
+            is_parallel = isinstance(self.generator, (nn.DataParallel, DDP))
+            if is_parallel and not any(k.startswith('module.') for k in gen_state_dict.keys()):
+                gen_state_dict = {'module.' + k: v for k, v in gen_state_dict.items()}
+            elif not is_parallel and any(k.startswith('module.') for k in gen_state_dict.keys()):
+                gen_state_dict = {k.replace('module.', ''): v for k, v in gen_state_dict.items()}
+
+            self.generator.load_state_dict(gen_state_dict, strict=False)
+            self.iteration = data['iteration']
+            
+            
+            
+
+        # load discriminator only when training
+        if self.config.MODE == 1 and os.path.exists(self.dis_weights_path):
+            print('Loading %s discriminator...' % self.name)
+
+            if torch.cuda.is_available():
+                data = torch.load(self.dis_weights_path)
+            else:
+                data = torch.load(self.dis_weights_path, map_location=lambda storage, loc: storage)
+
+            dis_state_dict = data['discriminator']
+            is_parallel = isinstance(self.discriminator, (nn.DataParallel, DDP))
+            if is_parallel and not any(k.startswith('module.') for k in dis_state_dict.keys()):
+                dis_state_dict = {'module.' + k: v for k, v in dis_state_dict.items()}
+            elif not is_parallel and any(k.startswith('module.') for k in dis_state_dict.keys()):
+                dis_state_dict = {k.replace('module.', ''): v for k, v in dis_state_dict.items()}
+
+            self.discriminator.load_state_dict(dis_state_dict)
+
+    def save(self):
+        print('\nsaving %s...\n' % self.name)
+        torch.save({
+            'iteration': self.iteration,
+            'generator': self.generator.state_dict()
+        }, self.gen_weights_path)
+
+        torch.save({
+            'discriminator': self.discriminator.state_dict()
+        }, self.dis_weights_path)
+
+
+
+class InpaintingModel(BaseModel):
+    def __init__(self, config):
+        super(InpaintingModel, self).__init__('InpaintingModel', config)
+
+
+        generator = SEM().to(config.DEVICE)
+        discriminator = Discriminator(in_channels=3, use_sigmoid=config.GAN_LOSS != 'hinge').to(config.DEVICE)
+        
+        if config.WORLD_SIZE > 1:
+            # find_unused_parameters=True is REQUIRED here because Gen/Dis are separate DDP modules
+            generator = DDP(generator, device_ids=[torch.cuda.current_device()], find_unused_parameters=True)
+            discriminator = DDP(discriminator, device_ids=[torch.cuda.current_device()], find_unused_parameters=True)
+
+        l1_loss = nn.L1Loss().to(config.DEVICE)
+        perceptual_loss = PerceptualLoss().to(config.DEVICE)
+        style_loss = StyleLoss().to(config.DEVICE)
+        adversarial_loss = AdversarialLoss(type=config.GAN_LOSS).to(config.DEVICE)
+
+        self.add_module('generator', generator)
+        self.add_module('discriminator', discriminator)
+
+        self.add_module('l1_loss', l1_loss)
+        self.add_module('perceptual_loss', perceptual_loss)
+        self.add_module('style_loss', style_loss)
+        self.add_module('adversarial_loss', adversarial_loss)
+
+        self.gen_optimizer = optim.Adam(
+            params=generator.parameters(),
+            lr=float(config.LR),
+            betas=(config.BETA1, config.BETA2)
+        )
+
+        self.dis_optimizer = optim.Adam(
+            params=discriminator.parameters(),
+            lr=float(config.LR) * float(config.D2G_LR),
+            betas=(config.BETA1, config.BETA2)
+        )
+
+        #### learning rate decay
+        self.gen_scheduler = torch.optim.lr_scheduler.MultiStepLR(self.gen_optimizer, last_epoch=-1, milestones=[20000, 40000,60000,80000,120000], gamma=self.config.LR_Decay)
+        self.dis_scheduler = torch.optim.lr_scheduler.MultiStepLR(self.dis_optimizer, last_epoch=-1,
+                                                                  milestones=[20000, 40000,60000,80000,120000], gamma=self.config.LR_Decay)
+                                                                  
+                                                                  
+        self.scaler = torch.cuda.amp.GradScaler()
+        # Gradient accumulation: sync across GPUs every 8 steps
+        self.accum_steps = 8
+
+    def process(self, images, masks):
+        self.iteration += 1
+
+        # Process outputs
+        outputs_img = self(images, masks)
+
+        
+        gen_loss = 0
+        dis_loss = 0
+        
+        
+        with torch.cuda.amp.autocast():
+
+
+        # discriminator loss
+            dis_input_real = images
+            dis_input_fake = outputs_img.detach()
+
+
+            dis_real, _ = self.discriminator(dis_input_real)                   
+            dis_fake, _ = self.discriminator(dis_input_fake)                   
+
+            dis_real_loss = self.adversarial_loss(dis_real, True, True)
+            dis_fake_loss = self.adversarial_loss(dis_fake, False, True)
+            dis_loss += (dis_real_loss + dis_fake_loss) / 2
+
+
+        # generator adversarial loss
+            gen_input_fake = outputs_img
+            gen_fake, _ = self.discriminator(gen_input_fake)
+            gen_gan_loss = self.adversarial_loss(gen_fake, True, False) * self.config.INPAINT_ADV_LOSS_WEIGHT
+            gen_loss += gen_gan_loss
+
+
+        # generator l1 loss
+            gen_l1_loss = self.l1_loss(outputs_img, images) * self.config.L1_LOSS_WEIGHT / torch.mean(masks)
+        #gen_l1_loss = self.l1_loss(outputs_img, images) * self.config.L1_LOSS_WEIGHT
+            gen_loss += gen_l1_loss
+
+
+        # generator perceptual loss
+            gen_content_loss = self.perceptual_loss(outputs_img, images)
+            gen_content_loss = gen_content_loss * self.config.CONTENT_LOSS_WEIGHT
+            gen_loss += gen_content_loss
+
+
+        # generator style loss
+        gen_style_loss = self.style_loss(outputs_img * masks, images * masks)
+        gen_style_loss = gen_style_loss * self.config.STYLE_LOSS_WEIGHT
+        gen_loss += gen_style_loss
+
+        # generator symmetry loss
+        gen_symmetry_loss = self.l1_loss(outputs_img, torch.flip(outputs_img, [3]))
+        gen_symmetry_loss = gen_symmetry_loss * self.config.SYMMETRY_LOSS_WEIGHT
+        gen_loss += gen_symmetry_loss
+        #############################
+
+        # create logs
+        logs = [
+            ("gLoss",gen_loss.item()),
+            ("dLoss",dis_loss.item()),
+            ("sym", gen_symmetry_loss.item())
+        ]
+
+        return outputs_img, gen_loss, dis_loss, logs, gen_gan_loss, gen_l1_loss, gen_content_loss, gen_style_loss, gen_symmetry_loss
+
+    # def forward(self, images, landmarks, masks):
+    def forward(self, images, masks):
+        images_masked = (images * (1 - masks).float()) + masks
+        inputs = images_masked
+        scaled_masks_tiny = F.interpolate(masks, size=[int(masks.shape[2] / 8), int(masks.shape[3] / 8)],
+                                     mode='nearest')        
+        
+        scaled_masks_quarter = F.interpolate(masks, size=[int(masks.shape[2] / 4), int(masks.shape[3] / 4)],
+                                     mode='nearest')
+        scaled_masks_half = F.interpolate(masks, size=[int(masks.shape[2] / 2), int(masks.shape[3] / 2)],
+                                     mode='nearest')
+                                     
+                                     
+        outputs_img = self.generator(inputs, masks, scaled_masks_half, scaled_masks_quarter, scaled_masks_tiny)
+
+        return outputs_img
+
+    def backward(self, gen_loss = None, dis_loss = None):
+        # Scale losses for gradient accumulation
+        gen_loss = gen_loss / self.accum_steps
+        dis_loss = dis_loss / self.accum_steps
+
+        # Use no_sync to avoid expensive GPU communication except on update steps
+        is_update_step = (self.iteration % self.accum_steps == 0)
+        
+        if not is_update_step and self.config.WORLD_SIZE > 1:
+            with self.generator.no_sync(), self.discriminator.no_sync():
+                self.scaler.scale(dis_loss).backward()
+                self.scaler.scale(gen_loss).backward()
+        else:
+            self.scaler.scale(dis_loss).backward()
+            self.scaler.scale(gen_loss).backward()
+        
+        # Update weights every accum_steps
+        if is_update_step:
+            self.scaler.step(self.dis_optimizer)
+            self.scaler.step(self.gen_optimizer)
+            self.scaler.update()
+            
+            self.gen_optimizer.zero_grad(set_to_none=True)
+            self.dis_optimizer.zero_grad(set_to_none=True)
+            
+            # Step schedulers
+            self.gen_scheduler.step()
+            self.dis_scheduler.step()
+
+    def backward_joint(self, gen_loss = None, dis_loss = None):
+        dis_loss.backward()
+        self.dis_optimizer.step()
+
+        gen_loss.backward()
+        self.gen_optimizer.step()
+
+
+
+def abs_smooth(x):
+    absx = torch.abs(x)
+    minx = torch.min(absx,other=torch.ones(absx.shape).cuda())
+    r = 0.5 *((absx-1)*minx + absx)
+    return r
