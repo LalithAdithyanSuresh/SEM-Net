@@ -103,6 +103,11 @@ class Dataset(torch.utils.data.Dataset):
 
         # external
         if mask_type == 3:
+            if len(self.mask_data) == 0:
+                mask = 1 - generate_stroke_mask([imgh, imgw])
+                mask = (mask > 0).astype(np.uint8) * 255
+                mask = self.resize(mask, imgh, imgw, centerCrop=False)
+                return mask
             mask_index = random.randint(0, len(self.mask_data) - 1)
             mask = imread(self.mask_data[mask_index])
             mask = self.resize(mask, imgh, imgw)
@@ -112,6 +117,11 @@ class Dataset(torch.utils.data.Dataset):
 
         # test mode: load mask non random
         if mask_type == 6:
+            if len(self.mask_data) == 0:
+                mask = 1 - generate_stroke_mask([imgh, imgw])
+                mask = (mask > 0).astype(np.uint8) * 255
+                mask = self.resize(mask, imgh, imgw, centerCrop=False)
+                return mask
             mask = imread(self.mask_data[index%len(self.mask_data)])
             mask = self.resize(mask, imgh, imgw, centerCrop=False)
             #mask = rgb2gray(mask)
