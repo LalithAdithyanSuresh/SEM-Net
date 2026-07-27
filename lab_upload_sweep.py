@@ -51,50 +51,5 @@ def run_upload_test(file_path, chunk_size, server_url, session_id, timeout_sec):
         return False
 
 def main():
-    server_url = "https://files.lalithadithyan.dev"
-    session_id = "lab_sweep_test"
-    
-    # Sweep sizes (in Megabytes)
-    test_sizes_mb = [5, 10, 50, 100, 250, 500]
-    
-    results = {}
-    
-    print("="*60)
-    print("          LAB SERVER UPLOAD SWEEP BENCHMARK")
-    print(f" Target Server: {server_url}")
-    print("="*60)
-    
-    for mb in test_sizes_mb:
-        chunk_size_bytes = mb * 1024 * 1024
-        
-        # Generous timeout for high-speed link
-        timeout_sec = 300 
-        
-        # File is 2 chunks in size (so it verifies chunking and assembly)
-        test_file = f"test_{mb}mb.bin"
-        file_size_mb = mb * 2
-        
-        print(f"\n" + "-"*50)
-        print(f"Testing Chunk Size: {mb} MB (File size: {file_size_mb} MB)")
-        print(f"-"*50)
-        
-        create_dummy_file(test_file, file_size_mb)
-        
-        success = run_upload_test(test_file, chunk_size_bytes, server_url, session_id, timeout_sec)
-        
-        # Clean up file immediately
-        if os.path.exists(test_file):
-            os.remove(test_file)
-            
-        results[mb] = "PASSED" if success else "FAILED"
-        time.sleep(1)
-        
-    print("\n" + "="*50)
-    print("           SWEEP TEST REPORT")
-    print("="*50)
-    for mb, res in results.items():
-        print(f" Chunk Size: {mb:3d} MB  ->  Status: {res}")
-    print("="*50)
-
-if __name__ == "__main__":
-    main()
+    print("Network lab upload sweep is disabled.")
+    return

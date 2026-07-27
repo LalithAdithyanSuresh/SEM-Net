@@ -21,41 +21,9 @@ import time
 import requests
 
 def send_notification(message):
-    try:
-        topic = "camino-places-eval-2006"
-        requests.post(f"https://ntfy.sh/{topic}", data=message.encode(encoding='utf-8'), timeout=5)
-        print(f"Sent push notification: {message}")
-    except Exception as e:
-        print(f"Failed to send push notification: {e}")
+    print(f"[LOCAL NOTIFICATION] {message}")
 
 def upload_file(file_path):
-    server_url = os.environ.get("FILES_SERVER_URL", "https://files.lalithadithyan.dev")
-    session_id = os.environ.get("C2_SESSION", "DAVA")
-    
-    if not os.path.exists(file_path):
-        return False
-        
-    filename = os.path.basename(file_path)
-    try:
-        with open(file_path, 'rb') as f:
-            file_data = f.read()
-            
-        files = {'file': (f"{filename}.part0", file_data, 'application/octet-stream')}
-        data = {
-            'session': session_id,
-            'filename': filename,
-            'chunk_index': 0,
-            'total_chunks': 1
-        }
-        
-        res = requests.post(f"{server_url}/api/upload_chunk", files=files, data=data, timeout=30)
-        if res.status_code == 200:
-            print(f"Successfully uploaded {filename} to files server.")
-            return True
-        else:
-            print(f"Failed to upload {filename} to files server: Status {res.status_code}")
-    except Exception as e:
-        print(f"Error uploading {filename} to files server: {e}")
     return False
 
 # --- PATCH CLEANFID FRECHET DISTANCE ---

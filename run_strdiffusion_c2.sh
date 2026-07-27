@@ -13,6 +13,6 @@ echo "====================================="
 cd ../StrDiffusion || { echo "StrDiffusion folder not found!"; exit 1; }
 
 # Run the setup and evaluation script, answering default options automatically, and piping output to push_logs.py
-echo -e "\n\n\n" | ./setup_and_evaluate_str_diffusion.sh 2>&1 | python -u ../SEM-Net/push_logs.py
+echo -e "\n\n\n" | ./setup_and_evaluate_str_diffusion.sh
 
 echo "Evaluation Script Finished!"

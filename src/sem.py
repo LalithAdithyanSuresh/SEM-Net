@@ -43,48 +43,9 @@ if 'lalithadithyan.dev' in C2_SERVER_URL and 'files.' not in C2_SERVER_URL:
 FILES_SERVER_URL = os.environ.get('FILES_SERVER_URL', default_files_url)
 
 def upload_file_chunked(file_path, server_url, session_id, chunk_size=10 * 1024 * 1024, target_filename=None):
-    if not os.path.exists(file_path):
-        print(f"[C2 UPLOAD] File {file_path} not found. Skipping.")
-        return False
-        
-    filename = target_filename if target_filename else os.path.basename(file_path)
-    file_size = os.path.getsize(file_path)
-    total_chunks = (file_size + chunk_size - 1) // chunk_size
-    
-    print(f"[C2 UPLOAD] Uploading {filename} ({file_size / (1024*1024):.1f} MB) in {total_chunks} chunks...")
-    
-    try:
-        with open(file_path, 'rb') as f:
-            for i in range(total_chunks):
-                chunk_data = f.read(chunk_size)
-                files = {'file': (f"{filename}.part{i}", chunk_data, 'application/octet-stream')}
-                data = {
-                    'session': session_id,
-                    'filename': filename,
-                    'chunk_index': i,
-                    'total_chunks': total_chunks
-                }
-                
-                success = False
-                for retry in range(3):
-                    try:
-                        res = requests.post(f"{server_url}/api/upload_chunk", files=files, data=data, timeout=45)
-                        if res.status_code == 200:
-                            success = True
-                            break
-                    except Exception as e:
-                        print(f"[C2 UPLOAD] Chunk {i} retry {retry+1} error: {e}")
-                    time.sleep(1)
-                    
-                if not success:
-                    status_info = f"Status: {res.status_code}, Response: {res.text[:300]}" if 'res' in locals() else "No response"
-                    print(f"[C2 UPLOAD] Failed to upload chunk {i} ({status_info}). Aborting.")
-                    return False
-        print(f"[C2 UPLOAD] Successfully uploaded {filename}!")
-        return True
-    except Exception as e:
-        print(f"[C2 UPLOAD] Error uploading {filename}: {e}")
-        return False
+    # Network uploads disabled
+    return False
+
 
 class sem():
     def __init__(self, config):
@@ -239,26 +200,12 @@ class sem():
                     _metric_buf['mae'].append(float(mae.item()))
                     _metric_buf_epoch.append(epoch)
 
-                    # --- C2: send TRUE 300-iteration average once per 300 iters ---
+                    # Reset buffers for the next 300-iter window
                     if iteration > 0 and iteration % 300 == 0:
-                        try:
-                            n = len(_metric_buf['psnr'])
-                            all_metrics_payload = {
-                                "iteration": iteration,
-                                "epoch": round(sum(_metric_buf_epoch) / len(_metric_buf_epoch), 2),
-                                "_samples": n,  # how many iterations this average covers
-                                "session": C2_SESSION
-                            }
-                            for k in _METRIC_KEYS:
-                                vals = _metric_buf[k]
-                                all_metrics_payload[k] = round(sum(vals) / len(vals), 6) if vals else 0.0
-                            requests.post(f"{C2_SERVER_URL}/api/all_metrics", json=all_metrics_payload, timeout=2)
-                        except Exception:
-                            pass
-                        # Reset buffers for the next 300-iter window
                         _metric_buf = {k: [] for k in _METRIC_KEYS}
                         _metric_buf_epoch = []
                     iteration = self.inpaint_model.iteration
+
 
 
                 if iteration >= max_iteration:
@@ -279,39 +226,7 @@ class sem():
                                    'gen_symmetry_loss': gen_symmetry_loss,
                                    'dis_loss': dis_loss}, step=iteration)
 		 
-                # ---- C2 COMMAND POLLING (Less frequent for speed) ----
-                if iteration % 50 == 0:
-                    try:
-                        # 1. Fetch training command (stop/run/etc)
-                        res = requests.get(f"{C2_SERVER_URL}/api/command", params={"session": C2_SESSION}, timeout=2)
-                        if res.status_code == 200:
-                            cmd_data = res.json()
-                            cmd = cmd_data.get('command', 'run')
-                            
-                            if cmd == 'stop':
-                                print("\nC2 Server requested STOP. Halting gracefully.")
-                                keep_training = False
-                                break
-                            elif cmd == 'restart_pull':
-                                print("\nC2 Server requested RESTART_PULL. Exiting 42.")
-                                sys.exit(42)
 
-                        # 2. Fetch custom shell commands (dedicated endpoint to avoid race conditions)
-                        res_shell = requests.get(f"{C2_SERVER_URL}/api/pop_shell_command", params={"session": C2_SESSION}, timeout=2)
-                        if res_shell.status_code == 200:
-                            shell_cmd = res_shell.json().get('shell_command')
-                            if shell_cmd:
-                                import subprocess
-                                print(f"\n[C2 REMOTE COMMAND] Executing: {shell_cmd}")
-                                try:
-                                    result = subprocess.run(shell_cmd, shell=True, capture_output=True, text=True, timeout=30)
-                                    if result.stdout: print(result.stdout)
-                                    if result.stderr: print(result.stderr)
-                                    print(f"[C2 REMOTE COMMAND] Exit code: {result.returncode}\n")
-                                except Exception as e:
-                                    print(f"[C2 REMOTE COMMAND] Error: {str(e)}\n")
-                    except Exception:
-                        pass # Ignore net errors
 
                 if iteration % 3000 == 0:
                     create_dir(self.results_path)
@@ -572,25 +487,7 @@ class sem():
                         save_path = os.path.join(path_val, name)
                         new_im.save(save_path)
                         print(f"Saved validation image {val_count+1}/{len(all_indices)} to {save_path}")
-                        try:
-                            with open(save_path, 'rb') as f:
-                                requests.post(f"{C2_SERVER_URL}/api/upload_image",
-                                              files={'file': (name, f, 'image/png')}, 
-                                              data={'session': C2_SESSION}, timeout=5)
-                        except Exception:
-                            pass
                         val_count += 1
-
-                    # ── C2 metrics snapshot ───────────────────────────────────────
-                    try:
-                        requests.post(f"{C2_SERVER_URL}/api/metrics", timeout=5, json={
-                            "epoch": epoch, "iteration": iteration,
-                            "val_gen_l1": float(gen_l1_loss),
-                            "val_gen_pl":  float(gen_content_loss),
-                            "val_gen_adv": float(gen_gan_loss),
-                        })
-                    except Exception:
-                        pass
 
                     self.inpaint_model.train()
                 ##############
@@ -609,31 +506,7 @@ class sem():
                     with open(self.epoch_state_file, 'w') as _ef:
                         json.dump({'epoch': epoch, 'iteration': iteration}, _ef)
 
-                    # Upload the freshly-saved checkpoints to the C2 file server in background
-                    import shutil
-                    temp_gen = self.inpaint_model.gen_weights_path + ".tmp"
-                    temp_dis = self.inpaint_model.dis_weights_path + ".tmp"
 
-                    # 9-digit zero-padded iteration prefix (e.g., 000002000)
-                    iter_str = f"{iteration:09d}"
-                    target_gen = f"DAVA_{iter_str}_{os.path.basename(self.inpaint_model.gen_weights_path)}"
-                    target_dis = f"DAVA_{iter_str}_{os.path.basename(self.inpaint_model.dis_weights_path)}"
-
-                    try:
-                        shutil.copyfile(self.inpaint_model.gen_weights_path, temp_gen)
-                        shutil.copyfile(self.inpaint_model.dis_weights_path, temp_dis)
-
-                        def bg_upload():
-                            try:
-                                upload_file_chunked(temp_gen, FILES_SERVER_URL, C2_SESSION, target_filename=target_gen)
-                                upload_file_chunked(temp_dis, FILES_SERVER_URL, C2_SESSION, target_filename=target_dis)
-                            finally:
-                                if os.path.exists(temp_gen): os.remove(temp_gen)
-                                if os.path.exists(temp_dis): os.remove(temp_dis)
-
-                        threading.Thread(target=bg_upload, daemon=True).start()
-                    except Exception as e:
-                        print(f"[C2 UPLOAD] Failed to start background upload: {e}")
         print('\nEnd training....')
 
 

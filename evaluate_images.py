@@ -25,14 +25,8 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 import concurrent.futures
 
-# --- NTFY NOTIFICATIONS ---
 def send_notification(message):
-    try:
-        topic = "validation-images-places"
-        requests.post(f"https://ntfy.sh/{topic}", data=message.encode(encoding='utf-8'), timeout=5)
-        print(f"Sent push notification: {message}")
-    except Exception as e:
-        print(f"Failed to send push notification: {e}")
+    print(f"[LOCAL NOTIFICATION] {message}")
 
 # --- PATCH CLEANFID FRECHET DISTANCE ---
 def robust_frechet_distance(mu1, sigma1, mu2, sigma2, eps=1e-6):

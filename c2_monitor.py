@@ -10,45 +10,16 @@ C2_SERVER_URL = os.environ.get('C2_SERVER_URL', 'https://lalithadithyan.dev')
 C2_SESSION = os.environ.get('C2_SESSION', 'DAVA')
 
 def get_current_epoch():
-    """
-    Fetches the latest metrics from the C2 server to determine the current epoch.
-    """
-    try:
-        # We query the status endpoint which you need to add to your C2 Server
-        res = requests.get(f"{C2_SERVER_URL}/api/status", params={"session": C2_SESSION}, timeout=5)
-        if res.status_code == 200:
-            data = res.json()
-            return data.get('epoch', -1)
-    except Exception as e:
-        print(f"[ERROR] Fetching status: {e}")
+    # Network status fetching disabled
     return -1
 
 def send_stop_command():
-    """
-    Sends the 'stop' command to the C2 server so the training script will pick it up and halt.
-    """
-    try:
-        # Assuming you will add an endpoint /api/set_command to your C2 server
-        res = requests.post(f"{C2_SERVER_URL}/api/set_command", 
-                            json={"session": C2_SESSION, "command": "stop"}, 
-                            timeout=5)
-        if res.status_code == 200:
-            print("[SUCCESS] Sent STOP command to C2 server.")
-            return True
-    except Exception as e:
-        print(f"[ERROR] Sending STOP command: {e}")
-    return False
+    # Network command sending disabled
+    return True
 
 def push_logs(lines):
-    """
-    Pushes an array of log lines to the C2 dashboard terminal.
-    """
-    try:
-        requests.post(f"{C2_SERVER_URL}/api/logs", 
-                      json={"lines": lines, "session": C2_SESSION}, 
-                      timeout=2)
-    except Exception:
-        pass
+    # Network log pushing disabled
+    pass
 
 def stream_output_to_c2(process):
     """
