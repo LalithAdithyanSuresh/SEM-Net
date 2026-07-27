@@ -163,7 +163,7 @@ def main():
     print(f"[FastSAM Segment Generator]")
     print(f"  Train: {train_input} -> {train_output}")
     print(f"  Test:  {test_input} -> {test_output}")
-    print(f"  Batch size: {args.batch-size}")
+    print(f"  Batch size: {args.batch_size}")
 
     if os.path.exists(train_input):
         generate_masks_for_dir(train_input, train_output, gpus=gpus, batch_size=args.batch_size, model_name=args.model)

@@ -135,10 +135,10 @@ class StatusReporter:
         with self._lock:
             logs = self.steps[num]['logs']
             logs.append(line)
-            if len(logs) > 500:
-                self.steps[num]['logs'] = logs[-500:]
+            if len(logs) > 80:
+                self.steps[num]['logs'] = logs[-80:]
             count = len(self.steps[num]['logs'])
-        if count % 8 == 0:   # post every 8 lines to avoid flooding
+        if count % 15 == 0:   # post every 15 lines to avoid flooding
             self._flush()
 
     def complete_step(self, num):
