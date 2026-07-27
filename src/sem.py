@@ -170,9 +170,13 @@ class sem():
 
 
                     if model == 2:
-                        images, masks = self.cuda(*items)
+                        if len(items) >= 3:
+                            images, masks, seg_maps = self.cuda(*items)
+                        else:
+                            images, masks = self.cuda(*items[:2])
+                            seg_maps = None
 
-                        outputs_img, gen_loss, dis_loss, logs, gen_gan_loss, gen_l1_loss, gen_content_loss, gen_style_loss, gen_symmetry_loss = self.inpaint_model.process(images,masks)
+                        outputs_img, gen_loss, dis_loss, logs, gen_gan_loss, gen_l1_loss, gen_content_loss, gen_style_loss, gen_symmetry_loss = self.inpaint_model.process(images, masks, seg_maps)
                         outputs_merged = (outputs_img * masks) + (images * (1-masks))
 
                         psnr = self.psnr(self.postprocess(images), self.postprocess(outputs_merged))
@@ -390,10 +394,14 @@ class sem():
                         val_count = 0
                         val_psnr_list = []
                         for val_items in val_loader:
-                            val_images, val_masks = self.cuda(*val_items)
+                            if len(val_items) >= 3:
+                                val_images, val_masks, val_seg_maps = self.cuda(*val_items)
+                            else:
+                                val_images, val_masks = self.cuda(*val_items[:2])
+                                val_seg_maps = None
                             val_inputs = (val_images * (1 - val_masks)) + val_masks
                             with torch.no_grad():
-                                val_outputs_img = self.inpaint_model(val_images, val_masks)
+                                val_outputs_img = self.inpaint_model(val_images, val_masks, val_seg_maps)
                             
                             val_outputs_merged = (val_outputs_img * val_masks) + (val_images * (1 - val_masks))
                             val_psnr_val = self.psnr(self.postprocess(val_images), self.postprocess(val_outputs_merged)).item()

@@ -129,51 +129,42 @@ class InpaintingModel(BaseModel):
         # Gradient accumulation: sync across GPUs every 8 steps
         self.accum_steps = 8
 
-    def process(self, images, masks):
+    def process(self, images, masks, seg_maps=None):
         self.iteration += 1
 
-        # Process outputs
-        outputs_img = self(images, masks)
+        # zero optimizers
+        # self.gen_optimizer.zero_grad()
+        # self.dis_optimizer.zero_grad()
 
-        
+
+        # process outputs
+        outputs_img = self(images, masks, seg_maps)
         gen_loss = 0
         dis_loss = 0
-        
-        
-        with torch.cuda.amp.autocast():
-
 
         # discriminator loss
-            dis_input_real = images
-            dis_input_fake = outputs_img.detach()
-
-
-            dis_real, _ = self.discriminator(dis_input_real)                   
-            dis_fake, _ = self.discriminator(dis_input_fake)                   
-
-            dis_real_loss = self.adversarial_loss(dis_real, True, True)
-            dis_fake_loss = self.adversarial_loss(dis_fake, False, True)
-            dis_loss += (dis_real_loss + dis_fake_loss) / 2
-
+        dis_input_real = images
+        dis_input_fake = outputs_img.detach()
+        dis_real, _ = self.discriminator(dis_input_real)
+        dis_fake, _ = self.discriminator(dis_input_fake)
+        dis_real_loss = self.adversarial_loss(dis_real, True, True)
+        dis_fake_loss = self.adversarial_loss(dis_fake, False, True)
+        dis_loss += (dis_real_loss + dis_fake_loss) / 2
 
         # generator adversarial loss
-            gen_input_fake = outputs_img
-            gen_fake, _ = self.discriminator(gen_input_fake)
-            gen_gan_loss = self.adversarial_loss(gen_fake, True, False) * self.config.INPAINT_ADV_LOSS_WEIGHT
-            gen_loss += gen_gan_loss
-
+        gen_input_fake = outputs_img
+        gen_fake, _ = self.discriminator(gen_input_fake)
+        gen_gan_loss = self.adversarial_loss(gen_fake, True, False) * self.config.INPAINT_ADV_LOSS_WEIGHT
+        gen_loss += gen_gan_loss
 
         # generator l1 loss
-            gen_l1_loss = self.l1_loss(outputs_img, images) * self.config.L1_LOSS_WEIGHT / torch.mean(masks)
-        #gen_l1_loss = self.l1_loss(outputs_img, images) * self.config.L1_LOSS_WEIGHT
-            gen_loss += gen_l1_loss
-
+        gen_l1_loss = self.l1_loss(outputs_img, images) * self.config.L1_LOSS_WEIGHT / torch.mean(masks)
+        gen_loss += gen_l1_loss
 
         # generator perceptual loss
-            gen_content_loss = self.perceptual_loss(outputs_img, images)
-            gen_content_loss = gen_content_loss * self.config.CONTENT_LOSS_WEIGHT
-            gen_loss += gen_content_loss
-
+        gen_content_loss = self.perceptual_loss(outputs_img, images)
+        gen_content_loss = gen_content_loss * self.config.CONTENT_LOSS_WEIGHT
+        gen_loss += gen_content_loss
 
         # generator style loss
         gen_style_loss = self.style_loss(outputs_img * masks, images * masks)
@@ -184,7 +175,6 @@ class InpaintingModel(BaseModel):
         gen_symmetry_loss = self.l1_loss(outputs_img, torch.flip(outputs_img, [3]))
         gen_symmetry_loss = gen_symmetry_loss * self.config.SYMMETRY_LOSS_WEIGHT
         gen_loss += gen_symmetry_loss
-        #############################
 
         # create logs
         logs = [
@@ -195,10 +185,12 @@ class InpaintingModel(BaseModel):
 
         return outputs_img, gen_loss, dis_loss, logs, gen_gan_loss, gen_l1_loss, gen_content_loss, gen_style_loss, gen_symmetry_loss
 
-    # def forward(self, images, landmarks, masks):
-    def forward(self, images, masks):
+    def forward(self, images, masks, seg_maps=None):
         images_masked = (images * (1 - masks).float()) + masks
-        inputs = images_masked
+        if seg_maps is not None:
+            inputs = torch.cat([images_masked, seg_maps], dim=1)
+        else:
+            inputs = images_masked
         scaled_masks_tiny = F.interpolate(masks, size=[int(masks.shape[2] / 8), int(masks.shape[3] / 8)],
                                      mode='nearest')        
         

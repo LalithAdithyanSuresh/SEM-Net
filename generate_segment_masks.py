@@ -14,9 +14,8 @@ def get_out_path(img_path, output_dir):
     base_name, _ = os.path.splitext(filename)
     return os.path.join(output_dir, f"{base_name}.png")
 
-def _gpu_worker(gpu_id, image_paths, output_dir, model_name, batch_size, status_queue):
+def process_chunk_gpu(gpu_id, image_paths, output_dir, model_name, batch_size, status_queue, overwrite=True):
     """
-    Worker process running on target GPU/CPU.
     Loads FastSAM model once on assigned device and processes image paths in batches.
     """
     try:
@@ -24,11 +23,11 @@ def _gpu_worker(gpu_id, image_paths, output_dir, model_name, batch_size, status_
         from ultralytics import FastSAM
         model = FastSAM(model_name)
         
-        # Filter out images that are already processed
+        # Filter out images that are already processed unless overwrite is True
         unprocessed = []
         for img_path in image_paths:
             out_path = get_out_path(img_path, output_dir)
-            if os.path.exists(out_path):
+            if not overwrite and os.path.exists(out_path):
                 status_queue.put(1)
             else:
                 unprocessed.append(img_path)
@@ -41,11 +40,31 @@ def _gpu_worker(gpu_id, image_paths, output_dir, model_name, batch_size, status_
                     out_path = get_out_path(img_path, output_dir)
                     if res is not None and res.masks is not None and len(res.masks.data) > 0:
                         masks = res.masks.data.cpu().numpy()
-                        combined_mask = np.any(masks, axis=0).astype(np.uint8) * 255
+                        h, w = masks.shape[1], masks.shape[2]
+                        combined_mask = np.zeros((h, w, 3), dtype=np.uint8)
+                        
+                        np.random.seed(42)
+                        num_masks = len(masks)
+                        colors = np.random.randint(40, 255, size=(max(num_masks, 200), 3), dtype=np.uint8)
+                        
+                        # Sort masks by area descending so finer details overlay larger regions
+                        areas = [np.sum(m > 0.5) for m in masks]
+                        sorted_indices = np.argsort(areas)[::-1]
+                        
+                        for rank, idx in enumerate(sorted_indices):
+                            mask_i = masks[idx] > 0.5
+                            unique_id = int((rank + 1) * 255 / max(num_masks, 1))
+                            combined_mask[mask_i, 0] = unique_id
+                            combined_mask[mask_i, 1:] = colors[idx, 1:]
+                            
+                        for idx in sorted_indices:
+                            mask_u8 = (masks[idx] > 0.5).astype(np.uint8) * 255
+                            contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                            cv2.drawContours(combined_mask, contours, -1, (0, 0, 0), 1)
                     else:
                         img = cv2.imread(img_path)
                         h, w = img.shape[:2] if img is not None else (256, 256)
-                        combined_mask = np.zeros((h, w), dtype=np.uint8)
+                        combined_mask = np.zeros((h, w, 3), dtype=np.uint8)
                     cv2.imwrite(out_path, combined_mask)
                     status_queue.put(1)
             except Exception as batch_err:
@@ -56,11 +75,22 @@ def _gpu_worker(gpu_id, image_paths, output_dir, model_name, batch_size, status_
                         res_single = model(img_path, device=device, retina_masks=True, imgsz=1024, conf=0.4, iou=0.9, verbose=False)
                         if res_single and len(res_single) > 0 and res_single[0].masks is not None and len(res_single[0].masks.data) > 0:
                             masks = res_single[0].masks.data.cpu().numpy()
-                            combined_mask = np.any(masks, axis=0).astype(np.uint8) * 255
+                            h, w = masks.shape[1], masks.shape[2]
+                            combined_mask = np.zeros((h, w, 3), dtype=np.uint8)
+                            np.random.seed(42)
+                            colors = np.random.randint(40, 255, size=(max(len(masks), 200), 3), dtype=np.uint8)
+                            areas = [np.sum(m > 0.5) for m in masks]
+                            sorted_indices = np.argsort(areas)[::-1]
+                            for idx in sorted_indices:
+                                combined_mask[masks[idx] > 0.5] = colors[idx]
+                            for idx in sorted_indices:
+                                mask_u8 = (masks[idx] > 0.5).astype(np.uint8) * 255
+                                contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                                cv2.drawContours(combined_mask, contours, -1, (20, 20, 20), 1)
                         else:
                             img = cv2.imread(img_path)
                             h, w = img.shape[:2] if img is not None else (256, 256)
-                            combined_mask = np.zeros((h, w), dtype=np.uint8)
+                            combined_mask = np.zeros((h, w, 3), dtype=np.uint8)
                         cv2.imwrite(out_path, combined_mask)
                     except Exception as single_err:
                         print(f"[{device}] Error processing {img_path}: {single_err}", file=sys.stderr)
@@ -68,7 +98,7 @@ def _gpu_worker(gpu_id, image_paths, output_dir, model_name, batch_size, status_
     except Exception as e:
         print(f"Worker exception on gpu {gpu_id}: {e}", file=sys.stderr)
 
-def generate_masks_for_dir(input_dir, output_dir, gpus=None, batch_size=16, model_name="FastSAM-s.pt"):
+def generate_masks_for_dir(input_dir, output_dir, gpus=None, batch_size=16, model_name="FastSAM-s.pt", overwrite=True):
     if not os.path.exists(input_dir):
         print(f"[FastSAM] Input directory {input_dir} does not exist. Skipping.")
         return
@@ -115,8 +145,8 @@ def generate_masks_for_dir(input_dir, output_dir, gpus=None, batch_size=16, mode
         if not chunk:
             continue
         p = ctx.Process(
-            target=_gpu_worker,
-            args=(gpu_id, chunk, output_dir, model_name, batch_size, status_queue)
+            target=process_chunk_gpu,
+            args=(gpu_id, chunk, output_dir, model_name, batch_size, status_queue, overwrite)
         )
         p.start()
         processes.append(p)
@@ -145,11 +175,14 @@ def main():
     parser.add_argument("--model", default="FastSAM-s.pt", help="FastSAM model weights file")
     parser.add_argument("--batch-size", type=int, default=16, help="Batch size per GPU inference call (default: 16)")
     parser.add_argument("--gpus", type=str, default=None, help="Comma-separated GPU indices to use, e.g., '0,1' (default: auto-detect all GPUs)")
+    parser.add_argument("--no-overwrite", action="store_true", help="Do not overwrite existing mask files")
     args = parser.parse_args()
 
     gpus = None
     if args.gpus is not None:
         gpus = [int(x.strip()) for x in args.gpus.split(",") if x.strip().isdigit()]
+
+    overwrite = not args.no_overwrite
 
     # Determine train input and output
     train_input = args.train_dir or os.path.join(args.dataset_dir, "train")
@@ -167,12 +200,13 @@ def main():
     print(f"  Train: {train_input} -> {train_output}")
     print(f"  Test:  {test_input} -> {test_output}")
     print(f"  Batch size: {args.batch_size}")
+    print(f"  Overwrite existing: {overwrite}")
 
     if os.path.exists(train_input):
-        generate_masks_for_dir(train_input, train_output, gpus=gpus, batch_size=args.batch_size, model_name=args.model)
+        generate_masks_for_dir(train_input, train_output, gpus=gpus, batch_size=args.batch_size, model_name=args.model, overwrite=overwrite)
     
     if os.path.exists(test_input):
-        generate_masks_for_dir(test_input, test_output, gpus=gpus, batch_size=args.batch_size, model_name=args.model)
+        generate_masks_for_dir(test_input, test_output, gpus=gpus, batch_size=args.batch_size, model_name=args.model, overwrite=overwrite)
 
 if __name__ == "__main__":
     main()

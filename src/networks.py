@@ -250,13 +250,20 @@ class TransformerBlock(nn.Module):
 ##########################################################################
 ## Overlapped image patch embedding with 3x3 Conv
 class OverlapPatchEmbed(nn.Module):
-    def __init__(self, in_c=3, embed_dim=48, bias=False):
+    def __init__(self, in_c=4, embed_dim=48, bias=False):
         super(OverlapPatchEmbed, self).__init__()
 
-        self.gproj1 = nn.Conv2d(in_c, embed_dim, kernel_size=3,stride=1,padding=1,bias=bias)
+        self.gproj1 = nn.Conv2d(in_c, embed_dim, kernel_size=3, stride=1, padding=1, bias=bias)
 
     def forward(self, x):
-
+        if x.shape[1] != self.gproj1.in_channels:
+            old_w = self.gproj1.weight.data
+            in_c = x.shape[1]
+            out_c, _, k_h, k_w = old_w.shape
+            new_conv = nn.Conv2d(in_c, out_c, kernel_size=3, stride=1, padding=1, bias=self.gproj1.bias is not None).to(x.device)
+            with torch.no_grad():
+                new_conv.weight.data[:, :min(in_c, old_w.shape[1])] = old_w[:, :min(in_c, old_w.shape[1])]
+            self.gproj1 = new_conv
         x = self.gproj1(x)
         return x
 
