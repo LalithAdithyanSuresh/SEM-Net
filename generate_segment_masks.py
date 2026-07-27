@@ -39,28 +39,38 @@ def process_chunk_gpu(gpu_id, image_paths, output_dir, model_name, batch_size, s
                 for img_path, res in zip(batch_paths, results):
                     out_path = get_out_path(img_path, output_dir)
                     if res is not None and res.masks is not None and len(res.masks.data) > 0:
-                        masks = res.masks.data.cpu().numpy()
-                        h, w = masks.shape[1], masks.shape[2]
+                        raw_masks = res.masks.data.cpu().numpy()
+                        h, w = raw_masks.shape[1], raw_masks.shape[2]
                         combined_mask = np.zeros((h, w, 3), dtype=np.uint8)
                         
-                        np.random.seed(42)
-                        num_masks = len(masks)
-                        colors = np.random.randint(40, 255, size=(max(num_masks, 200), 3), dtype=np.uint8)
-                        
-                        # Sort masks by area descending so finer details overlay larger regions
-                        areas = [np.sum(m > 0.5) for m in masks]
-                        sorted_indices = np.argsort(areas)[::-1]
-                        
-                        for rank, idx in enumerate(sorted_indices):
-                            mask_i = masks[idx] > 0.5
-                            unique_id = int((rank + 1) * 255 / max(num_masks, 1))
-                            combined_mask[mask_i, 0] = unique_id
-                            combined_mask[mask_i, 1:] = colors[idx, 1:]
+                        # Filter out rectangular/square bounding box masks
+                        organic_masks = []
+                        for m in raw_masks:
+                            m_bin = m > 0.5
+                            mask_area = np.sum(m_bin)
+                            if mask_area < 25:
+                                continue
+                            y_idx, x_idx = np.where(m_bin)
+                            if len(y_idx) == 0:
+                                continue
+                            bbox_area = (y_idx.max() - y_idx.min() + 1) * (x_idx.max() - x_idx.min() + 1)
+                            rectangularity = mask_area / float(bbox_area)
+                            if rectangularity <= 0.88:
+                                organic_masks.append(m_bin)
+                                
+                        if organic_masks:
+                            np.random.seed(42)
+                            num_masks = len(organic_masks)
+                            colors = np.random.randint(40, 255, size=(max(num_masks, 200), 3), dtype=np.uint8)
                             
-                        for idx in sorted_indices:
-                            mask_u8 = (masks[idx] > 0.5).astype(np.uint8) * 255
-                            contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                            cv2.drawContours(combined_mask, contours, -1, (0, 0, 0), 1)
+                            areas = [np.sum(m) for m in organic_masks]
+                            sorted_indices = np.argsort(areas)[::-1]
+                            
+                            for rank, idx in enumerate(sorted_indices):
+                                mask_i = organic_masks[idx]
+                                unique_id = int((rank + 1) * 255 / max(num_masks, 1))
+                                combined_mask[mask_i, 0] = unique_id
+                                combined_mask[mask_i, 1:] = colors[idx, 1:]
                     else:
                         img = cv2.imread(img_path)
                         h, w = img.shape[:2] if img is not None else (256, 256)

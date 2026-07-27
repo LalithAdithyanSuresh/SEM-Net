@@ -27,38 +27,44 @@ def generate_segment_map_fastsam(model, img_path, device="cuda"):
     """
     Generates high-quality segment map with FastSAM instance segmentation.
     Returns:
-       visual_map: 3-channel RGB image with distinct instance colors & contour borders
+       visual_map: 3-channel RGB image with distinct instance colors & organic shapes
     """
     res = model(img_path, device=device, retina_masks=True, imgsz=1024, conf=0.4, iou=0.9, verbose=False)
     
     if res and len(res) > 0 and res[0].masks is not None and len(res[0].masks.data) > 0:
-        masks = res[0].masks.data.cpu().numpy() # [N, H, W]
-        h, w = masks.shape[1], masks.shape[2]
-        
-        # Channel 0: Unique instance IDs (1..255)
-        # Channels 1 & 2: Distinct visual colors
+        raw_masks = res[0].masks.data.cpu().numpy() # [N, H, W]
+        h, w = raw_masks.shape[1], raw_masks.shape[2]
         visual_map = np.zeros((h, w, 3), dtype=np.uint8)
         
-        np.random.seed(42)
-        num_masks = len(masks)
-        colors = np.random.randint(40, 255, size=(max(num_masks, 200), 3), dtype=np.uint8)
-        
-        # Sort masks by area descending so detailed segments render on top
-        areas = [np.sum(m > 0.5) for m in masks]
-        sorted_indices = np.argsort(areas)[::-1]
-        
-        for rank, idx in enumerate(sorted_indices):
-            mask_i = masks[idx] > 0.5
-            unique_id = int((rank + 1) * 255 / max(num_masks, 1))
-            visual_map[mask_i, 0] = unique_id
-            visual_map[mask_i, 1:] = colors[idx, 1:]
+        # Filter out rectangular/square bounding box masks
+        organic_masks = []
+        for m in raw_masks:
+            m_bin = m > 0.5
+            mask_area = np.sum(m_bin)
+            if mask_area < 25:
+                continue
+            y_idx, x_idx = np.where(m_bin)
+            if len(y_idx) == 0:
+                continue
+            bbox_area = (y_idx.max() - y_idx.min() + 1) * (x_idx.max() - x_idx.min() + 1)
+            rectangularity = mask_area / float(bbox_area)
+            if rectangularity <= 0.88:
+                organic_masks.append(m_bin)
+                
+        if organic_masks:
+            np.random.seed(42)
+            num_masks = len(organic_masks)
+            colors = np.random.randint(40, 255, size=(max(num_masks, 200), 3), dtype=np.uint8)
             
-        # Draw dark contour lines around segment boundaries
-        for idx in sorted_indices:
-            mask_u8 = (masks[idx] > 0.5).astype(np.uint8) * 255
-            contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            cv2.drawContours(visual_map, contours, -1, (0, 0, 0), 1)
+            areas = [np.sum(m) for m in organic_masks]
+            sorted_indices = np.argsort(areas)[::-1]
             
+            for rank, idx in enumerate(sorted_indices):
+                mask_i = organic_masks[idx]
+                unique_id = int((rank + 1) * 255 / max(num_masks, 1))
+                visual_map[mask_i, 0] = unique_id
+                visual_map[mask_i, 1:] = colors[idx, 1:]
+                
         return visual_map
     else:
         img = cv2.imread(img_path)
