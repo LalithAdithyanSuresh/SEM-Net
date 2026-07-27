@@ -27,7 +27,7 @@ def remove_readonly(func, path, excinfo):
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(line_buffering=True)
 
-TOTAL_STEPS = 15
+TOTAL_STEPS = 12
 
 # ── Live Status Reporter ───────────────────────────────────────────────────
 # Posts live step progress to the C2 server for the dashboard.
@@ -65,9 +65,6 @@ class StatusReporter:
         'Installing remaining requirements.txt',
         'Downloading InternImage ops_dcnv3',
         'Compiling ops_dcnv3 CUDA kernels',
-        'Download & extract mask dataset',
-        'Download & extract Places365 dataset',
-        'Restoring latest model checkpoint',
         'Generating FastSAM segment masks (train_seg & test_seg)',
     ]
 
@@ -183,9 +180,7 @@ STEP_NAMES_DEFAULT = StatusReporter.STEP_NAMES_DEFAULT if False else [
     'Installing remaining requirements.txt',
     'Downloading InternImage ops_dcnv3',
     'Compiling ops_dcnv3 CUDA kernels',
-    'Download & extract mask dataset',
-    'Download & extract Places365 dataset',
-    'Restoring latest model checkpoint',
+    'Generating FastSAM segment masks (train_seg & test_seg)',
 ]
 
 
@@ -707,8 +702,8 @@ def step_generate_segment_masks():
     script_path = os.path.abspath("generate_segment_masks.py")
     if not os.path.exists(script_path):
         raise RuntimeError("generate_segment_masks.py script not found!")
-    print("Running FastSAM segment mask generator with 8 workers...")
-    subprocess.check_call([python_bin, script_path, "--workers", "8"])
+    print("Running FastSAM segment mask generator across available GPUs (batch size 16)...")
+    subprocess.check_call([python_bin, script_path, "--batch-size", "16"])
 
 
 
@@ -848,17 +843,8 @@ def main():
                 shutil.rmtree(build_dir, ignore_errors=True)
             execute_step(11, _STEP11, ["sh", "make.sh"], cwd=ops_dir)
 
-        # Step 12: Download & extract mask dataset
-        execute_step(12, "Download & extract mask dataset", step_download_mask_dataset)
-        
-        # Step 13: Download & extract Places365 dataset
-        execute_step(13, "Download & extract Places365 dataset", step_download_places365_dataset)
-
-        # Step 14: Download latest model checkpoint from C2 files server
-        execute_step(14, "Restoring latest model checkpoint from files server", step_download_latest_model)
-
-        # Step 15: Generate FastSAM segment masks for train and test directories using 8 workers
-        execute_step(15, "Generating FastSAM segment masks (train_seg & test_seg)", step_generate_segment_masks)
+        # Step 12: Generate FastSAM segment masks for train and test directories
+        execute_step(12, "Generating FastSAM segment masks (train_seg & test_seg)", step_generate_segment_masks)
 
     except BaseException as e:
         err_msg = str(e) or type(e).__name__
