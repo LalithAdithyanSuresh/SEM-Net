@@ -120,8 +120,10 @@ class sem():
 
         # datasets
         if self.config.MODEL == 2:
-            self.train_dataset = Dataset(config, config.TRAIN_INPAINT_IMAGE_FLIST, config.TRAIN_MASK_FLIST, augment=True, training=True)
-            self.test_dataset = Dataset(config, config.TEST_INPAINT_IMAGE_FLIST, config.TEST_MASK_FLIST, augment=False, training=False)
+            train_seg = getattr(config, 'TRAIN_SEGMENT_FLIST', None)
+            test_seg = getattr(config, 'TEST_SEGMENT_FLIST', None)
+            self.train_dataset = Dataset(config, config.TRAIN_INPAINT_IMAGE_FLIST, train_seg, config.TRAIN_MASK_FLIST, augment=True, training=True)
+            self.test_dataset = Dataset(config, config.TEST_INPAINT_IMAGE_FLIST, test_seg, config.TEST_MASK_FLIST, augment=False, training=False)
 
 
         self.results_path = os.path.join(config.PATH, 'results')
@@ -485,7 +487,12 @@ class sem():
 
                     val_count = 0
                     for val_items in val_loader:
-                        val_images, val_masks = self.cuda(*val_items)
+                        if len(val_items) == 3:
+                            val_images, val_masks, val_segments = self.cuda(*val_items)
+                        else:
+                            val_images, val_masks = self.cuda(*val_items)
+                            val_segments = None
+
                         val_inputs = (val_images * (1 - val_masks)) + val_masks
                         with torch.no_grad():
                             val_outputs_img = self.inpaint_model(val_images, val_masks)
@@ -513,6 +520,11 @@ class sem():
                         # ── PIL conversions ───────────────────────────────────────
                         gt_img_pil    = Image.fromarray(self.postprocess(val_images)[0].cpu().numpy().astype(np.uint8))
                         gt_mask_pil   = Image.fromarray(self.postprocess(val_inputs)[0].cpu().numpy().astype(np.uint8))
+                        if val_segments is not None:
+                            seg_img_pil = Image.fromarray(self.postprocess(val_segments)[0].cpu().numpy().astype(np.uint8))
+                        else:
+                            seg_img_pil = Image.new('RGB', gt_img_pil.size, (40, 60, 90))
+
                         pred_img_pil  = Image.fromarray(self.postprocess(val_outputs_img)[0].cpu().numpy().astype(np.uint8))
                         pred_mask_pil = Image.fromarray(self.postprocess(val_outputs_merged)[0].cpu().numpy().astype(np.uint8))
                         img_size = gt_img_pil.size
@@ -528,7 +540,7 @@ class sem():
                         # ── Panel 5: Hole heatmap + rainbow line overlay ──────────
                         hole_lines_pil = _draw_hole_path_overlay(scan_orders, mask_np, img_size, patch_size)
 
-                        # ── Panel 5: DA-Mamba offset heatmap (every image) ────────
+                        # ── Panel 6: DA-Mamba offset heatmap (every image) ────────
                         try:
                             import cv2
                             da_offset_pil = None
@@ -548,11 +560,11 @@ class sem():
                         except Exception:
                             da_offset_pil = Image.new('RGB', img_size, (80, 80, 80))
 
-                        # ── 8-panel stitch ────────────────────────────────────────
-                        panels       = [gt_img_pil, gt_mask_pil, full_path_pil,
+                        # ── 9-panel stitch ────────────────────────────────────────
+                        panels       = [gt_img_pil, gt_mask_pil, seg_img_pil, full_path_pil,
                                         hole_path_pil, hole_lines_pil,
                                         da_offset_pil, pred_img_pil, pred_mask_pil]
-                        panel_labels = ['GT', 'Masked Input', 'Full Path',
+                        panel_labels = ['GT', 'Masked Input', 'SAM Segment Map', 'Full Path',
                                         'Hole Heatmap', 'Hole Lines',
                                         'DA Offsets', 'Raw Pred', 'Merged']
                         total_width = sum(p.size[0] for p in panels)
