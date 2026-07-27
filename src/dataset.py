@@ -199,20 +199,6 @@ class Dataset(torch.utils.data.Dataset):
         else:
             paths = []
 
-        if self.training and len(paths) > 0:
-            from collections import defaultdict
-            categories = defaultdict(list)
-            for p in paths:
-                categories[os.path.dirname(p)].append(p)
-
-            halved_paths = []
-            for cat_dir in sorted(categories.keys()):
-                cat_files = sorted(categories[cat_dir])
-                halved_paths.extend(cat_files[:len(cat_files) // 2])
-
-            print(f"[DATASET] Halved categories: reduced training dataset from {len(paths)} to {len(halved_paths)} images.")
-            return halved_paths
-        
         return paths
 
     def create_iterator(self, batch_size):

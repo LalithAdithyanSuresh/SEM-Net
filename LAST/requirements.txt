@@ -1,0 +1,15 @@
+numpy
+opencv-python
+pillow
+imageio
+scikit-image
+matplotlib
+scipy
+einops
+lpips
+pyyaml
+tqdm
+ultralytics
+requests
+addict
+clean-fid

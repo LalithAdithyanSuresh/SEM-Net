@@ -25,6 +25,11 @@ def main(mode=None):
 
     # --- DDP Initialization ---
     world_size = len(config.GPU)
+    if world_size > 1 and 'RANK' not in os.environ:
+        print("WARNING: Multiple GPUs specified in config.GPU, but not running via torchrun. Falling back to single GPU mode.")
+        config.GPU = [config.GPU[0]]
+        world_size = 1
+
     if world_size > 1:
         # If running via torchrun, these will be set
         rank = int(os.environ.get('RANK', 0))
