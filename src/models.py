@@ -187,10 +187,7 @@ class InpaintingModel(BaseModel):
 
     def forward(self, images, masks, seg_maps=None):
         images_masked = (images * (1 - masks).float()) + masks
-        if seg_maps is not None:
-            inputs = torch.cat([images_masked, seg_maps], dim=1)
-        else:
-            inputs = images_masked
+        inputs = images_masked
         scaled_masks_tiny = F.interpolate(masks, size=[int(masks.shape[2] / 8), int(masks.shape[3] / 8)],
                                      mode='nearest')        
         
@@ -200,7 +197,7 @@ class InpaintingModel(BaseModel):
                                      mode='nearest')
                                      
                                      
-        outputs_img = self.generator(inputs, masks, scaled_masks_half, scaled_masks_quarter, scaled_masks_tiny)
+        outputs_img = self.generator(inputs, masks, scaled_masks_half, scaled_masks_quarter, scaled_masks_tiny, seg_maps=seg_maps)
 
         return outputs_img
 

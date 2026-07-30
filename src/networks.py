@@ -366,6 +366,20 @@ class SEM(nn.Module):
         self.output = nn.Sequential(nn.Conv2d(int(dim * 2 ** 1), out_channels, kernel_size=3, stride=1, padding=1, bias=bias)
                                     )        
 
+        # Segment Prior Projection Modules for Decoder filling levels (3 channels RGB seg_maps)
+        self.seg_prior_l3 = nn.Sequential(
+            nn.Conv2d(3, int(dim * 2 ** 2), kernel_size=3, padding=1, bias=bias),
+            nn.GELU()
+        )
+        self.seg_prior_l2 = nn.Sequential(
+            nn.Conv2d(3, int(dim * 2 ** 1), kernel_size=3, padding=1, bias=bias),
+            nn.GELU()
+        )
+        self.seg_prior_l1 = nn.Sequential(
+            nn.Conv2d(3, int(dim * 2 ** 1), kernel_size=3, padding=1, bias=bias),
+            nn.GELU()
+        )
+
         # Multi-GPU Fix: Register positional encodings as buffers so DataParallel replicates them instead of splitting
         self.register_buffer('pos1',     PositionalEncoding(48, 70000))
         self.register_buffer('pos2',     PositionalEncoding(96, 70000))
@@ -374,43 +388,55 @@ class SEM(nn.Module):
         self.register_buffer('pos1_dec', PositionalEncoding(96, 70000))
 
 
-    def forward(self, inp_img, mask_whole, mask_half, mask_quarter,mask_tiny):
-        inp_enc_level1 = self.patch_embed(torch.cat((inp_img,mask_whole),dim=1))
+    def forward(self, inp_img, mask_whole, mask_half, mask_quarter, mask_tiny, seg_maps=None):
+        inp_enc_level1 = self.patch_embed(torch.cat((inp_img, mask_whole), dim=1))
 
-        out_enc_level1 = self.encoder_level1({0:inp_enc_level1, 1:self.pos1, 2:mask_whole})
+        out_enc_level1 = self.encoder_level1({0: inp_enc_level1, 1: self.pos1, 2: mask_whole})
 
-        inp_enc_level2 = self.down1_2(out_enc_level1[0],mask_whole)
-        out_enc_level2 = self.encoder_level2({0:inp_enc_level2, 1:self.pos2, 2:mask_half})
+        inp_enc_level2 = self.down1_2(out_enc_level1[0], mask_whole)
+        out_enc_level2 = self.encoder_level2({0: inp_enc_level2, 1: self.pos2, 2: mask_half})
 
-        inp_enc_level3 = self.down2_3(out_enc_level2[0],mask_half)
-        out_enc_level3 = self.encoder_level3({0:inp_enc_level3, 1:self.pos3, 2:mask_quarter})
+        inp_enc_level3 = self.down2_3(out_enc_level2[0], mask_half)
+        out_enc_level3 = self.encoder_level3({0: inp_enc_level3, 1: self.pos3, 2: mask_quarter})
 
-        inp_enc_level4 = self.down3_4(out_enc_level3[0],mask_quarter)
+        inp_enc_level4 = self.down3_4(out_enc_level3[0], mask_quarter)
 
-        latent = self.latent({0:inp_enc_level4, 1:self.pos4, 2:mask_tiny})
+        latent = self.latent({0: inp_enc_level4, 1: self.pos4, 2: mask_tiny})
 
-        inp_dec_level3 = self.up4_3(latent[0],mask_tiny)
+        # --- Decoder Level 3 Filling ---
+        inp_dec_level3 = self.up4_3(latent[0], mask_tiny)
         inp_dec_level3 = torch.cat([inp_dec_level3, out_enc_level3[0]], 1)
-
         inp_dec_level3 = self.reduce_chan_level3(inp_dec_level3)
-        out_dec_level3 = self.decoder_level3({0:inp_dec_level3, 1:self.pos3, 2:mask_quarter})
 
-        inp_dec_level2 = self.up3_2(out_dec_level3[0],mask_quarter)
+        if seg_maps is not None:
+            seg_maps_3c = seg_maps.repeat(1, 3, 1, 1) if seg_maps.shape[1] == 1 else seg_maps
+            seg_l3 = F.interpolate(seg_maps_3c, size=inp_dec_level3.shape[2:], mode='bilinear', align_corners=False)
+            inp_dec_level3 = inp_dec_level3 + self.seg_prior_l3(seg_l3)
+
+        out_dec_level3 = self.decoder_level3({0: inp_dec_level3, 1: self.pos3, 2: mask_quarter})
+
+        # --- Decoder Level 2 Filling ---
+        inp_dec_level2 = self.up3_2(out_dec_level3[0], mask_quarter)
         inp_dec_level2 = torch.cat([inp_dec_level2, out_enc_level2[0]], 1)
-
         inp_dec_level2 = self.reduce_chan_level2(inp_dec_level2)
-        out_dec_level2 = self.decoder_level2({0:inp_dec_level2, 1:self.pos2, 2:mask_half})
 
-        inp_dec_level1 = self.up2_1(out_dec_level2[0],mask_half)
+        if seg_maps is not None:
+            seg_l2 = F.interpolate(seg_maps_3c, size=inp_dec_level2.shape[2:], mode='bilinear', align_corners=False)
+            inp_dec_level2 = inp_dec_level2 + self.seg_prior_l2(seg_l2)
+
+        out_dec_level2 = self.decoder_level2({0: inp_dec_level2, 1: self.pos2, 2: mask_half})
+
+        # --- Decoder Level 1 Filling ---
+        inp_dec_level1 = self.up2_1(out_dec_level2[0], mask_half)
         inp_dec_level1 = torch.cat([inp_dec_level1, out_enc_level1[0]], 1)
 
-        out_dec_level1 = self.decoder_level1({0:inp_dec_level1, 1:self.pos1_dec, 2:mask_whole})
+        if seg_maps is not None:
+            seg_l1 = F.interpolate(seg_maps_3c, size=inp_dec_level1.shape[2:], mode='bilinear', align_corners=False)
+            inp_dec_level1 = inp_dec_level1 + self.seg_prior_l1(seg_l1)
 
+        out_dec_level1 = self.decoder_level1({0: inp_dec_level1, 1: self.pos1_dec, 2: mask_whole})
 
-
-        
         out_dec_level1 = self.output(out_dec_level1[0])
-
         out_dec_level1 = (torch.tanh(out_dec_level1) + 1) / 2
         return out_dec_level1
         
