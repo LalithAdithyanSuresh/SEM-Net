@@ -315,7 +315,7 @@ class sem():
 
                             n = len(hole_patches)
                             for local_rank, (p_i, p_j) in enumerate(hole_patches):
-                                t   = local_rank / max(n - 1, 1)
+                                t   = 1.0 - (local_rank / max(n - 1, 1))
                                 r, g, b, _ = cmap(t)
                                 color = (int(r * 255), int(g * 255), int(b * 255))
 
@@ -359,7 +359,7 @@ class sem():
 
                             n = len(hole_patches)
                             for local_rank, (p_i, p_j) in enumerate(hole_patches):
-                                t = local_rank / max(n - 1, 1)
+                                t = 1.0 - (local_rank / max(n - 1, 1))
                                 r, g, b, _ = cmap_plasma(t)
                                 color = (int(r*255), int(g*255), int(b*255))
                                 y0, x0 = int(p_i*patch_size), int(p_j*patch_size)

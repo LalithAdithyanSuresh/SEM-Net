@@ -173,6 +173,31 @@ class Dynamic_Adaptive_Scan(nn.Module):
 # Combined Core (VAMamba + DAMamba + SEM-Net base)
 # =========================================================================
 
+def get_distance_map(mask, max_iters=128):
+    # mask: [B, 1, H, W], 1 is hole, 0 is known
+    B, C, H, W = mask.shape
+    dist_from_edge = torch.zeros_like(mask, dtype=torch.float32)
+    known = 1.0 - mask
+    
+    for i in range(1, max_iters + 1):
+        next_known = F.max_pool2d(known, kernel_size=3, stride=1, padding=1)
+        new_pixels = next_known - known
+        dist_from_edge += new_pixels * float(i)
+        known = next_known
+        if known.min() == 1.0:
+            break
+            
+    unreached = 1.0 - known
+    dist_from_edge += unreached * float(max_iters + 1)
+    
+    max_dist = dist_from_edge.view(B, -1).max(dim=1, keepdim=True)[0].view(B, 1, 1, 1)
+    max_dist = torch.clamp(max_dist, min=1.0)
+    
+    dist_map = (max_dist - dist_from_edge) / max_dist
+    dist_map = dist_map * mask
+    return dist_map
+
+
 class CombinedAdaptiveMambaLayer(nn.Module):
     def __init__(self, dim, d_state=16, d_conv=4, expand=2):
         super().__init__()
@@ -236,13 +261,30 @@ class CombinedAdaptiveMambaLayer(nn.Module):
             score_map = F.avg_pool2d(orig_score_map.unsqueeze(1), kernel_size=patch_size, stride=patch_size).squeeze(1)
         else:
             score_map = orig_score_map
+
+        if mask is not None:
+            if patch_size > 1:
+                mask_pooled = F.max_pool2d(mask.float(), kernel_size=patch_size, stride=patch_size).squeeze(1)
+            else:
+                mask_pooled = mask.squeeze(1).float()
+                
+            distance_map = get_distance_map(mask_pooled.unsqueeze(1))
+            distance_map = distance_map.squeeze(1)
+            
+            known_boost = (1.0 - mask_pooled) * 10000.0 
+            spiral_boost = mask_pooled * distance_map * 100.0
+            texture_scores = score_map * 1.0
+            
+            final_scores = known_boost + spiral_boost + texture_scores
+        else:
+            final_scores = score_map
             
         # GPU Vectorized Traversal (Importance-driven dynamic path)
-        B, H_p, W_p = score_map.shape
+        B, H_p, W_p = final_scores.shape
         num_patches = H_p * W_p
         
         # Flatten and sort the score map to determine the structural priority order
-        flat_scores = score_map.view(B, num_patches)
+        flat_scores = final_scores.view(B, num_patches)
         sorted_patch_indices = torch.argsort(flat_scores, dim=1, descending=True) # [B, num_patches]
         
         # ----------------------------------------------------
