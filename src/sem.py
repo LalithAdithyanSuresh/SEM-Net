@@ -170,13 +170,8 @@ class sem():
 
 
                     if model == 2:
-                        if len(items) >= 3:
-                            images, masks, seg_maps = self.cuda(*items)
-                        else:
-                            images, masks = self.cuda(*items[:2])
-                            seg_maps = None
-
-                        outputs_img, gen_loss, dis_loss, logs, gen_gan_loss, gen_l1_loss, gen_content_loss, gen_style_loss, gen_symmetry_loss = self.inpaint_model.process(images, masks, seg_maps)
+                        images, masks = self.cuda(*items[:2])
+                        outputs_img, gen_loss, dis_loss, logs, gen_gan_loss, gen_l1_loss, gen_content_loss, gen_style_loss, gen_symmetry_loss = self.inpaint_model.process(images, masks)
                         outputs_merged = (outputs_img * masks) + (images * (1-masks))
 
                         psnr = self.psnr(self.postprocess(images), self.postprocess(outputs_merged))
@@ -394,14 +389,10 @@ class sem():
                         val_count = 0
                         val_psnr_list = []
                         for val_items in val_loader:
-                            if len(val_items) >= 3:
-                                val_images, val_masks, val_seg_maps = self.cuda(*val_items)
-                            else:
-                                val_images, val_masks = self.cuda(*val_items[:2])
-                                val_seg_maps = None
+                            val_images, val_masks = self.cuda(*val_items[:2])
                             val_inputs = (val_images * (1 - val_masks)) + val_masks
                             with torch.no_grad():
-                                val_outputs_img = self.inpaint_model(val_images, val_masks, val_seg_maps)
+                                val_outputs_img = self.inpaint_model(val_images, val_masks)
                             
                             val_outputs_merged = (val_outputs_img * val_masks) + (val_images * (1 - val_masks))
                             val_psnr_val = self.psnr(self.postprocess(val_images), self.postprocess(val_outputs_merged)).item()
@@ -456,37 +447,10 @@ class sem():
                             except Exception:
                                 da_offset_pil = Image.new('RGB', img_size, (80, 80, 80))
 
-                            # ── Segment Map ───────────────────────────────────────────
-                            orig_idx  = all_indices[val_count]
-                            img_path = self.test_dataset.data[orig_idx]
-                            img_dir  = os.path.dirname(img_path)
-                            img_name = self.test_dataset.load_name(orig_idx)
-                            base_name, _ = os.path.splitext(img_name)
-                            
-                            seg_mask_path = None
-                            possible_seg_paths = [
-                                os.path.join(img_dir + "_seg", f"{base_name}.png"),
-                                os.path.join(os.path.dirname(img_dir), os.path.basename(img_dir) + "_seg", f"{base_name}.png"),
-                                os.path.join("dataset", "test_seg", f"{base_name}.png"),
-                                os.path.join("dataset", "train_seg", f"{base_name}.png"),
-                            ]
-                            for pth in possible_seg_paths:
-                                if os.path.exists(pth):
-                                    seg_mask_path = pth
-                                    break
-
-                            if seg_mask_path and os.path.exists(seg_mask_path):
-                                try:
-                                    seg_map_pil = Image.open(seg_mask_path).convert('RGB').resize(img_size)
-                                except Exception:
-                                    seg_map_pil = Image.new('RGB', img_size, (0, 0, 0))
-                            else:
-                                seg_map_pil = Image.new('RGB', img_size, (0, 0, 0))
-
-                            panels       = [gt_img_pil, gt_mask_pil, seg_map_pil, full_path_pil,
+                            panels       = [gt_img_pil, gt_mask_pil, full_path_pil,
                                             hole_path_pil, hole_lines_pil,
                                             da_offset_pil, pred_img_pil, pred_mask_pil]
-                            panel_labels = ['GT', 'Masked Input', 'Segment Map', 'Full Path',
+                            panel_labels = ['GT', 'Masked Input', 'Full Path',
                                             'Hole Heatmap', 'Hole Lines',
                                             'DA Offsets', 'Raw Pred', 'Merged']
                             total_width = sum(p.size[0] for p in panels)

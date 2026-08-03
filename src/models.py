@@ -129,7 +129,7 @@ class InpaintingModel(BaseModel):
         # Gradient accumulation: sync across GPUs every 8 steps
         self.accum_steps = 8
 
-    def process(self, images, masks, seg_maps=None):
+    def process(self, images, masks):
         self.iteration += 1
 
         # zero optimizers
@@ -138,7 +138,7 @@ class InpaintingModel(BaseModel):
 
 
         # process outputs
-        outputs_img = self(images, masks, seg_maps)
+        outputs_img = self(images, masks)
         gen_loss = 0
         dis_loss = 0
 
@@ -185,7 +185,7 @@ class InpaintingModel(BaseModel):
 
         return outputs_img, gen_loss, dis_loss, logs, gen_gan_loss, gen_l1_loss, gen_content_loss, gen_style_loss, gen_symmetry_loss
 
-    def forward(self, images, masks, seg_maps=None):
+    def forward(self, images, masks):
         images_masked = (images * (1 - masks).float()) + masks
         inputs = images_masked
         scaled_masks_tiny = F.interpolate(masks, size=[int(masks.shape[2] / 8), int(masks.shape[3] / 8)],
@@ -197,7 +197,7 @@ class InpaintingModel(BaseModel):
                                      mode='nearest')
                                      
                                      
-        outputs_img = self.generator(inputs, masks, scaled_masks_half, scaled_masks_quarter, scaled_masks_tiny, seg_maps=seg_maps)
+        outputs_img = self.generator(inputs, masks, scaled_masks_half, scaled_masks_quarter, scaled_masks_tiny)
 
         return outputs_img
 

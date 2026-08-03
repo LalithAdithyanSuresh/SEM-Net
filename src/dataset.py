@@ -73,41 +73,7 @@ class Dataset(torch.utils.data.Dataset):
         # load mask
         mask = self.load_mask(img, index)
 
-        # load segment map (unique instance IDs)
-        seg_map = self.load_seg_map(self.data[index], size)
-
-        return self.to_tensor(img), self.to_tensor(mask), self.to_tensor(seg_map)
-
-    def load_seg_map(self, img_path, size):
-        img_dir = os.path.dirname(img_path)
-        base_name, _ = os.path.splitext(os.path.basename(img_path))
-        
-        possible_seg_paths = [
-            os.path.join(img_dir + "_seg", f"{base_name}.png"),
-            os.path.join(os.path.dirname(img_dir), os.path.basename(img_dir) + "_seg", f"{base_name}.png"),
-            os.path.join("dataset", "train_seg", f"{base_name}.png"),
-            os.path.join("dataset", "test_seg", f"{base_name}.png"),
-        ]
-        
-        seg_path = None
-        for pth in possible_seg_paths:
-            if os.path.exists(pth):
-                seg_path = pth
-                break
-                
-        if seg_path and os.path.exists(seg_path):
-            try:
-                seg_img = imread(seg_path)
-                if len(seg_img.shape) == 3:
-                    seg_img = seg_img[:, :, 0]
-                if size != 0:
-                    seg_img = self.resize(seg_img, size, size, centerCrop=True)
-                return seg_img
-            except Exception:
-                pass
-                
-        h, w = (size, size) if size != 0 else (256, 256)
-        return np.zeros((h, w), dtype=np.uint8)
+        return self.to_tensor(img), self.to_tensor(mask)
 
 
     def load_mask(self, img, index):
