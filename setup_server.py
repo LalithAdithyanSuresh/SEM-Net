@@ -308,7 +308,20 @@ def step_verify_workspace():
 def step_setup_cuda():
     cuda_dir = "/usr/local/cuda-12.4"
     if not os.path.exists(cuda_dir):
-        raise RuntimeError(f"CUDA 12.4 Toolkit directory not found at {cuda_dir}. Strict setup requires CUDA 12.4.")
+        if os.path.exists("/usr/local/cuda"):
+            cuda_dir = "/usr/local/cuda"
+        else:
+            nvcc_path = shutil.which("nvcc")
+            if nvcc_path:
+                cuda_dir = os.path.dirname(os.path.dirname(nvcc_path))
+            else:
+                import glob
+                cuda_paths = glob.glob("/usr/local/cuda-*")
+                if cuda_paths:
+                    cuda_paths.sort()
+                    cuda_dir = cuda_paths[-1]
+                else:
+                    raise RuntimeError("CUDA Toolkit directory not found. Please set CUDA_HOME environment variable manually.")
     print(f"Configuring environment to use CUDA Toolkit: {cuda_dir}")
     os.environ["CUDA_HOME"] = cuda_dir
     os.environ["PATH"] = f"{cuda_dir}/bin:" + os.environ.get("PATH", "")
