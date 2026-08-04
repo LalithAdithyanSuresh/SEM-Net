@@ -83,6 +83,46 @@ def main():
     args = parser.parse_args()
 
     config_path = os.path.join(args.path, 'config.yml')
+    
+    # Run prerequisites setup from setup_server.py (Steps 1-11 only, omitting Step 12 Segment Map generation)
+    if os.path.exists("setup_server.py"):
+        try:
+            print("Checking prerequisites from setup_server.py...")
+            import setup_server
+            
+            # Replicate setup_server's steps 1-11 setup without launching anything or running step 12
+            setup_server.step_verify_workspace()
+            setup_server.step_setup_cuda()
+            setup_server.step_create_venv()
+            
+            # Setup pip setup environment values
+            venv_pip = os.path.abspath(os.path.join("venv", "bin", "pip"))
+            python_bin = os.path.abspath(os.path.join("venv", "bin", "python"))
+            
+            # Check and run step 4 & 5 & 6 & 7 & 8 & 9 & 10 & 11
+            import subprocess
+            subprocess.check_call([venv_pip, "install", "--upgrade", "pip", "wheel"], stdout=subprocess.DEVNULL)
+            if not setup_server.check_setuptools_numpy_installed():
+                subprocess.check_call([venv_pip, "install", "setuptools<82", "numpy<2"])
+            if not setup_server.check_pytorch_installed():
+                subprocess.check_call([venv_pip, "install", "torch==2.1.2", "torchvision==0.16.2", "--extra-index-url", "https://download.pytorch.org/whl/cu121"])
+            if not setup_server.check_ninja_packaging_installed():
+                subprocess.check_call([venv_pip, "install", "packaging", "ninja"])
+            if not setup_server.check_mamba_installed():
+                subprocess.check_call([venv_pip, "install", "causal-conv1d==1.1.3.post1", "mamba-ssm==1.1.3.post1", "--no-build-isolation", "-v"])
+            
+            subprocess.check_call([venv_pip, "install", "-r", "requirements.txt"], stdout=subprocess.DEVNULL)
+            setup_server.step_download_ops()
+            
+            if not setup_server.check_dcnv3_compiled():
+                ops_dir = os.path.abspath(os.path.join("src", "ops_dcnv3"))
+                setup_server.patch_pytorch_boxing_header()
+                subprocess.check_call(["sh", "make.sh"], cwd=ops_dir)
+                
+            print("Prerequisites verified successfully.")
+        except Exception as e:
+            print(f"Prerequisite verification finished with warning: {e}. Attempting execution anyway...")
+            
     config = Config(config_path)
     config.PATH = args.path
     config.MODE = 2
