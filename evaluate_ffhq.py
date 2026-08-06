@@ -159,7 +159,7 @@ def worker(gpu_id, num_gpus, args, config_path, gen_checkpoint, indexed_masks, c
         global_counts = list(range(gpu_id * batch_size_per_gpu, args.num_images, num_gpus * batch_size_per_gpu))
         local_stats = {'name': [], 'mask_id': [], 'psnr': [], 'ssim': [], 'l1': [], 'lpips': []}
         
-        pbar = tqdm(total=len(global_counts) * batch_size_per_gpu, desc=f"Eval {cat} (GPU {gpu_id})") if gpu_id == 0 else None
+        pbar = tqdm(total=args.num_images, desc=f"Eval {cat}") if gpu_id == 0 else None
         
         for start_count in global_counts:
             batch_global_indices = []
@@ -234,7 +234,7 @@ def worker(gpu_id, num_gpus, args, config_path, gen_checkpoint, indexed_masks, c
                 executor.submit(save_task, os.path.join(cat_output_dir, save_name), pred_merged_pil)
                 
                 if pbar:
-                    pbar.update(1)
+                    pbar.update(num_gpus)
                     
         if pbar:
             pbar.close()
