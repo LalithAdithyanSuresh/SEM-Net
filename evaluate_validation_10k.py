@@ -140,7 +140,8 @@ def main():
     parser.add_argument('--mask-dir', type=str, default='datasets/testing_mask_dataset', help='Directory with the custom masks')
     parser.add_argument('--image-dir', type=str, default='datasets/places365/test_256', help='Directory with validation/testing images')
     parser.add_argument('--output', type=str, default='./evaluation_results_10k', help='Output directory')
-    parser.add_argument('--batch-size', type=int, default=1, help='Batch size for inference')
+    num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 1
+    parser.add_argument('--batch-size', type=int, default=4 * num_gpus, help='Batch size for inference')
     parser.add_argument('--num-images', type=int, default=10000, help='Number of validation images to generate per mask category')
     args = parser.parse_args()
 
@@ -171,9 +172,13 @@ def main():
     print(f"Using generator checkpoint: {gen_checkpoint}")
     
     # Load Model
-    model = InpaintingModel(config).to(config.DEVICE)
+    model = InpaintingModel(config)
     model.gen_weights_path = gen_checkpoint
     model.load()
+    if torch.cuda.device_count() > 1:
+        print(f"Using {torch.cuda.device_count()} GPUs with DataParallel!")
+        model = nn.DataParallel(model)
+    model = model.to(config.DEVICE)
     model.eval()
 
     # Prepare Dataset
