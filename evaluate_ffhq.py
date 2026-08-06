@@ -150,15 +150,11 @@ def worker(gpu_id, num_gpus, args, config, gen_checkpoint, indexed_masks, catego
         
         pbar = tqdm(total=len(global_counts) * batch_size_per_gpu, desc=f"Eval {cat} (GPU {gpu_id})") if gpu_id == 0 else None
         
-        for batch_start in range(0, len(global_counts), batch_size_per_gpu):
+        for start_count in global_counts:
             batch_global_indices = []
-            for offset in range(batch_size_per_gpu):
-                idx = batch_start + offset
-                if idx < len(global_counts):
-                    start_count = global_counts[idx]
-                    for b_idx in range(batch_size_per_gpu):
-                        if start_count + b_idx < args.num_images:
-                            batch_global_indices.append(start_count + b_idx)
+            for b_idx in range(batch_size_per_gpu):
+                if start_count + b_idx < args.num_images:
+                    batch_global_indices.append(start_count + b_idx)
             
             if not batch_global_indices:
                 continue
