@@ -293,6 +293,8 @@ def main():
  
     categories = ['SMALL', 'MEDIUM', 'LARGE']
     create_dir(args.output)
+    for cat in categories:
+        create_dir(os.path.join(args.output, cat))
  
     mp.spawn(worker, args=(num_gpus, args, config_path, gen_checkpoint, indexed_masks, categories), nprocs=num_gpus)
  
