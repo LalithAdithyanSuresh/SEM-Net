@@ -137,6 +137,7 @@ def main():
     config.MODE = 2
     config.MODEL = 2
     config.DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    config.WORLD_SIZE = 1
 
     # Override image flists for evaluate script
     config.TEST_INPAINT_IMAGE_FLIST = os.path.join(args.dataset_root, 'test')
