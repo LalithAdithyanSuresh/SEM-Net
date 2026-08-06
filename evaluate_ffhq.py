@@ -125,6 +125,7 @@ def save_task(path, img):
         print(f"Error saving image {path}: {e}")
 
 def worker(gpu_id, num_gpus, args, config_path, gen_checkpoint, indexed_masks, categories):
+    torch.cuda.set_device(gpu_id)
     device = torch.device(f"cuda:{gpu_id}")
     config = Config(config_path)
     config.PATH = args.path
