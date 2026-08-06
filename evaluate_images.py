@@ -204,6 +204,7 @@ def main():
     parser.add_argument('--limit-eval', type=int, default=0, help='limit evaluation to the first N images (e.g. 20) for quick test, 0 to disable')
     parser.add_argument('--ignore-flists', action='store_true', help='ignore val_images_*.flist files even if they exist')
     parser.add_argument('--checkpoint', type=str, default=None, help='load specific generator checkpoint file name/path')
+    parser.add_argument('--dataset-root', type=str, default='./dataset', help='root directory containing test images and masks subfolders')
     args = parser.parse_args()
 
     config_path = os.path.join(args.path, 'config.yml')
@@ -231,9 +232,9 @@ def main():
     print(f"  - Batch size: {args.batch_size}")
     print(f"  - Limit images: {args.num_images}")
     print(f"  - Device: {config.DEVICE}")
-    # Set relative dataset paths for Places365 testing
-    config.TEST_INPAINT_IMAGE_FLIST = "datasets/places365/test_256"
-    config.TEST_MASK_FLIST = "datasets/testing_mask_dataset"
+    # Set dataset paths from --dataset-root
+    config.TEST_INPAINT_IMAGE_FLIST = os.path.join(args.dataset_root, 'test')
+    config.TEST_MASK_FLIST = os.path.join(args.dataset_root, 'masks')
 
     print(f"  - Test images directory: {config.TEST_INPAINT_IMAGE_FLIST}")
     print(f"  - Test masks directory: {config.TEST_MASK_FLIST}")
