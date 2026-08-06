@@ -22,6 +22,8 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 
 import torch.multiprocessing as mp
+import json
+
 
 def postprocess(img):
     img = img * 255.0
@@ -122,9 +124,16 @@ def save_task(path, img):
     except Exception as e:
         print(f"Error saving image {path}: {e}")
 
-def worker(gpu_id, num_gpus, args, config, gen_checkpoint, indexed_masks, categories):
+def worker(gpu_id, num_gpus, args, config_path, gen_checkpoint, indexed_masks, categories):
     device = torch.device(f"cuda:{gpu_id}")
+    config = Config(config_path)
+    config.PATH = args.path
+    config.MODE = 2
+    config.MODEL = 2
     config.DEVICE = device
+    config.WORLD_SIZE = 1
+    config.TEST_INPAINT_IMAGE_FLIST = os.path.join(args.dataset_root, 'test')
+    config.TEST_MASK_FLIST = os.path.join(args.dataset_root, 'masks')
     
     # Load Model and Loss
     model = InpaintingModel(config).to(device)
@@ -285,16 +294,7 @@ def main():
     categories = ['SMALL', 'MEDIUM', 'LARGE']
     create_dir(args.output)
  
-    mp.set_start_method('spawn', force=True)
-    
-    processes = []
-    for gpu_id in range(num_gpus):
-        p = mp.Process(target=worker, args=(gpu_id, num_gpus, args, config, gen_checkpoint, indexed_masks, categories))
-        p.start()
-        processes.append(p)
-        
-    for p in processes:
-        p.join()
+    mp.spawn(worker, args=(num_gpus, args, config_path, gen_checkpoint, indexed_masks, categories), nprocs=num_gpus)
  
     # Process each category to save metrics
     for cat in categories:
