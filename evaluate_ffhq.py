@@ -21,6 +21,8 @@ import re
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 
+import torch.multiprocessing as mp
+
 def postprocess(img):
     img = img * 255.0
     img = img.permute(0, 2, 3, 1)
@@ -119,6 +121,120 @@ def save_task(path, img):
         img.save(path)
     except Exception as e:
         print(f"Error saving image {path}: {e}")
+
+def worker(gpu_id, num_gpus, args, config, gen_checkpoint, indexed_masks, categories, stats_dict):
+    device = torch.device(f"cuda:{gpu_id}")
+    config.DEVICE = device
+    
+    # Load Model and Loss
+    model = InpaintingModel(config).to(device)
+    model.gen_weights_path = gen_checkpoint
+    model.load()
+    model.eval()
+    
+    loss_fn_vgg = lpips.LPIPS(net='vgg').to(device)
+    loss_fn_vgg.eval()
+    
+    test_dataset = Dataset(config, config.TEST_INPAINT_IMAGE_FLIST, config.TEST_MASK_FLIST,
+                           augment=False, training=False)
+    dataset_len = len(test_dataset)
+    executor = ThreadPoolExecutor(max_workers=4)
+    
+    batch_size_per_gpu = max(1, args.batch_size // num_gpus)
+    
+    for cat in categories:
+        cat_output_dir = os.path.join(args.output, cat)
+        
+        global_counts = list(range(gpu_id * batch_size_per_gpu, args.num_images, num_gpus * batch_size_per_gpu))
+        local_stats = {'name': [], 'mask_id': [], 'psnr': [], 'ssim': [], 'l1': [], 'lpips': []}
+        
+        pbar = tqdm(total=len(global_counts) * batch_size_per_gpu, desc=f"Eval {cat} (GPU {gpu_id})") if gpu_id == 0 else None
+        
+        for batch_start in range(0, len(global_counts), batch_size_per_gpu):
+            batch_global_indices = []
+            for offset in range(batch_size_per_gpu):
+                idx = batch_start + offset
+                if idx < len(global_counts):
+                    start_count = global_counts[idx]
+                    for b_idx in range(batch_size_per_gpu):
+                        if start_count + b_idx < args.num_images:
+                            batch_global_indices.append(start_count + b_idx)
+            
+            if not batch_global_indices:
+                continue
+                
+            image_list = []
+            for g_idx in batch_global_indices:
+                orig_idx = g_idx % dataset_len
+                img, _, _ = test_dataset[orig_idx]
+                image_list.append(img)
+                
+            images = torch.stack(image_list).to(device)
+            h, w = images.shape[2], images.shape[3]
+            curr_batch_size = images.size(0)
+            
+            masks, mask_ids = get_custom_masks_and_ids(indexed_masks, cat, batch_global_indices[0], h, w, curr_batch_size)
+            masks = masks.to(device)
+            
+            seg_tensors = []
+            file_names = []
+            image_ids = []
+            for i, g_idx in enumerate(batch_global_indices):
+                orig_idx = g_idx % dataset_len
+                file_name = test_dataset.load_name(orig_idx)
+                file_names.append(file_name)
+                image_id = os.path.splitext(file_name)[0]
+                image_ids.append(image_id)
+                
+                seg_path = os.path.join(args.seg_dir, f"{image_id}.png")
+                if os.path.exists(seg_path):
+                    try:
+                        seg_img = Image.open(seg_path)
+                        if seg_img.mode != 'L':
+                            seg_img = seg_img.convert('L')
+                        seg_img = seg_img.resize((w, h), Image.NEAREST)
+                        seg_tensor = torchvision.transforms.functional.to_tensor(seg_img).to(device)
+                    except Exception:
+                        seg_tensor = torch.zeros((1, h, w), device=device)
+                else:
+                    seg_tensor = torch.zeros((1, h, w), device=device)
+                seg_tensors.append(seg_tensor)
+                
+            seg_maps = torch.stack(seg_tensors)
+            
+            with torch.no_grad():
+                outputs_img = model(images, masks, seg_maps=seg_maps)
+                
+            outputs_merged = (outputs_img * masks) + (images * (1 - masks))
+            
+            for b in range(curr_batch_size):
+                psnr, ssim = calc_psnr_ssim(images[b:b+1], outputs_merged[b:b+1])
+                l1_val = F.l1_loss(outputs_merged[b:b+1], images[b:b+1], reduction='mean').item()
+                lpips_val = loss_fn_vgg(normalize_lpips(outputs_merged[b:b+1]), normalize_lpips(images[b:b+1])).item()
+                
+                base, ext = os.path.splitext(file_names[b])
+                saved_filename = f"{base}_{batch_global_indices[b]}{ext}"
+                
+                local_stats['name'].append(saved_filename)
+                local_stats['mask_id'].append(mask_ids[b])
+                local_stats['psnr'].append(psnr)
+                local_stats['ssim'].append(ssim)
+                local_stats['l1'].append(l1_val)
+                local_stats['lpips'].append(lpips_val)
+                
+                pred_merged_pil = Image.fromarray(postprocess(outputs_merged[b:b+1])[0].cpu().numpy().astype(np.uint8))
+                save_name = f"{image_ids[b]}_{mask_ids[b]}_{psnr:.2f}.png"
+                executor.submit(save_task, os.path.join(cat_output_dir, save_name), pred_merged_pil)
+                
+                if pbar:
+                    pbar.update(1)
+                    
+        if pbar:
+            pbar.close()
+            
+        stats_dict[f"{cat}_{gpu_id}"] = local_stats
+        
+    executor.shutdown(wait=True)
  
 def main():
     parser = argparse.ArgumentParser()
@@ -146,15 +262,9 @@ def main():
     config.DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     config.WORLD_SIZE = 1
  
-    # Override image flists for evaluate script
     config.TEST_INPAINT_IMAGE_FLIST = os.path.join(args.dataset_root, 'test')
     config.TEST_MASK_FLIST = os.path.join(args.dataset_root, 'masks')
  
-    # LPIPS
-    loss_fn_vgg = lpips.LPIPS(net='vgg').to(config.DEVICE)
-    loss_fn_vgg.eval()
- 
-    # Find the generator checkpoint
     if args.checkpoint is not None:
         gen_checkpoint = args.checkpoint
     else:
@@ -164,22 +274,7 @@ def main():
         raise FileNotFoundError(f"Could not find any valid generator checkpoint in {args.path}.")
         
     print(f"Using generator checkpoint: {gen_checkpoint}")
-    print(f"CUDA devices available: {torch.cuda.device_count()}")
- 
-    # Model
-    model = InpaintingModel(config)
-    model.gen_weights_path = gen_checkpoint
-    model.load()
-    if torch.cuda.device_count() > 1:
-        print(f"Using {torch.cuda.device_count()} GPUs with DataParallel!")
-        model = nn.DataParallel(model)
-    model = model.to(config.DEVICE)
-    model.eval()
- 
-    # Load custom Dataset
-    test_dataset = Dataset(config, config.TEST_INPAINT_IMAGE_FLIST, config.TEST_MASK_FLIST,
-                           augment=False, training=False)
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
+    print(f"CUDA devices available: {num_gpus}")
  
     # Index Custom Masks
     mask_dir = os.path.join(args.dataset_root, 'masks')
@@ -188,100 +283,37 @@ def main():
     categories = ['SMALL', 'MEDIUM', 'LARGE']
     create_dir(args.output)
  
-    executor = ThreadPoolExecutor(max_workers=4)
- 
-    # Process each category
-    for cat in categories:
-        print(f"\n==========================================")
-        print(f"Evaluating category: {cat} (Target: {args.num_images} images)")
-        print(f"==========================================")
-        cat_output_dir = os.path.join(args.output, cat)
-        create_dir(cat_output_dir)
+    mp.set_start_method('spawn', force=True)
+    manager = mp.Manager()
+    stats_dict = manager.dict()
+    
+    processes = []
+    for gpu_id in range(num_gpus):
+        p = mp.Process(target=worker, args=(gpu_id, num_gpus, args, config, gen_checkpoint, indexed_masks, categories, stats_dict))
+        p.start()
+        processes.append(p)
         
+    for p in processes:
+        p.join()
+ 
+    # Process each category to save metrics
+    for cat in categories:
         csv_path = os.path.join(args.output, f'metrics_{cat}.csv')
         stats = {'name': [], 'mask_id': [], 'psnr': [], 'ssim': [], 'l1': [], 'lpips': []}
- 
-        pbar = tqdm(total=args.num_images, desc=f"Eval {cat}")
-        count = 0
-        dataset_len = len(test_dataset)
- 
-        while count < args.num_images:
-            for index, items in enumerate(test_loader):
-                if count >= args.num_images:
-                    break
+        
+        for gpu_id in range(num_gpus):
+            gpu_stats = stats_dict.get(f"{cat}_{gpu_id}", {'name': [], 'mask_id': [], 'psnr': [], 'ssim': [], 'l1': [], 'lpips': []})
+            for k in stats:
+                stats[k].extend(gpu_stats[k])
                 
-                # Retrieve items
-                images, _, _ = items
-                images = images.to(config.DEVICE)
-                h, w = images.shape[2], images.shape[3]
-                curr_batch_size = images.size(0)
-                
-                # Load custom mask in rotation
-                masks, mask_ids = get_custom_masks_and_ids(indexed_masks, cat, count, h, w, curr_batch_size)
-                masks = masks.to(config.DEVICE)
+        def get_index_from_name(name):
+            match = re.search(r'_(\d+)\.[^.]+$', name)
+            return int(match.group(1)) if match else 0
+            
+        sorted_indices = np.argsort([get_index_from_name(name) for name in stats['name']])
+        for k in stats:
+            stats[k] = [stats[k][idx] for idx in sorted_indices]
  
-                # Manually load the segment maps from the overridden segment directory
-                seg_tensors = []
-                file_names = []
-                image_ids = []
-                for i in range(curr_batch_size):
-                    orig_idx = (count + i) % dataset_len
-                    file_name = test_dataset.load_name(orig_idx)
-                    file_names.append(file_name)
-                    image_id = os.path.splitext(file_name)[0]
-                    image_ids.append(image_id)
-                    
-                    seg_path = os.path.join(args.seg_dir, f"{image_id}.png")
-                    if os.path.exists(seg_path):
-                        try:
-                            seg_img = Image.open(seg_path)
-                            if seg_img.mode != 'L':
-                                seg_img = seg_img.convert('L')
-                            seg_img = seg_img.resize((w, h), Image.NEAREST)
-                            seg_tensor = torchvision.transforms.functional.to_tensor(seg_img).to(config.DEVICE)
-                        except Exception:
-                            seg_tensor = torch.zeros((1, h, w), device=config.DEVICE)
-                    else:
-                        seg_tensor = torch.zeros((1, h, w), device=config.DEVICE)
-                    seg_tensors.append(seg_tensor)
-                
-                seg_maps = torch.stack(seg_tensors)
- 
-                with torch.no_grad():
-                    outputs_img = model(images, masks, seg_maps=seg_maps)
- 
-                outputs_merged = (outputs_img * masks) + (images * (1 - masks))
- 
-                for b in range(curr_batch_size):
-                    if count >= args.num_images:
-                        break
-                    
-                    # Metrics
-                    psnr, ssim = calc_psnr_ssim(images[b:b+1], outputs_merged[b:b+1])
-                    l1_val = F.l1_loss(outputs_merged[b:b+1], images[b:b+1], reduction='mean').item()
-                    lpips_val = loss_fn_vgg(normalize_lpips(outputs_merged[b:b+1]), normalize_lpips(images[b:b+1])).item()
- 
-                    # Save metrics (handling name duplicate formatting for wrapping)
-                    base, ext = os.path.splitext(file_names[b])
-                    saved_filename = f"{base}_{count}{ext}"
- 
-                    stats['name'].append(saved_filename)
-                    stats['mask_id'].append(mask_ids[b])
-                    stats['psnr'].append(psnr)
-                    stats['ssim'].append(ssim)
-                    stats['l1'].append(l1_val)
-                    stats['lpips'].append(lpips_val)
- 
-                    # Save generated image with exact naming convention: imageID_maskID_PSNR.png
-                    pred_merged_pil = Image.fromarray(postprocess(outputs_merged[b:b+1])[0].cpu().numpy().astype(np.uint8))
-                    save_name = f"{image_ids[b]}_{mask_ids[b]}_{psnr:.2f}.png"
-                    executor.submit(save_task, os.path.join(cat_output_dir, save_name), pred_merged_pil)
- 
-                    count += 1
-                    pbar.update(1)
-
-        pbar.close()
-
         # Write CSV for this category
         with open(csv_path, 'w', newline='') as f:
             writer = csv.writer(f)
@@ -305,10 +337,9 @@ def main():
                 f"{np.mean(stats['l1']):.6f}",
                 f"{np.mean(stats['lpips']):.6f}"
             ])
-
+ 
         print(f"Category {cat} finalized. Average PSNR: {np.mean(stats['psnr']):.2f}")
-
-    executor.shutdown(wait=True)
+ 
     print(f"All done! Results saved in {args.output}")
 
 if __name__ == '__main__':

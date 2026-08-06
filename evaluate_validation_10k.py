@@ -171,32 +171,14 @@ def main():
         raise FileNotFoundError(f"Could not find any valid generator checkpoint in {args.path}. Please verify --path or --checkpoint.")
         
     print(f"Using generator checkpoint: {gen_checkpoint}")
-    print(f"CUDA devices available: {torch.cuda.device_count()}")
+    print(f"CUDA devices available: {num_gpus}")
     
-    # Load Model
-    model = InpaintingModel(config)
-    model.gen_weights_path = gen_checkpoint
-    model.load()
-    if torch.cuda.device_count() > 1:
-        print(f"Using {torch.cuda.device_count()} GPUs with DataParallel!")
-        model = nn.DataParallel(model)
-    model = model.to(config.DEVICE)
-    model.eval()
-
     # Prepare Dataset
     test_dataset = Dataset(config, args.image_dir, args.mask_dir, augment=False, training=False)
     if len(test_dataset) == 0:
         raise ValueError(f"No validation images found in {args.image_dir}.")
         
     print(f"Validation dataset has {len(test_dataset)} unique images.")
-
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=4,
-        pin_memory=True
-    )
 
     # Index custom masks
     indexed_masks = index_custom_masks(args.mask_dir)
@@ -207,78 +189,39 @@ def main():
         if not indexed_masks[cat]:
             print(f"WARNING: No masks found for category {cat}. Results will be filled with zeros.")
 
-    # Initialize loss metric
-    loss_fn_vgg = lpips.LPIPS(net='vgg').to(config.DEVICE)
-    loss_fn_vgg.eval()
-
     # Create directories
     create_dir(args.output)
     for cat in categories:
         create_dir(os.path.join(args.output, 'images', cat))
 
-    executor = ThreadPoolExecutor(max_workers=4)
+    mp.set_start_method('spawn', force=True)
+    manager = mp.Manager()
+    stats_dict = manager.dict()
+    
+    processes = []
+    for gpu_id in range(num_gpus):
+        p = mp.Process(target=worker, args=(gpu_id, num_gpus, args, config, gen_checkpoint, indexed_masks, categories, stats_dict))
+        p.start()
+        processes.append(p)
+        
+    for p in processes:
+        p.join()
 
     # Main evaluation loop per category
     for cat in categories:
-        print(f"\n==========================================")
-        print(f"Evaluating category: {cat} (Target: {args.num_images} images)")
-        print(f"==========================================")
-        
         stats = {'name': [], 'psnr': [], 'ssim': [], 'l1': [], 'lpips': []}
-        
-        # Enumerate and generate up to num_images
-        pbar = tqdm(total=args.num_images, desc=f"Generating {cat}")
-        
-        count = 0
-        dataset_len = len(test_dataset)
-        
-        while count < args.num_images:
-            for index, items in enumerate(test_loader):
-                if count >= args.num_images:
-                    break
-                    
-                images, _, _ = items
-                images = images.to(config.DEVICE)
-                h, w = images.shape[2], images.shape[3]
+        for gpu_id in range(num_gpus):
+            gpu_stats = stats_dict.get(f"{cat}_{gpu_id}", {'name': [], 'psnr': [], 'ssim': [], 'l1': [], 'lpips': []})
+            for k in stats:
+                stats[k].extend(gpu_stats[k])
                 
-                # Fetch custom mask for this index
-                masks = get_custom_mask(indexed_masks, cat, count, h, w, images.size(0)).to(config.DEVICE)
-                
-                with torch.no_grad():
-                    outputs_img = model(images, masks)
-                    
-                outputs_merged = (outputs_img * masks) + (images * (1 - masks))
-                
-                # Calculate metrics for each item in the batch
-                for b in range(images.size(0)):
-                    if count >= args.num_images:
-                        break
-                        
-                    psnr, ssim = calc_psnr_ssim(images[b:b+1], outputs_merged[b:b+1])
-                    l1_val = F.l1_loss(outputs_merged[b:b+1], images[b:b+1], reduction='mean').item()
-                    lpips_val = loss_fn_vgg(normalize_lpips(outputs_merged[b:b+1]), normalize_lpips(images[b:b+1])).item()
-                    
-                    # Determine filename (handling loop wraparound)
-                    orig_idx = (count) % dataset_len
-                    orig_name = test_dataset.load_name(orig_idx)
-                    base, ext = os.path.splitext(orig_name)
-                    file_name = f"{base}_{count}{ext}"
-                    
-                    stats['name'].append(file_name)
-                    stats['psnr'].append(psnr)
-                    stats['ssim'].append(ssim)
-                    stats['l1'].append(l1_val)
-                    stats['lpips'].append(lpips_val)
-                    
-                    # Save generated image asynchronously
-                    merged_img_pil = Image.fromarray(postprocess(outputs_merged[b:b+1])[0].cpu().numpy().astype(np.uint8))
-                    save_path = os.path.join(args.output, 'images', cat, file_name)
-                    executor.submit(save_task, save_path, merged_img_pil)
-                    
-                    count += 1
-                    pbar.update(1)
-                    
-        pbar.close()
+        def get_index_from_name(name):
+            match = re.search(r'_(\d+)\.[^.]+$', name)
+            return int(match.group(1)) if match else 0
+            
+        sorted_indices = np.argsort([get_index_from_name(name) for name in stats['name']])
+        for k in stats:
+            stats[k] = [stats[k][idx] for idx in sorted_indices]
         
         # Write CSV report for this category
         csv_path = os.path.join(args.output, f'metrics_{cat}.csv')
@@ -311,7 +254,6 @@ def main():
         print(f"  L1:    {np.mean(stats['l1']):.6f}")
         print(f"  LPIPS: {np.mean(stats['lpips']):.6f}")
 
-    executor.shutdown(wait=True)
     print(f"\nAll done! Results saved to {args.output}")
 
 if __name__ == '__main__':
