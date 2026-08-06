@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
 import argparse
 import numpy as np
 import torch
@@ -170,6 +171,7 @@ def main():
         raise FileNotFoundError(f"Could not find any valid generator checkpoint in {args.path}. Please verify --path or --checkpoint.")
         
     print(f"Using generator checkpoint: {gen_checkpoint}")
+    print(f"CUDA devices available: {torch.cuda.device_count()}")
     
     # Load Model
     model = InpaintingModel(config)
