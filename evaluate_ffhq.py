@@ -122,7 +122,7 @@ def save_task(path, img):
     except Exception as e:
         print(f"Error saving image {path}: {e}")
 
-def worker(gpu_id, num_gpus, args, config, gen_checkpoint, indexed_masks, categories, stats_dict):
+def worker(gpu_id, num_gpus, args, config, gen_checkpoint, indexed_masks, categories):
     device = torch.device(f"cuda:{gpu_id}")
     config.DEVICE = device
     
@@ -142,6 +142,7 @@ def worker(gpu_id, num_gpus, args, config, gen_checkpoint, indexed_masks, catego
     
     batch_size_per_gpu = max(1, args.batch_size // num_gpus)
     
+    all_gpu_stats = {}
     for cat in categories:
         cat_output_dir = os.path.join(args.output, cat)
         
@@ -228,9 +229,14 @@ def worker(gpu_id, num_gpus, args, config, gen_checkpoint, indexed_masks, catego
         if pbar:
             pbar.close()
             
-        stats_dict[f"{cat}_{gpu_id}"] = local_stats
+        all_gpu_stats[cat] = local_stats
         
     executor.shutdown(wait=True)
+    
+    import json
+    temp_path = os.path.join(args.output, f".tmp_stats_gpu_{gpu_id}.json")
+    with open(temp_path, 'w') as f:
+        json.dump(all_gpu_stats, f)
  
 def main():
     parser = argparse.ArgumentParser()
@@ -280,12 +286,10 @@ def main():
     create_dir(args.output)
  
     mp.set_start_method('spawn', force=True)
-    manager = mp.Manager()
-    stats_dict = manager.dict()
     
     processes = []
     for gpu_id in range(num_gpus):
-        p = mp.Process(target=worker, args=(gpu_id, num_gpus, args, config, gen_checkpoint, indexed_masks, categories, stats_dict))
+        p = mp.Process(target=worker, args=(gpu_id, num_gpus, args, config, gen_checkpoint, indexed_masks, categories))
         p.start()
         processes.append(p)
         
@@ -298,9 +302,13 @@ def main():
         stats = {'name': [], 'mask_id': [], 'psnr': [], 'ssim': [], 'l1': [], 'lpips': []}
         
         for gpu_id in range(num_gpus):
-            gpu_stats = stats_dict.get(f"{cat}_{gpu_id}", {'name': [], 'mask_id': [], 'psnr': [], 'ssim': [], 'l1': [], 'lpips': []})
-            for k in stats:
-                stats[k].extend(gpu_stats[k])
+            temp_path = os.path.join(args.output, f".tmp_stats_gpu_{gpu_id}.json")
+            if os.path.exists(temp_path):
+                with open(temp_path, 'r') as f:
+                    gpu_stats = json.load(f)
+                if cat in gpu_stats:
+                    for k in stats:
+                        stats[k].extend(gpu_stats[cat][k])
                 
         def get_index_from_name(name):
             match = re.search(r'_(\d+)\.[^.]+$', name)
@@ -335,6 +343,15 @@ def main():
             ])
  
         print(f"Category {cat} finalized. Average PSNR: {np.mean(stats['psnr']):.2f}")
+ 
+    # Clean up temporary JSON files
+    for gpu_id in range(num_gpus):
+        temp_path = os.path.join(args.output, f".tmp_stats_gpu_{gpu_id}.json")
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception as e:
+                print(f"Error removing {temp_path}: {e}")
  
     print(f"All done! Results saved in {args.output}")
 

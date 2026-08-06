@@ -23,6 +23,9 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 
 # --- CUSTOM MASK INDEXING ---
+import torch.multiprocessing as mp
+import json
+
 def index_custom_masks(mask_dir):
     print(f"Indexing masks in {mask_dir}...")
     categories = {'SMALL': [], 'MEDIUM': [], 'LARGE': []}
