@@ -130,16 +130,20 @@ else
     echo "[*] DCNv3 already compiled."
 fi
 
-# 3. Synchronize branch to DAVA
-echo "[*] Pulling latest changes from branch DAVA..."
+# 3. Synchronize active branch
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+echo "[*] Pulling latest changes from active branch $CURRENT_BRANCH..."
 git fetch origin
-git checkout DAVA
-git pull origin DAVA
+git checkout "$CURRENT_BRANCH"
+git pull origin "$CURRENT_BRANCH"
 
 # 4. Locate or Download Places365 dataset
 PLACES_DIR="datasets/places365"
 if [ ! -d "$PLACES_DIR" ]; then
-    SERVER_DATASET_DIR="/mnt/datadrive/inpaint/places2/places365standard_easyformat"
+    SERVER_DATASET_DIR="/tmp/cks/CAMINO-DAVA/SEM-Net/datasets/places365"
+    if [ ! -d "$SERVER_DATASET_DIR" ]; then
+        SERVER_DATASET_DIR="/mnt/datadrive/inpaint/places2/places365standard_easyformat"
+    fi
     if [ -d "$SERVER_DATASET_DIR" ]; then
         echo "[*] Found Places365 dataset at $SERVER_DATASET_DIR. Creating symbolic link..."
         mkdir -p datasets
