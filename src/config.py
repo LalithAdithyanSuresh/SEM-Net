@@ -33,6 +33,7 @@ DEFAULT_CONFIG = {
     'NMS': 1,                       # 0: no non-max-suppression, 1: applies non-max-suppression on the external edges by multiplying by Canny
     'SEED': 10,                     # random seed
     'GPU': [0],                     # list of gpu ids
+    'FILTER_BY_SEG_MASK': False,    # True to only train/test on images where segment masks have been generated
     'AUGMENTATION_TRAIN': 0,        # 1: train 0: false use augmentation to train landmark predictor
 
     'LR': 0.0001,                   # learning rate

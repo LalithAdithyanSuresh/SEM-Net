@@ -21,8 +21,8 @@ class Dataset(torch.utils.data.Dataset):
         self.augment = augment
         self.training = training
 
-        self.data = self.load_flist(flist)
-        self.mask_data = self.load_flist(mask_flist)
+        self.data = self.load_flist(flist, is_mask=False)
+        self.mask_data = self.load_flist(mask_flist, is_mask=True)
 
 
         self.input_size = config.INPUT_SIZE
@@ -87,6 +87,14 @@ class Dataset(torch.utils.data.Dataset):
             os.path.join(os.path.dirname(img_dir), os.path.basename(img_dir) + "_seg", f"{base_name}.png"),
             os.path.join("dataset", "train_seg", f"{base_name}.png"),
             os.path.join("dataset", "test_seg", f"{base_name}.png"),
+            # Support train_seg/abbey/00000001.png
+            os.path.join(os.path.dirname(img_dir) + "_seg", os.path.basename(img_dir), f"{base_name}.png"),
+            # Support train_seg/00000001.png
+            os.path.join(os.path.dirname(img_dir) + "_seg", f"{base_name}.png"),
+            # Support /path/to/train_seg/00000001.png when nested in category abbey
+            os.path.join(os.path.dirname(os.path.dirname(img_dir)) + "_seg", f"{base_name}.png"),
+            # Support /path/to/train_seg/abbey/00000001.png when nested in category abbey
+            os.path.join(os.path.dirname(os.path.dirname(img_dir)) + "_seg", os.path.basename(img_dir), f"{base_name}.png"),
         ]
         
         seg_path = None
@@ -218,7 +226,7 @@ class Dataset(torch.utils.data.Dataset):
         img = np.array(Image.fromarray(img).resize((height, width)))
         return img
 
-    def load_flist(self, flist):
+    def load_flist(self, flist, is_mask=False):
         if isinstance(flist, list):
             paths = flist
         elif isinstance(flist, str):
@@ -241,6 +249,27 @@ class Dataset(torch.utils.data.Dataset):
                 paths = []
         else:
             paths = []
+
+        if getattr(self.config, 'FILTER_BY_SEG_MASK', False) and not is_mask and len(paths) > 0:
+            filtered_paths = []
+            for p in paths:
+                img_dir = os.path.dirname(p)
+                base_name, _ = os.path.splitext(os.path.basename(p))
+                possible_seg_paths = [
+                    os.path.join(img_dir + "_seg", f"{base_name}.png"),
+                    os.path.join(os.path.dirname(img_dir), os.path.basename(img_dir) + "_seg", f"{base_name}.png"),
+                    os.path.join("dataset", "train_seg", f"{base_name}.png"),
+                    os.path.join("dataset", "test_seg", f"{base_name}.png"),
+                ]
+                seg_exists = False
+                for pth in possible_seg_paths:
+                    if os.path.exists(pth):
+                        seg_exists = True
+                        break
+                if seg_exists:
+                    filtered_paths.append(p)
+            print(f"[DATASET] FILTER_BY_SEG_MASK is enabled: filtered images from {len(paths)} down to {len(filtered_paths)} (kept only images with generated segment masks).")
+            paths = filtered_paths
 
         if self.training and len(paths) > 0:
             from collections import defaultdict
