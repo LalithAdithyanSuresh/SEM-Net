@@ -10,9 +10,18 @@ from tqdm import tqdm
 import multiprocessing as mp
 from sam2_utils import load_sam2_model, run_sam2_inference
 def get_out_path(img_path, output_dir):
+    # Preserves category subfolder to prevent overwriting
+    category = os.path.basename(os.path.dirname(img_path))
     filename = os.path.basename(img_path)
     base_name, _ = os.path.splitext(filename)
-    return os.path.join(output_dir, f"{base_name}.png")
+    
+    if category in ['train', 'val', 'test', '']:
+        return os.path.join(output_dir, f"{base_name}.png")
+    else:
+        # Create category subdirectory inside the segment folder
+        cat_dir = os.path.join(output_dir, category)
+        os.makedirs(cat_dir, exist_ok=True)
+        return os.path.join(cat_dir, f"{base_name}.png")
 
 def process_chunk_gpu(gpu_id, image_paths, output_dir, model_name, batch_size, status_queue, overwrite=True, use_sam2=False, sam2_checkpoint=None):
     """
