@@ -277,12 +277,17 @@ class Dataset(torch.utils.data.Dataset):
             for p in paths:
                 categories[os.path.dirname(p)].append(p)
 
+            sorted_cat_dirs = sorted(categories.keys())
+            max_cats = getattr(self.config, 'MAX_CATEGORIES', None)
+            if max_cats is not None and max_cats > 0:
+                sorted_cat_dirs = sorted_cat_dirs[:max_cats]
+
             halved_paths = []
-            for cat_dir in sorted(categories.keys()):
+            for cat_dir in sorted_cat_dirs:
                 cat_files = sorted(categories[cat_dir])
                 halved_paths.extend(cat_files[:len(cat_files) // 2])
 
-            print(f"[DATASET] Halved categories: reduced training dataset from {len(paths)} to {len(halved_paths)} images.")
+            print(f"[DATASET] Filtered to first {len(sorted_cat_dirs)} categories (halved per category): reduced training dataset from {len(paths)} to {len(halved_paths)} images.")
             return halved_paths
         
         return paths

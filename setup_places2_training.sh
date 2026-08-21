@@ -256,7 +256,7 @@ fi
 # 6. Dynamically update config settings for Places2
 echo "[*] Auto-configuring config.yml settings for Places2..."
 python -c "
-import yaml
+import yaml, os
 config_path = '$CHECKPOINT_DIR/config.yml'
 with open(config_path, 'r') as f:
     cfg = yaml.safe_load(f)
@@ -265,6 +265,9 @@ cfg['TEST_INPAINT_IMAGE_FLIST'] = 'datasets/places365/places365_standard/val'
 cfg['TRAIN_MASK_FLIST'] = 'datasets/testing_mask_dataset'
 cfg['TEST_MASK_FLIST'] = 'datasets/testing_mask_dataset'
 cfg['FILTER_BY_SEG_MASK'] = True
+max_cats = os.environ.get('MAX_CATEGORIES', '50')
+cfg['MAX_CATEGORIES'] = int(max_cats) if max_cats.isdigit() else 50
+print(f'[*] MAX_CATEGORIES set to {cfg[\"MAX_CATEGORIES\"]}')
 with open(config_path, 'w') as f:
     yaml.dump(cfg, f, default_flow_style=False)
 "
