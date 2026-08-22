@@ -213,6 +213,13 @@ class Dataset(torch.utils.data.Dataset):
         return img_t
 
     def resize(self, img, height, width, centerCrop=True):
+        if isinstance(img, np.ndarray):
+            img = np.squeeze(img)
+            if img.ndim < 2:
+                img = np.zeros((height, width), dtype=np.uint8)
+            elif img.ndim == 3 and img.shape[0] in (3, 4) and img.shape[2] not in (3, 4):
+                img = img.transpose(1, 2, 0)
+
         imgh, imgw = img.shape[0:2]
 
         if centerCrop and imgh != imgw:
@@ -222,7 +229,6 @@ class Dataset(torch.utils.data.Dataset):
             i = (imgw - side) // 2
             img = img[j:j + side, i:i + side, ...]
 
-        # img = scipy.misc.imresize(img, [height, width])
         img = np.array(Image.fromarray(img).resize((height, width)))
         return img
 
