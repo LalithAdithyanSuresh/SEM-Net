@@ -260,6 +260,10 @@ class Dataset(torch.utils.data.Dataset):
                     os.path.join(os.path.dirname(img_dir), os.path.basename(img_dir) + "_seg", f"{base_name}.png"),
                     os.path.join("dataset", "train_seg", f"{base_name}.png"),
                     os.path.join("dataset", "test_seg", f"{base_name}.png"),
+                    os.path.join(os.path.dirname(img_dir) + "_seg", os.path.basename(img_dir), f"{base_name}.png"),
+                    os.path.join(os.path.dirname(img_dir) + "_seg", f"{base_name}.png"),
+                    os.path.join(os.path.dirname(os.path.dirname(img_dir)) + "_seg", f"{base_name}.png"),
+                    os.path.join(os.path.dirname(os.path.dirname(img_dir)) + "_seg", os.path.basename(img_dir), f"{base_name}.png"),
                 ]
                 seg_exists = False
                 for pth in possible_seg_paths:
