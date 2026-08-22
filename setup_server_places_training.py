@@ -490,9 +490,9 @@ def step_setup_places_dataset_and_config():
     else:
         print("Places365 dataset already present.")
 
-    # 2. Testing Mask Dataset
-    mask_dir = os.path.join("datasets", "testing_mask_dataset")
-    if not os.path.exists(mask_dir):
+    # 2. Testing Mask Dataset (use local dataset/masks if present)
+    mask_dir = "dataset/masks" if os.path.exists("dataset/masks") else os.path.join("datasets", "testing_mask_dataset")
+    if not os.path.exists(mask_dir) and not os.path.exists("dataset/masks"):
         print("Downloading testing mask dataset...")
         zip_path = os.path.join("datasets", "testing_mask_dataset.zip")
         files_url = os.environ.get('FILES_SERVER_URL', 'https://files.lalithadithyan.dev')
@@ -503,7 +503,7 @@ def step_setup_places_dataset_and_config():
         if os.path.exists(zip_path):
             os.remove(zip_path)
     else:
-        print("Testing mask dataset already present.")
+        print(f"Mask dataset already present at: {mask_dir}")
 
     # 3. Configure PlacesTraining Directory & config.yml
     run_path = "PlacesTraining"
@@ -517,7 +517,10 @@ def step_setup_places_dataset_and_config():
             shutil.copy("checkpoints_places/config.yml", config_path)
         else:
             files_url = os.environ.get('FILES_SERVER_URL', 'https://files.lalithadithyan.dev')
-            urllib.request.urlretrieve(f"{files_url}/download/config.yml", config_path)
+            try:
+                urllib.request.urlretrieve(f"{files_url}/download/config.yml", config_path)
+            except Exception:
+                pass
 
     # 4. Checkpoint weights restoration
     gen_dest = os.path.join(run_path, "InpaintingModel_gen.pth")
@@ -555,12 +558,12 @@ def step_setup_places_dataset_and_config():
         cfg = yaml.safe_load(f)
     cfg['TRAIN_INPAINT_IMAGE_FLIST'] = 'datasets/places365/places365_standard/train'
     cfg['TEST_INPAINT_IMAGE_FLIST'] = 'datasets/places365/places365_standard/val'
-    cfg['TRAIN_MASK_FLIST'] = 'datasets/testing_mask_dataset'
-    cfg['TEST_MASK_FLIST'] = 'datasets/testing_mask_dataset'
+    cfg['TRAIN_MASK_FLIST'] = 'dataset/masks' if os.path.exists('dataset/masks') else 'datasets/testing_mask_dataset'
+    cfg['TEST_MASK_FLIST'] = 'dataset/masks' if os.path.exists('dataset/masks') else 'datasets/testing_mask_dataset'
     cfg['FILTER_BY_SEG_MASK'] = True
     max_cats = os.environ.get('MAX_CATEGORIES', '53')
     cfg['MAX_CATEGORIES'] = int(max_cats) if max_cats.isdigit() else 53
-    print(f"Places2 config updated: FILTER_BY_SEG_MASK=True, MAX_CATEGORIES={cfg['MAX_CATEGORIES']}")
+    print(f"Places2 config updated: TRAIN_MASK_FLIST={cfg['TRAIN_MASK_FLIST']}, FILTER_BY_SEG_MASK=True, MAX_CATEGORIES={cfg['MAX_CATEGORIES']}")
     with open(config_path, "w") as f:
         yaml.dump(cfg, f, default_flow_style=False)
 
