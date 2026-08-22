@@ -472,24 +472,54 @@ class sem():
                             img_name = eval_ds.load_name(orig_idx)
                             base_name, _ = os.path.splitext(img_name)
                             
-                            seg_mask_path = None
-                            possible_seg_paths = [
-                                os.path.join(img_dir + "_seg", f"{base_name}.png"),
-                                os.path.join(os.path.dirname(img_dir), os.path.basename(img_dir) + "_seg", f"{base_name}.png"),
-                                os.path.join("dataset", "test_seg", f"{base_name}.png"),
-                                os.path.join("dataset", "train_seg", f"{base_name}.png"),
-                            ]
-                            for pth in possible_seg_paths:
-                                if os.path.exists(pth):
-                                    seg_mask_path = pth
-                                    break
+                            seg_map_pil = None
 
-                            if seg_mask_path and os.path.exists(seg_mask_path):
+                            # 1. Try rendering directly from loaded DataLoader val_seg_maps tensor
+                            if val_seg_maps is not None:
                                 try:
-                                    seg_map_pil = Image.open(seg_mask_path).convert('RGB').resize(img_size)
+                                    seg_arr = val_seg_maps[0].cpu().numpy().squeeze().astype(np.uint8)
+                                    if seg_arr.ndim == 2 and seg_arr.max() > 0:
+                                        import cv2
+                                        scaled_seg = (seg_arr.astype(np.float32) / float(seg_arr.max()) * 255.0).astype(np.uint8)
+                                        color_seg  = cv2.applyColorMap(scaled_seg, cv2.COLORMAP_TURBO)
+                                        seg_map_pil = Image.fromarray(cv2.cvtColor(color_seg, cv2.COLOR_BGR2RGB)).resize(img_size)
                                 except Exception:
-                                    seg_map_pil = Image.new('RGB', img_size, (0, 0, 0))
-                            else:
+                                    pass
+
+                            # 2. If tensor visualization wasn't available, search disk with expanded path candidates
+                            if seg_map_pil is None:
+                                seg_mask_path = None
+                                possible_seg_paths = [
+                                    os.path.join(img_dir + "_seg", f"{base_name}.png"),
+                                    os.path.join(os.path.dirname(img_dir), os.path.basename(img_dir) + "_seg", f"{base_name}.png"),
+                                    os.path.join("dataset", "train_seg", f"{base_name}.png"),
+                                    os.path.join("dataset", "test_seg", f"{base_name}.png"),
+                                    os.path.join(os.path.dirname(img_dir) + "_seg", os.path.basename(img_dir), f"{base_name}.png"),
+                                    os.path.join(os.path.dirname(img_dir) + "_seg", f"{base_name}.png"),
+                                    os.path.join(os.path.dirname(os.path.dirname(img_dir)) + "_seg", f"{base_name}.png"),
+                                    os.path.join(os.path.dirname(os.path.dirname(img_dir)) + "_seg", os.path.basename(img_dir), f"{base_name}.png"),
+                                ]
+                                for pth in possible_seg_paths:
+                                    if os.path.exists(pth):
+                                        seg_mask_path = pth
+                                        break
+
+                                if seg_mask_path and os.path.exists(seg_mask_path):
+                                    try:
+                                        raw_seg = np.array(Image.open(seg_mask_path))
+                                        if raw_seg.ndim == 3:
+                                            raw_seg = raw_seg[:, :, 0]
+                                        if raw_seg.max() > 0:
+                                            import cv2
+                                            scaled_seg = (raw_seg.astype(np.float32) / float(raw_seg.max()) * 255.0).astype(np.uint8)
+                                            color_seg  = cv2.applyColorMap(scaled_seg, cv2.COLORMAP_TURBO)
+                                            seg_map_pil = Image.fromarray(cv2.cvtColor(color_seg, cv2.COLOR_BGR2RGB)).resize(img_size)
+                                        else:
+                                            seg_map_pil = Image.fromarray(raw_seg).convert('RGB').resize(img_size)
+                                    except Exception:
+                                        seg_map_pil = Image.new('RGB', img_size, (0, 0, 0))
+
+                            if seg_map_pil is None:
                                 seg_map_pil = Image.new('RGB', img_size, (0, 0, 0))
 
                             panels       = [gt_img_pil, gt_mask_pil, seg_map_pil, full_path_pil,
