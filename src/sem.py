@@ -1,7 +1,15 @@
 import os
+
+if 'TORCH_HOME' not in os.environ:
+    os.environ['TORCH_HOME'] = os.path.abspath('./tmp/torch_cache')
+os.makedirs(os.environ['TORCH_HOME'], exist_ok=True)
+
 import json
 import numpy as np
 import torch
+import torch.hub
+torch.hub.set_dir(os.path.join(os.environ['TORCH_HOME'], 'hub'))
+
 import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F

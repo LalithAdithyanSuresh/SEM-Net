@@ -1,8 +1,17 @@
 import os
+
+# Set local writable cache directory to avoid PermissionError on locked home directories (/home/cks)
+if 'TORCH_HOME' not in os.environ:
+    os.environ['TORCH_HOME'] = os.path.abspath('./tmp/torch_cache')
+os.makedirs(os.environ['TORCH_HOME'], exist_ok=True)
+
 import cv2
 import random
 import numpy as np
 import torch
+import torch.hub
+torch.hub.set_dir(os.path.join(os.environ['TORCH_HOME'], 'hub'))
+
 import argparse
 from shutil import copyfile
 from src.config import Config
