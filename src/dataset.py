@@ -292,13 +292,13 @@ class Dataset(torch.utils.data.Dataset):
             if max_cats is not None and max_cats > 0:
                 sorted_cat_dirs = sorted_cat_dirs[:max_cats]
 
-            halved_paths = []
+            selected_paths = []
             for cat_dir in sorted_cat_dirs:
                 cat_files = sorted(categories[cat_dir])
-                halved_paths.extend(cat_files[:len(cat_files) // 2])
+                selected_paths.extend(cat_files)
 
-            print(f"[DATASET] Filtered to first {len(sorted_cat_dirs)} categories (halved per category): reduced training dataset from {len(paths)} to {len(halved_paths)} images.")
-            return halved_paths
+            print(f"[DATASET] Filtered to first {len(sorted_cat_dirs)} categories (full dataset): total {len(selected_paths)} training images.")
+            return selected_paths
         
         return paths
 
