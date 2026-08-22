@@ -258,12 +258,13 @@ class sem():
                         import numpy as np
                         from torch.utils.data import Subset
 
-                        # 5 from start + 5 from end of test dataset
-                        n_test      = len(self.test_dataset)
+                        # Use test_dataset if populated, otherwise fallback to train_dataset so validation never fails
+                        eval_ds     = self.test_dataset if len(self.test_dataset) > 0 else self.train_dataset
+                        n_test      = len(eval_ds)
                         first_idx   = list(range(min(5, n_test)))
                         last_idx    = list(range(max(0, n_test - 5), n_test))
                         all_indices = list(dict.fromkeys(first_idx + last_idx))
-                        val_loader  = DataLoader(dataset=Subset(self.test_dataset, all_indices),
+                        val_loader  = DataLoader(dataset=Subset(eval_ds, all_indices),
                                                  batch_size=1, num_workers=0, shuffle=False)
 
                         # ── Helper: render full scan-path panel (lines, for known+hole) ─
@@ -466,9 +467,9 @@ class sem():
 
                             # ── Segment Map ───────────────────────────────────────────
                             orig_idx  = all_indices[val_count]
-                            img_path = self.test_dataset.data[orig_idx]
+                            img_path = eval_ds.data[orig_idx]
                             img_dir  = os.path.dirname(img_path)
-                            img_name = self.test_dataset.load_name(orig_idx)
+                            img_name = eval_ds.load_name(orig_idx)
                             base_name, _ = os.path.splitext(img_name)
                             
                             seg_mask_path = None
