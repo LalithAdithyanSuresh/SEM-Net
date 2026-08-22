@@ -510,8 +510,7 @@ class sem():
                                 draw_im.text((x_off + 4, max_height + 2), lbl, fill=(220, 220, 220))
                                 x_off += im.size[0]
 
-                            orig_idx  = all_indices[val_count]
-                            name      = self.test_dataset.load_name(orig_idx)[:-4] + f'_iter{iteration}.png'
+                            name      = f"{base_name}_iter{iteration}.png"
                             save_path = os.path.join(path_val, name)
                             new_im.save(save_path)
                             print(f"Saved validation image {val_count+1}/{len(all_indices)} to {save_path}")
