@@ -59,26 +59,21 @@ indexed_masks_cache = None
 def ensure_celeba_hq_test_dataset():
     celeba_dir = os.path.join(DATA_DIR, 'celeba_hq_256_test')
     if not os.path.exists(celeba_dir):
-        print(f"[*] Downloading missing celeba_hq_256_test dataset...")
-        url = "https://files.lalithadithyan.dev/download/celeba_hq_256_test.zip"
-        zip_path = os.path.join(DATA_DIR, "celeba_hq_256_test.zip")
-        try:
-            import requests
-            import zipfile
-            os.makedirs(DATA_DIR, exist_ok=True)
-            r = requests.get(url, timeout=120)
-            r.raise_for_status()
-            with open(zip_path, 'wb') as f:
-                f.write(r.content)
-            print("[*] Unzipping celeba_hq_256_test...")
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(DATA_DIR)
-            os.remove(zip_path)
-            print("[*] celeba_hq_256_test downloaded and extracted successfully.")
-        except Exception as e:
-            print(f"[ERROR] Failed to download CelebA-HQ test dataset: {e}")
+        zip_candidates = [
+            os.path.join(DATA_DIR, "celeba_hq_256_test.zip"),
+            os.path.join(os.path.dirname(__file__), "..", "celeba_hq_256_test.zip")
+        ]
+        for zip_path in zip_candidates:
             if os.path.exists(zip_path):
-                os.remove(zip_path)
+                try:
+                    import zipfile
+                    print(f"[*] Unzipping local dataset {zip_path}...")
+                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                        zip_ref.extractall(DATA_DIR)
+                    print("[*] celeba_hq_256_test extracted successfully.")
+                    break
+                except Exception as e:
+                    print(f"[ERROR] Failed to extract local CelebA-HQ test dataset: {e}")
 
 def get_indexed_masks():
     global indexed_masks_cache
@@ -87,26 +82,21 @@ def get_indexed_masks():
         
     mask_dir = os.path.join(DATA_DIR, 'testing_mask_dataset')
     if not os.path.exists(mask_dir):
-        print(f"[*] Downloading missing testing_mask_dataset...")
-        url = "https://files.lalithadithyan.dev/download/testing_mask_dataset.zip"
-        zip_path = os.path.join(DATA_DIR, "testing_mask_dataset.zip")
-        try:
-            import requests
-            import zipfile
-            os.makedirs(DATA_DIR, exist_ok=True)
-            r = requests.get(url, timeout=120)
-            r.raise_for_status()
-            with open(zip_path, 'wb') as f:
-                f.write(r.content)
-            print("[*] Unzipping testing_mask_dataset...")
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(DATA_DIR)
-            os.remove(zip_path)
-            print("[*] testing_mask_dataset downloaded successfully.")
-        except Exception as e:
-            print(f"[ERROR] Failed to download mask dataset: {e}")
+        zip_candidates = [
+            os.path.join(DATA_DIR, "testing_mask_dataset.zip"),
+            os.path.join(os.path.dirname(__file__), "..", "testing_mask_dataset.zip")
+        ]
+        for zip_path in zip_candidates:
             if os.path.exists(zip_path):
-                os.remove(zip_path)
+                try:
+                    import zipfile
+                    print(f"[*] Unzipping local mask dataset {zip_path}...")
+                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                        zip_ref.extractall(DATA_DIR)
+                    print("[*] testing_mask_dataset extracted successfully.")
+                    break
+                except Exception as e:
+                    print(f"[ERROR] Failed to extract local mask dataset: {e}")
                 
     if not os.path.exists(mask_dir):
         return {'SMALL': [], 'MEDIUM': [], 'LARGE': []}

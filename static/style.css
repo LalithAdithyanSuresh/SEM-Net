@@ -1,0 +1,315 @@
+:root {
+    --bg-color: #0b0d0f;
+    --panel-bg: #14171c;
+    --border-color: #242930;
+    --text-primary: #f1f5f9;
+    --text-secondary: #94a3b8;
+    --accent-color: #3b82f6;
+    --accent-hover: #60a5fa;
+    --danger-color: #ef4444;
+    --success-color: #10b981;
+    --best-color: #f59e0b;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    height: 100vh;
+    overflow: hidden;
+}
+
+.app-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+/* 50/50 Split */
+.top-half {
+    height: 45vh;
+    display: flex;
+    flex-direction: column;
+    border-bottom: 2px solid var(--border-color);
+    background-color: #0e1115;
+}
+
+.bottom-half {
+    height: 55vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Navbar */
+.navbar.horizontal-controls {
+    padding: 10px 20px;
+    background-color: var(--panel-bg);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-shrink: 0;
+}
+
+.nav-section {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.logo-section h1 {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--accent-color);
+}
+
+.control-group label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    font-weight: 700;
+}
+
+.search-container {
+    display: flex;
+    gap: 8px;
+}
+
+.model-selects-row {
+    display: flex;
+    gap: 4px;
+}
+
+.model-select {
+    width: 110px;
+    font-size: 0.75rem;
+    padding: 4px 6px;
+}
+
+select, input {
+    background-color: #1a1e24;
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 0.8rem;
+}
+
+/* Gallery Strip */
+.gallery-container {
+    flex: 1;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 10px;
+    background-color: #0b0d0f;
+}
+
+.gallery-strip {
+    display: flex;
+    gap: 10px;
+    height: 100%;
+}
+
+.gallery-item {
+    flex-shrink: 0;
+    width: 180px;
+    height: 100%;
+    background-color: var(--panel-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 8px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: all 0.2s;
+}
+
+.gallery-item:hover {
+    border-color: var(--accent-color);
+}
+
+.gallery-item.active {
+    border-color: var(--accent-color);
+    background-color: rgba(59, 130, 246, 0.1);
+    box-shadow: inset 0 0 0 1px var(--accent-color);
+}
+
+.gallery-item .thumb {
+    flex: 1;
+    background-color: #000;
+    border-radius: 4px;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.gallery-item .thumb img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: cover;
+}
+
+.gallery-item .info {
+    font-size: 0.7rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.gallery-item .info .id {
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.gallery-item .info .psnr {
+    color: var(--text-secondary);
+}
+
+/* Viewer Container */
+.viewer-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+    gap: 10px;
+    overflow: hidden;
+}
+
+.split-view.six-columns {
+    flex: 1;
+    display: flex;
+    gap: 8px;
+}
+
+.panel {
+    flex: 1;
+    background-color: var(--panel-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    min-width: 0;
+}
+
+.panel-header {
+    padding: 6px;
+    background-color: rgba(0, 0, 0, 0.4);
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+.metrics-badge {
+    position: absolute;
+    top: 30px;
+    right: 6px;
+    background-color: rgba(0,0,0,0.7);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 800;
+    z-index: 10;
+    border: 1px solid var(--border-color);
+}
+
+.psnr-delta {
+    color: #ff5555;
+    font-size: 0.65rem;
+    margin-left: 2px;
+    font-weight: 600;
+}
+
+.canvas-container {
+    flex: 1;
+    overflow: hidden;
+    background-color: #000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: grab;
+}
+
+/* Highlighting Best */
+.panel.best-model {
+    border: 2px solid var(--best-color);
+}
+.panel.best-model .panel-header {
+    color: var(--best-color);
+}
+.panel.best-model .metrics-badge {
+    background-color: var(--best-color);
+    color: #000;
+}
+
+/* Voting Panel */
+.voting-panel {
+    height: 60px;
+    background-color: var(--panel-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    gap: 30px;
+    flex-shrink: 0;
+}
+
+.vote-info h3 { font-size: 0.8rem; }
+.vote-info p { font-size: 0.7rem; color: var(--text-secondary); }
+
+.vote-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.vote-btn {
+    padding: 6px 12px;
+    font-size: 0.75rem;
+    background-color: rgba(255,255,255,0.05);
+}
+
+.comment-section {
+    flex: 1;
+    display: flex;
+    gap: 10px;
+}
+
+#voteComment {
+    flex: 1;
+    height: 34px;
+    background-color: #0b0d0f;
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 6px 10px;
+    font-size: 0.8rem;
+    resize: none;
+    border-radius: 4px;
+}
+
+.btn {
+    background-color: var(--accent-color);
+    color: #fff;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 700;
+}
+
+.btn-sm { padding: 4px 10px; font-size: 0.75rem; }
+.btn-outline { background-color: transparent; border: 1px solid var(--border-color); color: var(--text-secondary); }
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
